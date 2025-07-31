@@ -24,9 +24,6 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { supabase } from "@/lib/supabase";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
 
 export function NavUser({
   user,
@@ -38,32 +35,6 @@ export function NavUser({
   };
 }) {
   const { isMobile } = useSidebar();
-  const router = useRouter();
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-  const handleLogout = async () => {
-    if (isLoggingOut) return;
-
-    setIsLoggingOut(true);
-
-    try {
-      // Sign out from Supabase
-      await supabase.auth.signOut();
-
-      // Clear all local storage (including custom session data)
-      localStorage.clear();
-      sessionStorage.clear();
-
-      // Navigate to login page
-      router.push("/auth/landlord/login");
-    } catch (error) {
-      console.error("Logout error:", error);
-      // Force navigation even if logout fails
-      router.push("/auth/landlord/login");
-    } finally {
-      setIsLoggingOut(false);
-    }
-  };
 
   return (
     <SidebarMenu>
@@ -123,13 +94,9 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={handleLogout}
-              disabled={isLoggingOut}
-              className="cursor-pointer focus:bg-destructive focus:text-destructive-foreground"
-            >
+            <DropdownMenuItem>
               <IconLogout />
-              {isLoggingOut ? "Logging out..." : "Log out"}
+              Log out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
