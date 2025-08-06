@@ -43,6 +43,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { submitPropertyData } from "@/services/propertyService";
+import { toast } from "sonner";
 
 interface PropertyFormData {
   // Step 1: Unit Details
@@ -94,6 +96,7 @@ export function MultiStepPopup({
   const [currentStep, setCurrentStep] = useState(1);
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState<PropertyFormData>({
     unitName: "",
     propertyType: "",
@@ -343,24 +346,51 @@ export function MultiStepPopup({
     setFormData((prev) => ({ ...prev, billingSchedule: schedule }));
   };
 
-  const handleComplete = () => {
-    onComplete(formData);
-    onClose();
-    setCurrentStep(1);
-    setErrors({});
-    setFormData({
-      unitName: "",
-      propertyType: "",
-      occupancyStatus: "vacant",
-      tenantName: "",
-      contactNumber: "",
-      propertyLocation: "",
-      contractMonths: 6,
-      rentStartDate: "",
-      dueDay: "30th/31st - Last Day",
-      rentAmount: 0,
-      billingSchedule: [],
-    });
+  const handleComplete = async () => {
+    setIsSubmitting(true);
+    try {
+      const result = await submitPropertyData(formData);
+
+      if (result.success && result.data) {
+        // Show success toast
+        toast.success("Property Added Successfully!", {
+          description: `${formData.unitName} has been added to your portfolio.`,
+        });
+
+        // Pass the original form data instead of result.data
+        onComplete(formData);
+
+        // Close and reset form
+        onClose();
+        setCurrentStep(1);
+        setErrors({});
+        setFormData({
+          unitName: "",
+          propertyType: "",
+          occupancyStatus: "vacant",
+          tenantName: "",
+          contactNumber: "",
+          propertyLocation: "",
+          contractMonths: 0,
+          rentStartDate: "",
+          dueDay: "30th/31st - Last Day",
+          rentAmount: 0,
+          billingSchedule: [],
+        });
+      } else {
+        // Show error toast
+        toast.error("Failed to Add Property", {
+          description: result.error || "An unexpected error occurred.",
+        });
+      }
+    } catch (error) {
+      console.error("Submission error:", error);
+      toast.error("Submission Error", {
+        description: "Failed to submit property data. Please try again.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const updateFormData = (field: keyof PropertyFormData, value: unknown) => {
@@ -1426,7 +1456,8 @@ export function MultiStepPopup({
                   <Button
                     onClick={handleNext}
                     size="sm"
-                    className="px-4 md:px-12 py-3 md:py-6 text-sm md:text-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 hover:scale-105 transition-all shadow-lg"
+                    disabled={isSubmitting}
+                    className="px-4 md:px-12 py-3 md:py-6 text-sm md:text-lg bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 hover:scale-105 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {currentStep === 2 &&
                     formData.occupancyStatus === "occupied"
@@ -1442,9 +1473,17 @@ export function MultiStepPopup({
                   <Button
                     onClick={handleComplete}
                     size="sm"
-                    className="px-4 md:px-12 py-3 md:py-6 text-sm md:text-lg bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 hover:scale-105 transition-all shadow-lg"
+                    disabled={isSubmitting}
+                    className="px-4 md:px-12 py-3 md:py-6 text-sm md:text-lg bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 hover:scale-105 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Complete ✓
+                    {isSubmitting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Submitting...
+                      </>
+                    ) : (
+                      "Complete ✓"
+                    )}
                   </Button>
                 )}
               </div>
@@ -1601,10 +1640,11 @@ export function MultiStepPopup({
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmSubmit}
-              className="px-6 py-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800"
+              disabled={isSubmitting}
+              className="px-6 py-2 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <CheckCircle className="h-4 w-4 mr-2" />
-              Add Property
+              {isSubmitting ? "Adding..." : "Add Property"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

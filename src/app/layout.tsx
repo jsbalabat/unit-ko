@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import type { Metadata } from "next";
-
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 import { cn } from "@/lib/utils";
@@ -40,6 +40,7 @@ export default async function RootLayout({
         >
           <ActiveThemeProvider initialTheme={activeThemeValue}>
             {children}
+            <Toaster />
           </ActiveThemeProvider>
         </ThemeProvider>
       </body>
