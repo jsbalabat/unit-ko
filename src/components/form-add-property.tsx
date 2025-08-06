@@ -346,6 +346,15 @@ export function MultiStepPopup({
     }
   };
 
+  const updateBillingStatus = (index: number, newStatus: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      billingSchedule: prev.billingSchedule.map((bill, i) =>
+        i === index ? { ...bill, status: newStatus } : bill
+      ),
+    }));
+  };
+
   const getStepInfo = (step: number) => {
     // For vacant properties, adjust step display
     if (formData.occupancyStatus === "vacant") {
@@ -1076,18 +1085,36 @@ export function MultiStepPopup({
                                   <span className="text-sm font-medium text-muted-foreground">
                                     Status
                                   </span>
-                                  <Badge
-                                    variant={
-                                      bill.status.includes("Collected")
-                                        ? "default"
-                                        : bill.status === "Delayed"
-                                        ? "destructive"
-                                        : "secondary"
+                                  <Select
+                                    value={bill.status}
+                                    onValueChange={(value) =>
+                                      updateBillingStatus(index, value)
                                     }
-                                    className="text-sm px-3 py-1 font-semibold"
                                   >
-                                    {bill.status}
-                                  </Badge>
+                                    <SelectTrigger className="w-32 h-8 text-xs">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="Collected - Cash">
+                                        Collected - Cash
+                                      </SelectItem>
+                                      <SelectItem value="Collected - Cheque">
+                                        Collected - Cheque
+                                      </SelectItem>
+                                      <SelectItem value="Collected - Bank Transfer">
+                                        Collected - Bank Transfer
+                                      </SelectItem>
+                                      <SelectItem value="Delayed">
+                                        Delayed
+                                      </SelectItem>
+                                      <SelectItem value="Not Yet Due">
+                                        Not Yet Due
+                                      </SelectItem>
+                                      <SelectItem value="Overdue">
+                                        Overdue
+                                      </SelectItem>
+                                    </SelectContent>
+                                  </Select>
                                 </div>
                               </div>
                             </CardContent>
@@ -1141,18 +1168,36 @@ export function MultiStepPopup({
                                 ₱{bill.grossDue.toLocaleString()}
                               </td>
                               <td className="p-4 md:p-8">
-                                <Badge
-                                  variant={
-                                    bill.status.includes("Collected")
-                                      ? "default"
-                                      : bill.status === "Delayed"
-                                      ? "destructive"
-                                      : "secondary"
+                                <Select
+                                  value={bill.status}
+                                  onValueChange={(value) =>
+                                    updateBillingStatus(index, value)
                                   }
-                                  className="text-sm md:text-base px-3 md:px-4 py-1 md:py-2 font-semibold"
                                 >
-                                  {bill.status}
-                                </Badge>
+                                  <SelectTrigger className="w-40 md:w-48 h-10 md:h-12 text-sm md:text-base">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="Collected - Cash">
+                                      Collected - Cash
+                                    </SelectItem>
+                                    <SelectItem value="Collected - Cheque">
+                                      Collected - Cheque
+                                    </SelectItem>
+                                    <SelectItem value="Collected - Bank Transfer">
+                                      Collected - Bank Transfer
+                                    </SelectItem>
+                                    <SelectItem value="Delayed">
+                                      Delayed
+                                    </SelectItem>
+                                    <SelectItem value="Not Yet Due">
+                                      Not Yet Due
+                                    </SelectItem>
+                                    <SelectItem value="Overdue">
+                                      Overdue
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
                               </td>
                             </tr>
                           ))}
@@ -1236,7 +1281,6 @@ export function MultiStepPopup({
                             {formData.propertyType}
                           </p>
                         </div>
-                        ``
                         <div className="bg-background p-4 md:p-6 rounded-xl shadow-md border">
                           <span className="text-xs md:text-sm text-muted-foreground font-medium uppercase tracking-wide">
                             Status
