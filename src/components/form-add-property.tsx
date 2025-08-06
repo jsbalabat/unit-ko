@@ -98,7 +98,8 @@ export function MultiStepPopup({
     billingSchedule: [],
   });
 
-  const totalSteps = 4;
+  // Update total steps based on occupancy status
+  const totalSteps = formData.occupancyStatus === "vacant" ? 2 : 4;
 
   // Validation functions
   const validateStep1 = (): boolean => {
@@ -122,6 +123,18 @@ export function MultiStepPopup({
     } else if (formData.propertyLocation.trim().length < 10) {
       newErrors.propertyLocation =
         "Please provide a complete address (minimum 10 characters)";
+    }
+
+    // Rent Amount validation for vacant properties
+    if (formData.occupancyStatus === "vacant") {
+      if (!formData.rentAmount || formData.rentAmount <= 0) {
+        newErrors.rentAmount = "Rent amount must be greater than 0";
+      } else if (formData.rentAmount < 1000) {
+        newErrors.rentAmount = "Rent amount seems too low (minimum ₱1,000)";
+      } else if (formData.rentAmount > 1000000) {
+        newErrors.rentAmount =
+          "Rent amount seems too high (maximum ₱1,000,000)";
+      }
     }
 
     // Tenant details validation (only if occupied)
@@ -193,7 +206,7 @@ export function MultiStepPopup({
 
     if (currentStep === 1) {
       isValid = validateStep1();
-    } else if (currentStep === 2) {
+    } else if (currentStep === 2 && formData.occupancyStatus === "occupied") {
       isValid = validateStep2();
     }
 
@@ -202,10 +215,15 @@ export function MultiStepPopup({
     }
 
     if (currentStep < totalSteps) {
-      if (currentStep === 2) {
+      // For vacant properties, skip directly to completion after step 1
+      if (formData.occupancyStatus === "vacant" && currentStep === 1) {
+        setCurrentStep(2); // Go directly to completion step
+      } else if (currentStep === 2 && formData.occupancyStatus === "occupied") {
         generateBillingSchedule();
+        setCurrentStep(currentStep + 1);
+      } else {
+        setCurrentStep(currentStep + 1);
       }
-      setCurrentStep(currentStep + 1);
       setErrors({}); // Clear errors when moving to next step
     }
   };
@@ -329,53 +347,78 @@ export function MultiStepPopup({
   };
 
   const getStepInfo = (step: number) => {
-    switch (step) {
-      case 1:
-        return {
-          icon: <Building className="h-5 w-5 md:h-7 md:w-7" />,
-          title: "Unit Details",
-          description: "Basic property information and tenant details",
-          color: "text-blue-600 dark:text-blue-400",
-          bgColor: "bg-blue-50 dark:bg-blue-950/30",
-          borderColor: "border-blue-200 dark:border-blue-800",
-        };
-      case 2:
-        return {
-          icon: <Calendar className="h-5 w-5 md:h-7 md:w-7" />,
-          title: "Billing Setup",
-          description: "Configure rental terms and payment schedule",
-          color: "text-purple-600 dark:text-purple-400",
-          bgColor: "bg-purple-50 dark:bg-purple-950/30",
-          borderColor: "border-purple-200 dark:border-purple-800",
-        };
-      case 3:
-        return {
-          icon: <CreditCard className="h-5 w-5 md:h-7 md:w-7" />,
-          title: "Billing Schedule",
-          description: "Review and confirm generated billing table",
-          color: "text-orange-600 dark:text-orange-400",
-          bgColor: "bg-orange-50 dark:bg-orange-950/30",
-          borderColor: "border-orange-200 dark:border-orange-800",
-        };
-      case 4:
-        return {
-          icon: <CheckCircle className="h-5 w-5 md:h-7 md:w-7" />,
-          title: "Complete",
-          description: "Property successfully added to your portfolio",
-          color: "text-green-600 dark:text-green-400",
-          bgColor: "bg-green-50 dark:bg-green-950/30",
-          borderColor: "border-green-200 dark:border-green-800",
-        };
-      default:
-        return {
-          icon: null,
-          title: "",
-          description: "",
-          color: "",
-          bgColor: "",
-          borderColor: "",
-        };
+    // For vacant properties, adjust step display
+    if (formData.occupancyStatus === "vacant") {
+      switch (step) {
+        case 1:
+          return {
+            icon: <Building className="h-5 w-5 md:h-7 md:w-7" />,
+            title: "Property Details",
+            description: "Basic property information and rental price",
+            color: "text-blue-600 dark:text-blue-400",
+            bgColor: "bg-blue-50 dark:bg-blue-950/30",
+            borderColor: "border-blue-200 dark:border-blue-800",
+          };
+        case 2:
+          return {
+            icon: <CheckCircle className="h-5 w-5 md:h-7 md:w-7" />,
+            title: "Complete",
+            description: "Vacant property successfully added to portfolio",
+            color: "text-green-600 dark:text-green-400",
+            bgColor: "bg-green-50 dark:bg-green-950/30",
+            borderColor: "border-green-200 dark:border-green-800",
+          };
+      }
+    } else {
+      // Original logic for occupied properties
+      switch (step) {
+        case 1:
+          return {
+            icon: <Building className="h-5 w-5 md:h-7 md:w-7" />,
+            title: "Unit Details",
+            description: "Basic property information and tenant details",
+            color: "text-blue-600 dark:text-blue-400",
+            bgColor: "bg-blue-50 dark:bg-blue-950/30",
+            borderColor: "border-blue-200 dark:border-blue-800",
+          };
+        case 2:
+          return {
+            icon: <Calendar className="h-5 w-5 md:h-7 md:w-7" />,
+            title: "Billing Setup",
+            description: "Configure rental terms and payment schedule",
+            color: "text-purple-600 dark:text-purple-400",
+            bgColor: "bg-purple-50 dark:bg-purple-950/30",
+            borderColor: "border-purple-200 dark:border-purple-800",
+          };
+        case 3:
+          return {
+            icon: <CreditCard className="h-5 w-5 md:h-7 md:w-7" />,
+            title: "Billing Schedule",
+            description: "Review and confirm generated billing table",
+            color: "text-orange-600 dark:text-orange-400",
+            bgColor: "bg-orange-50 dark:bg-orange-950/30",
+            borderColor: "border-orange-200 dark:border-orange-800",
+          };
+        case 4:
+          return {
+            icon: <CheckCircle className="h-5 w-5 md:h-7 md:w-7" />,
+            title: "Complete",
+            description: "Property successfully added to your portfolio",
+            color: "text-green-600 dark:text-green-400",
+            bgColor: "bg-green-50 dark:bg-green-950/30",
+            borderColor: "border-green-200 dark:border-green-800",
+          };
+      }
     }
+
+    return {
+      icon: null,
+      title: "",
+      description: "",
+      color: "",
+      bgColor: "",
+      borderColor: "",
+    };
   };
 
   const stepInfo = getStepInfo(currentStep);
@@ -496,10 +539,8 @@ export function MultiStepPopup({
               </Alert>
             )}
 
-            {/* Step 1: Unit Details - Mobile Responsive */}
             {currentStep === 1 && (
               <div className="space-y-6 md:space-y-10">
-                {/* Property Information Section */}
                 <Card className="shadow-lg border bg-card">
                   <CardContent className="p-4 md:p-10">
                     <div className="flex items-center gap-3 md:gap-4 mb-6 md:mb-8">
@@ -623,7 +664,6 @@ export function MultiStepPopup({
                   </CardContent>
                 </Card>
 
-                {/* Occupancy Status Section - Mobile Responsive */}
                 <Card className="shadow-lg border bg-card">
                   <CardContent className="p-4 md:p-10">
                     <div className="flex items-center gap-3 md:gap-4 mb-6 md:mb-8">
@@ -742,6 +782,48 @@ export function MultiStepPopup({
                           </div>
                         </div>
                       )}
+
+                      {formData.occupancyStatus === "vacant" && (
+                        <div className="pt-6 md:pt-8 border-t-2 border-border">
+                          <div className="max-w-md mx-auto space-y-4">
+                            <div className="flex items-center gap-3 mb-4 justify-center">
+                              <DollarSign className="h-6 w-6 text-green-600 dark:text-green-400" />
+                              <Label
+                                htmlFor="vacantRentAmount"
+                                className="text-lg md:text-xl font-semibold text-foreground"
+                              >
+                                Expected Monthly Rent (₱) *
+                              </Label>
+                            </div>
+                            <Input
+                              id="vacantRentAmount"
+                              type="number"
+                              value={formData.rentAmount}
+                              onChange={(e) =>
+                                updateFormData(
+                                  "rentAmount",
+                                  parseInt(e.target.value) || 0
+                                )
+                              }
+                              placeholder="25000"
+                              className={`h-14 md:h-16 text-lg md:text-xl border-2 rounded-xl bg-background text-center ${
+                                errors.rentAmount ? "border-destructive" : ""
+                              }`}
+                            />
+                            {errors.rentAmount && (
+                              <p className="text-sm text-destructive text-center">
+                                {errors.rentAmount}
+                              </p>
+                            )}
+                            <div className="bg-green-50 dark:bg-green-950/30 p-4 rounded-lg border border-green-200 dark:border-green-800">
+                              <p className="text-sm text-green-700 dark:text-green-300 font-medium text-center">
+                                💰 Set the expected rental price for potential
+                                tenants
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -749,7 +831,7 @@ export function MultiStepPopup({
             )}
 
             {/* Step 2: Billing Setup - Mobile Responsive */}
-            {currentStep === 2 && (
+            {currentStep === 2 && formData.occupancyStatus === "occupied" && (
               <div className="space-y-6 md:space-y-10">
                 <div className="text-center space-y-3 md:space-y-4 mb-8 md:mb-12">
                   <div className="flex items-center justify-center gap-2 md:gap-3 mb-3 md:mb-4">
@@ -924,8 +1006,7 @@ export function MultiStepPopup({
               </div>
             )}
 
-            {/* Step 3: Enhanced Billing Schedule - Mobile Responsive */}
-            {currentStep === 3 && (
+            {currentStep === 3 && formData.occupancyStatus === "occupied" && (
               <div className="space-y-6 md:space-y-10">
                 <div className="text-center space-y-3 md:space-y-4 mb-8 md:mb-12">
                   <div className="flex items-center justify-center gap-2 md:gap-3 mb-3 md:mb-4">
@@ -1114,7 +1195,7 @@ export function MultiStepPopup({
             )}
 
             {/* Step 4: Enhanced Completion - Mobile Responsive */}
-            {currentStep === 4 && (
+            {currentStep === totalSteps && (
               <div className="text-center space-y-6 md:space-y-10">
                 <div className="space-y-4 md:space-y-6">
                   <div className="relative">
@@ -1126,7 +1207,9 @@ export function MultiStepPopup({
                   </h2>
                   <p className="text-base md:text-xl text-muted-foreground max-w-2xl mx-auto px-4">
                     🎉 Congratulations! Your new property has been successfully
-                    added to your portfolio with a complete billing schedule
+                    added to your portfolio
+                    {formData.occupancyStatus === "occupied" &&
+                      " with a complete billing schedule"}
                   </p>
                 </div>
 
@@ -1153,40 +1236,66 @@ export function MultiStepPopup({
                             {formData.propertyType}
                           </p>
                         </div>
+                        ``
                         <div className="bg-background p-4 md:p-6 rounded-xl shadow-md border">
                           <span className="text-xs md:text-sm text-muted-foreground font-medium uppercase tracking-wide">
-                            Tenant
+                            Status
                           </span>
-                          <p className="text-base md:text-xl font-semibold text-foreground mt-2">
-                            {formData.tenantName || "Vacant"}
+                          <p className="text-base md:text-xl font-semibold text-foreground mt-2 capitalize">
+                            {formData.occupancyStatus === "vacant" ? (
+                              <span className="text-orange-600 dark:text-orange-400">
+                                Available for Rent
+                              </span>
+                            ) : (
+                              <span className="text-blue-600 dark:text-blue-400">
+                                Currently Occupied
+                              </span>
+                            )}
                           </p>
                         </div>
                       </div>
                       <div className="space-y-6 md:space-y-8">
                         <div className="bg-background p-4 md:p-6 rounded-xl shadow-md border border-green-200 dark:border-green-800">
                           <span className="text-xs md:text-sm text-muted-foreground font-medium uppercase tracking-wide">
-                            Monthly Rent
+                            {formData.occupancyStatus === "vacant"
+                              ? "Expected Monthly Rent"
+                              : "Monthly Rent"}
                           </span>
                           <p className="text-2xl md:text-3xl font-bold text-green-600 dark:text-green-400 mt-2">
                             ₱{formData.rentAmount.toLocaleString()}
                           </p>
                         </div>
-                        <div className="bg-background p-4 md:p-6 rounded-xl shadow-md border">
-                          <span className="text-xs md:text-sm text-muted-foreground font-medium uppercase tracking-wide">
-                            Contract Duration
-                          </span>
-                          <p className="text-base md:text-xl font-semibold text-foreground mt-2">
-                            {formData.contractMonths} months
-                          </p>
-                        </div>
-                        <div className="bg-background p-4 md:p-6 rounded-xl shadow-md border">
-                          <span className="text-xs md:text-sm text-muted-foreground font-medium uppercase tracking-wide">
-                            Billing Entries
-                          </span>
-                          <p className="text-base md:text-xl font-semibold text-foreground mt-2">
-                            {formData.billingSchedule.length} entries generated
-                          </p>
-                        </div>
+
+                        {formData.occupancyStatus === "occupied" ? (
+                          <>
+                            <div className="bg-background p-4 md:p-6 rounded-xl shadow-md border">
+                              <span className="text-xs md:text-sm text-muted-foreground font-medium uppercase tracking-wide">
+                                Tenant
+                              </span>
+                              <p className="text-base md:text-xl font-semibold text-foreground mt-2">
+                                {formData.tenantName}
+                              </p>
+                            </div>
+                            <div className="bg-background p-4 md:p-6 rounded-xl shadow-md border">
+                              <span className="text-xs md:text-sm text-muted-foreground font-medium uppercase tracking-wide">
+                                Billing Entries
+                              </span>
+                              <p className="text-base md:text-xl font-semibold text-foreground mt-2">
+                                {formData.billingSchedule.length} entries
+                                generated
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="bg-background p-4 md:p-6 rounded-xl shadow-md border border-orange-200 dark:border-orange-800">
+                            <span className="text-xs md:text-sm text-muted-foreground font-medium uppercase tracking-wide">
+                              Property Location
+                            </span>
+                            <p className="text-sm md:text-base font-semibold text-foreground mt-2">
+                              {formData.propertyLocation}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </CardContent>
