@@ -251,14 +251,38 @@ export function MultiStepPopup({
       const dueDate = new Date(startDate);
       dueDate.setMonth(dueDate.getMonth() + i);
 
-      // Set to last day of month
-      dueDate.setMonth(dueDate.getMonth() + 1);
-      dueDate.setDate(0);
+      // Apply the chosen due date logic
+      switch (formData.dueDay) {
+        case "30th/31st - Last Day":
+          // Set to last day of month
+          dueDate.setMonth(dueDate.getMonth() + 1);
+          dueDate.setDate(0);
+          break;
+        case "15th - Mid Month":
+          // Set to 15th of the month
+          dueDate.setDate(15);
+          break;
+        case "1st - First Day":
+          // Set to 1st of the month
+          dueDate.setDate(1);
+          break;
+        default:
+          // Fallback to last day of month
+          dueDate.setMonth(dueDate.getMonth() + 1);
+          dueDate.setDate(0);
+      }
 
       const otherCharges = Math.floor(Math.random() * 15000) + 5000;
 
+      // Format date for better display
+      const formattedDate = dueDate.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+
       schedule.push({
-        dueDate: dueDate.toLocaleDateString(),
+        dueDate: formattedDate,
         rentDue: formData.rentAmount,
         otherCharges: otherCharges,
         grossDue: formData.rentAmount + otherCharges,
