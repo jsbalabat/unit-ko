@@ -1,11 +1,11 @@
-// import { Button } from "@/components/ui/button";
-// import Link from "next/link";
+"use client";
+
+import { useState } from "react";
 import { SiteHeader } from "@/components/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import {
   Card,
-  // CardAction,
   CardContent,
   CardDescription,
   CardFooter,
@@ -14,11 +14,17 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/button";
 import { Building, MapPin } from "lucide-react";
+import { MultiStepPopup } from "@/components/form-add-property";
 
 export default function LandlordDashboard() {
-  return (
-    // Landing Page
+  const [isPopupOpen, setIsPopupOpen] = useState(false);
 
+  const handlePropertyComplete = (data: any) => {
+    console.log("New property data:", data);
+    // Here you would typically save to database
+  };
+
+  return (
     <SidebarProvider
       style={
         {
@@ -31,7 +37,6 @@ export default function LandlordDashboard() {
       <SidebarInset>
         <SiteHeader />
         <main>
-          {/* Dashboard Container with increased side spacing */}
           <div className="container mx-auto px-8 lg:px-0 py-8 space-y-8">
             {/* Welcome Section */}
             <div className="mb-8">
@@ -42,6 +47,7 @@ export default function LandlordDashboard() {
                 Manage your properties and rental agreements
               </p>
             </div>
+
             {/* Quick Stats Section */}
             <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-4 gap-6 mb-8">
               <Card className="hover:shadow-lg transition-shadow">
@@ -71,6 +77,7 @@ export default function LandlordDashboard() {
                 </CardContent>
               </Card>
             </div>
+
             {/* Individual Property Cards Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {/* Property 1 - Apartment Complex */}
@@ -234,7 +241,7 @@ export default function LandlordDashboard() {
               </Card>
             </div>
 
-            {/* Add New Property Card */}
+            {/* Add New Property Card - Updated */}
             <div className="mt-8">
               <Card className="border-dashed border-2 hover:border-solid transition-all cursor-pointer">
                 <CardContent className="flex flex-col items-center justify-center py-8">
@@ -245,13 +252,22 @@ export default function LandlordDashboard() {
                   <p className="text-gray-600 text-center mb-4">
                     Expand your portfolio by adding a new rental property
                   </p>
-                  <Button>Add Property</Button>
+                  <Button onClick={() => setIsPopupOpen(true)}>
+                    Add Property
+                  </Button>
                 </CardContent>
               </Card>
             </div>
           </div>
         </main>
       </SidebarInset>
+
+      {/* Multi-Step Popup */}
+      <MultiStepPopup
+        isOpen={isPopupOpen}
+        onClose={() => setIsPopupOpen(false)}
+        onComplete={handlePropertyComplete}
+      />
     </SidebarProvider>
   );
 }
