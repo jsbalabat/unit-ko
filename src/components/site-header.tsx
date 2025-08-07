@@ -9,7 +9,7 @@ import { useState } from "react";
 export function SiteHeader() {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
 
-  const handlePropertyComplete = (data: any) => {
+  const handlePropertyComplete = (data: unknown) => {
     console.log("New property data:", data);
     // Here you would typically save to database
   };
