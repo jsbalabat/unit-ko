@@ -57,11 +57,11 @@ export function SiteHeader() {
           {/* Realtime Date and Time */}
           <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-lg border">
             <Clock className="h-4 w-4 text-muted-foreground" />
-            <div className="flex flex-col">
-              <span className="text-xs font-medium text-foreground leading-tight">
+            <div className="flex gap-1.5">
+              <span className="text-m font-medium text-foreground leading-tight">
                 {date}
               </span>
-              <span className="text-xs text-muted-foreground leading-tight">
+              <span className="text-m text-muted-foreground leading-tight">
                 {time}
               </span>
             </div>
