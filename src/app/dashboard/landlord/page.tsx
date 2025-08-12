@@ -15,17 +15,34 @@ import {
 import { Button } from "@/components/button";
 import { Building, MapPin, Loader2, AlertCircle } from "lucide-react";
 import { MultiStepPopup } from "@/components/form-add-property";
+import { PropertyDetailsPopup } from "@/components/property-details-popup";
 import { useProperties } from "@/hooks/useProperties";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function LandlordDashboard() {
-  const [isPopupOpen, setIsPopupOpen] = useState(false);
+  const [isAddPopupOpen, setIsAddPopupOpen] = useState(false);
+  const [isDetailsPopupOpen, setIsDetailsPopupOpen] = useState(false);
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
+    null
+  );
   const { properties, stats, loading, error, refetch } = useProperties();
 
   const handlePropertyComplete = (data: unknown) => {
     console.log("New property data:", data);
     // Refetch data to update the dashboard
     refetch();
+  };
+
+  const handleViewDetails = (propertyId: string) => {
+    setSelectedPropertyId(propertyId);
+    setIsDetailsPopupOpen(true);
+  };
+
+  const handleEditProperty = (propertyId: string) => {
+    console.log("Edit property:", propertyId);
+    // Implement edit functionality in the future
+    // For now, just close the details popup
+    setIsDetailsPopupOpen(false);
   };
 
   const getStatusColor = (status: string) => {
@@ -222,7 +239,11 @@ export default function LandlordDashboard() {
                       </div>
                     </CardContent>
                     <CardFooter className="flex gap-2">
-                      <Button size="sm" className="flex-1">
+                      <Button
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => handleViewDetails(property.id)}
+                      >
                         View Details
                       </Button>
                       <Button size="sm" variant="outline" className="flex-1">
@@ -245,7 +266,7 @@ export default function LandlordDashboard() {
                   Start building your property portfolio by adding your first
                   property.
                 </p>
-                <Button onClick={() => setIsPopupOpen(true)}>
+                <Button onClick={() => setIsAddPopupOpen(true)}>
                   Add Your First Property
                 </Button>
               </div>
@@ -263,7 +284,7 @@ export default function LandlordDashboard() {
                     <p className="text-gray-600 text-center mb-4">
                       Expand your portfolio by adding a new rental property
                     </p>
-                    <Button onClick={() => setIsPopupOpen(true)}>
+                    <Button onClick={() => setIsAddPopupOpen(true)}>
                       Add Property
                     </Button>
                   </CardContent>
@@ -274,12 +295,22 @@ export default function LandlordDashboard() {
         </main>
       </SidebarInset>
 
-      {/* Multi-Step Popup */}
+      {/* Multi-Step Popup for Adding Property */}
       <MultiStepPopup
-        isOpen={isPopupOpen}
-        onClose={() => setIsPopupOpen(false)}
+        isOpen={isAddPopupOpen}
+        onClose={() => setIsAddPopupOpen(false)}
         onComplete={handlePropertyComplete}
       />
+
+      {/* Property Details Popup */}
+      {selectedPropertyId && (
+        <PropertyDetailsPopup
+          propertyId={selectedPropertyId}
+          isOpen={isDetailsPopupOpen}
+          onClose={() => setIsDetailsPopupOpen(false)}
+          onEdit={handleEditProperty}
+        />
+      )}
     </SidebarProvider>
   );
 }
