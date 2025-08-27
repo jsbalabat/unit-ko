@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -184,34 +185,38 @@ export function MultiStepPopup({
       newErrors.contractMonths = "Contract duration cannot exceed 24 months";
     }
 
-    // Rent Start Date validation
+    // Rent Start Date validation - only check if it's provided, not the date range
     if (!formData.rentStartDate) {
       newErrors.rentStartDate = "Rent start date is required";
-    } else {
-      const startDate = new Date(formData.rentStartDate);
-      const today = new Date();
-      const oneYearFromNow = new Date();
-      oneYearFromNow.setFullYear(today.getFullYear() + 1);
-
-      if (startDate.getTime() < today.setHours(0, 0, 0, 0)) {
-        newErrors.rentStartDate = "Start date cannot be in the past";
-      } else if (startDate.getTime() > oneYearFromNow.getTime()) {
-        newErrors.rentStartDate =
-          "Start date cannot be more than 1 year in the future";
-      }
     }
 
     // Rent Amount validation
     if (!formData.rentAmount || formData.rentAmount <= 0) {
       newErrors.rentAmount = "Rent amount must be greater than 0";
     } else if (formData.rentAmount < 1000) {
-      newErrors.rentAmount = "Rent amount seems too low (minimum ₱1,000)";
+      newErrors.rentAmount = "Default minimum: ₱1,000";
     } else if (formData.rentAmount > 1000000) {
-      newErrors.rentAmount = "Rent amount seems too high (maximum ₱1,000,000)";
+      newErrors.rentAmount = "Default maximum: ₱1,000,000";
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  const validateBillingSchedule = (): boolean => {
+    // Check if any billing entries still have "Unassigned" status
+    const hasUnassignedStatus = formData.billingSchedule.some(
+      (entry) => entry.status === "Unassigned"
+    );
+
+    if (hasUnassignedStatus) {
+      toast.error("Please assign a status to all billing entries", {
+        description: "All entries must have a valid status selected.",
+      });
+      return false;
+    }
+
+    return true;
   };
 
   const handleNext = () => {
@@ -221,6 +226,8 @@ export function MultiStepPopup({
       isValid = validateStep1();
     } else if (currentStep === 2 && formData.occupancyStatus === "occupied") {
       isValid = validateStep2();
+    } else if (currentStep === 3 && formData.occupancyStatus === "occupied") {
+      isValid = validateBillingSchedule();
     }
 
     if (!isValid) {
@@ -332,14 +339,7 @@ export function MultiStepPopup({
         rentDue: formData.rentAmount,
         otherCharges: otherCharges,
         grossDue: formData.rentAmount + otherCharges,
-        status:
-          i === 0
-            ? "Collected - Cash"
-            : i < 3
-            ? "Collected - Cheque"
-            : i === 4
-            ? "Delayed"
-            : "Not Yet Due",
+        status: "Unassigned",
       });
     }
 
@@ -1080,11 +1080,11 @@ export function MultiStepPopup({
               )}
 
               {currentStep === 3 && formData.occupancyStatus === "occupied" && (
-                <div className="space-y-6 md:space-y-10">
-                  <div className="text-center space-y-3 md:space-y-4 mb-8 md:mb-12">
+                <div className="space-y-4 md:space-y-6">
+                  <div className="text-center">
                     <div className="flex items-center justify-center gap-2 md:gap-3 mb-3 md:mb-4">
                       <div className="p-2 md:p-3 rounded-full bg-orange-100 dark:bg-orange-950/50">
-                        <CreditCard className="h-6 w-6 md:h-8 md:w-8 text-orange-600 dark:text-orange-400" />
+                        <CreditCard className="h-4 w-4 md:h-6 md:w-6 text-orange-600 dark:text-orange-400" />
                       </div>
                       <h2 className="text-xl md:text-3xl font-bold text-foreground">
                         Generated Billing Schedule
@@ -1108,7 +1108,7 @@ export function MultiStepPopup({
                       {/* Mobile: Stack layout, Desktop: Table layout */}
                       <div className="block md:hidden">
                         {/* Mobile Card Layout */}
-                        <div className="space-y-4 p-4">
+                        <div className="space-y-3 p-4">
                           {formData.billingSchedule.map((bill, index) => (
                             <Card key={index} className="border">
                               <CardContent className="p-4">
@@ -1155,8 +1155,18 @@ export function MultiStepPopup({
                                         updateBillingStatus(index, value)
                                       }
                                     >
-                                      <SelectTrigger className="w-32 h-8 text-xs">
-                                        <SelectValue />
+                                      <SelectTrigger
+                                        className={`w-40 md:w-48 h-10 md:h-12 text-sm md:text-base ${
+                                          bill.status === "Unassigned"
+                                            ? "text-muted-foreground border-dashed"
+                                            : ""
+                                        }`}
+                                      >
+                                        <SelectValue>
+                                          {bill.status === "Unassigned"
+                                            ? "Select status"
+                                            : bill.status}
+                                        </SelectValue>
                                       </SelectTrigger>
                                       <SelectContent>
                                         <SelectItem value="Collected - Cash">
@@ -1238,28 +1248,40 @@ export function MultiStepPopup({
                                       updateBillingStatus(index, value)
                                     }
                                   >
-                                    <SelectTrigger className="w-40 md:w-48 h-10 md:h-12 text-sm md:text-base">
-                                      <SelectValue />
+                                    <SelectTrigger
+                                      className={`w-40 md:w-48 h-10 md:h-12 text-sm md:text-base ${
+                                        bill.status === "Unassigned"
+                                          ? "text-muted-foreground border-dashed"
+                                          : ""
+                                      }`}
+                                    >
+                                      <SelectValue>
+                                        {bill.status === "Unassigned"
+                                          ? "Select status"
+                                          : bill.status}
+                                      </SelectValue>
                                     </SelectTrigger>
                                     <SelectContent>
-                                      <SelectItem value="Collected - Cash">
-                                        Collected - Cash
-                                      </SelectItem>
-                                      <SelectItem value="Collected - Cheque">
-                                        Collected - Cheque
-                                      </SelectItem>
-                                      <SelectItem value="Collected - Bank Transfer">
-                                        Collected - Bank Transfer
-                                      </SelectItem>
-                                      <SelectItem value="Delayed">
-                                        Delayed
-                                      </SelectItem>
-                                      <SelectItem value="Not Yet Due">
-                                        Not Yet Due
-                                      </SelectItem>
-                                      <SelectItem value="Overdue">
-                                        Overdue
-                                      </SelectItem>
+                                      <SelectGroup>
+                                        <SelectItem value="Collected - Cash">
+                                          Collected - Cash
+                                        </SelectItem>
+                                        <SelectItem value="Collected - Cheque">
+                                          Collected - Cheque
+                                        </SelectItem>
+                                        <SelectItem value="Collected - Bank Transfer">
+                                          Collected - Bank Transfer
+                                        </SelectItem>
+                                        <SelectItem value="Delayed">
+                                          Delayed
+                                        </SelectItem>
+                                        <SelectItem value="Not Yet Due">
+                                          Not Yet Due
+                                        </SelectItem>
+                                        <SelectItem value="Overdue">
+                                          Overdue
+                                        </SelectItem>
+                                      </SelectGroup>
                                     </SelectContent>
                                   </Select>
                                 </td>
