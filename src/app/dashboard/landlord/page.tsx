@@ -18,11 +18,16 @@ import { MultiStepPopup } from "@/components/form-add-property";
 import { PropertyDetailsPopup } from "@/components/property-details-popup";
 import { useProperties } from "@/hooks/useProperties";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { EditPropertyPopup } from "@/components/edit-property-popup";
 
 export default function LandlordDashboard() {
   const [isAddPopupOpen, setIsAddPopupOpen] = useState(false);
   const [isDetailsPopupOpen, setIsDetailsPopupOpen] = useState(false);
+  const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
+    null
+  );
+  const [editingPropertyId, setEditingPropertyId] = useState<string | null>(
     null
   );
   const { properties, stats, loading, error, refetch } = useProperties();
@@ -39,10 +44,9 @@ export default function LandlordDashboard() {
   };
 
   const handleEditProperty = (propertyId: string) => {
-    console.log("Edit property:", propertyId);
-    // Implement edit functionality in the future
-    // For now, just close the details popup
-    setIsDetailsPopupOpen(false);
+    console.log("Property edit requested:", propertyId);
+    setEditingPropertyId(propertyId);
+    setIsEditPopupOpen(true);
   };
 
   const getStatusColor = (status: string) => {
@@ -246,7 +250,12 @@ export default function LandlordDashboard() {
                       >
                         View Details
                       </Button>
-                      <Button size="sm" variant="outline" className="flex-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => handleEditProperty(property.id)}
+                      >
                         Edit
                       </Button>
                     </CardFooter>
@@ -309,6 +318,22 @@ export default function LandlordDashboard() {
           isOpen={isDetailsPopupOpen}
           onClose={() => setIsDetailsPopupOpen(false)}
           onEdit={handleEditProperty}
+        />
+      )}
+      {editingPropertyId && (
+        <EditPropertyPopup
+          propertyId={editingPropertyId}
+          isOpen={isEditPopupOpen}
+          onClose={() => {
+            setIsEditPopupOpen(false);
+            setEditingPropertyId(null);
+          }}
+          onSuccess={() => {
+            // Refetch data to update the dashboard
+            refetch();
+            setIsEditPopupOpen(false);
+            setEditingPropertyId(null);
+          }}
         />
       )}
     </SidebarProvider>

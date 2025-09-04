@@ -8,10 +8,14 @@ import { useState, useEffect } from "react";
 
 export function SiteHeader() {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
-  const [currentTime, setCurrentTime] = useState(new Date());
+  // Remove initial time setup from state initialization
+  const [currentTime, setCurrentTime] = useState<Date | null>(null);
 
-  // Update time every second
+  // Update time every second, but only on the client side
   useEffect(() => {
+    // Set initial time only on the client side
+    setCurrentTime(new Date());
+
     const timer = setInterval(() => {
       setCurrentTime(new Date());
     }, 1000);
@@ -42,7 +46,10 @@ export function SiteHeader() {
     };
   };
 
-  const { date, time } = formatDateTime(currentTime);
+  // Only format the time if we have a currentTime value
+  const { date, time } = currentTime
+    ? formatDateTime(currentTime)
+    : { date: "", time: "" };
 
   return (
     <header className="flex h-16 shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-16">
@@ -54,26 +61,46 @@ export function SiteHeader() {
         />
         <h1 className="text-base font-medium">UnitKo Dashboard</h1>
         <div className="ml-auto flex items-center gap-3">
-          {/* Realtime Date and Time */}
-          <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-lg border">
-            <Clock className="h-4 w-4 text-muted-foreground" />
-            <div className="flex gap-1.5">
-              <span className="text-m font-medium text-foreground leading-tight">
-                {date}
-              </span>
-              <span className="text-m text-muted-foreground leading-tight">
-                {time}
-              </span>
-            </div>
-          </div>
+          {/* Realtime Date and Time - Only render when currentTime is available */}
+          {currentTime ? (
+            <>
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-lg border">
+                <Clock className="h-4 w-4 text-muted-foreground" />
+                <div className="flex gap-1.5">
+                  <span className="text-m font-medium text-foreground leading-tight">
+                    {date}
+                  </span>
+                  <span className="text-m text-muted-foreground leading-tight">
+                    {time}
+                  </span>
+                </div>
+              </div>
 
-          {/* Mobile: Time only */}
-          <div className="flex md:hidden items-center gap-1 px-2 py-1 bg-muted/50 rounded border">
-            <Clock className="h-3 w-3 text-muted-foreground" />
-            <span className="text-xs font-medium text-foreground">
-              {time.split(":").slice(0, 2).join(":")} {time.split(" ")[1]}
-            </span>
-          </div>
+              {/* Mobile: Time only */}
+              <div className="flex md:hidden items-center gap-1 px-2 py-1 bg-muted/50 rounded border">
+                <Clock className="h-3 w-3 text-muted-foreground" />
+                <span className="text-xs font-medium text-foreground">
+                  {time
+                    ? `${time.split(":").slice(0, 2).join(":")} ${
+                        time.split(" ")[1]
+                      }`
+                    : ""}
+                </span>
+              </div>
+            </>
+          ) : (
+            // Placeholder with same dimensions but no content
+            <>
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-lg border opacity-0">
+                <Clock className="h-4 w-4" />
+                <div className="w-[180px]"></div>
+              </div>
+              <div className="flex md:hidden items-center gap-1 px-2 py-1 bg-muted/50 rounded border opacity-0">
+                <Clock className="h-3 w-3" />
+                <div className="w-[60px]"></div>
+              </div>
+            </>
+          )}
 
           <Button
             size="sm"

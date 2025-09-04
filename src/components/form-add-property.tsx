@@ -48,27 +48,30 @@ import { submitPropertyData } from "@/services/propertyService";
 import { toast } from "sonner";
 
 interface PropertyFormData {
-  // Step 1: Unit Details
+  // Existing fields
   unitName: string;
   propertyType: string;
   occupancyStatus: "occupied" | "vacant";
   tenantName: string;
   contactNumber: string;
   propertyLocation: string;
-
-  // Step 2: Billing Setup
   contractMonths: number;
   rentStartDate: string;
   dueDay: string;
   rentAmount: number;
 
-  // Step 3: Generated Billing
+  // Update the billing schedule to include expense items
   billingSchedule: Array<{
     dueDate: string;
     rentDue: number;
     otherCharges: number;
     grossDue: number;
     status: string;
+    expenseItems: Array<{
+      id: string;
+      name: string;
+      amount: number;
+    }>;
   }>;
 }
 
@@ -296,6 +299,11 @@ export function MultiStepPopup({
       otherCharges: number;
       grossDue: number;
       status: string;
+      expenseItems: Array<{
+        id: string;
+        name: string;
+        amount: number;
+      }>;
     }> = [];
 
     const startDate = new Date(formData.rentStartDate);
@@ -304,7 +312,6 @@ export function MultiStepPopup({
       const dueDate = new Date(startDate);
       dueDate.setMonth(dueDate.getMonth() + i);
 
-      // Apply the chosen due date logic
       switch (formData.dueDay) {
         case "30th/31st - Last Day":
           // Set to last day of month
@@ -325,7 +332,31 @@ export function MultiStepPopup({
           dueDate.setDate(0);
       }
 
-      const otherCharges = Math.floor(Math.random() * 15000) + 5000;
+      // Create default expense items with random values
+      const utilities = Math.floor(Math.random() * 5000) + 1000;
+      const maintenance = Math.floor(Math.random() * 3000) + 500;
+      const misc = Math.floor(Math.random() * 2000) + 500;
+
+      const otherCharges = utilities + maintenance + misc;
+
+      // Default expense items
+      const expenseItems = [
+        {
+          id: `exp-${i}-utilities-${Date.now()}`,
+          name: "Utilities",
+          amount: utilities,
+        },
+        {
+          id: `exp-${i}-maintenance-${Date.now()}`,
+          name: "Maintenance",
+          amount: maintenance,
+        },
+        {
+          id: `exp-${i}-misc-${Date.now()}`,
+          name: "Miscellaneous",
+          amount: misc,
+        },
+      ];
 
       // Format date for better display
       const formattedDate = dueDate.toLocaleDateString("en-US", {
@@ -340,6 +371,7 @@ export function MultiStepPopup({
         otherCharges: otherCharges,
         grossDue: formData.rentAmount + otherCharges,
         status: "Unassigned",
+        expenseItems: expenseItems,
       });
     }
 
@@ -1133,9 +1165,14 @@ export function MultiStepPopup({
                                     <span className="text-sm font-medium text-muted-foreground">
                                       Other Charges
                                     </span>
-                                    <span className="font-medium text-blue-600 dark:text-blue-400">
-                                      ₱{bill.otherCharges.toLocaleString()}
-                                    </span>
+                                    <div className="flex items-center">
+                                      <span className="font-medium text-blue-600 dark:text-blue-400">
+                                        ₱{bill.otherCharges.toLocaleString()}
+                                      </span>
+                                      <span className="ml-2 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full">
+                                        {bill.expenseItems.length} items
+                                      </span>
+                                    </div>
                                   </div>
                                   <div className="flex justify-between items-center">
                                     <span className="text-sm font-medium text-muted-foreground">
@@ -1236,7 +1273,14 @@ export function MultiStepPopup({
                                   ₱{bill.rentDue.toLocaleString()}
                                 </td>
                                 <td className="p-4 md:p-8 text-sm md:text-lg font-medium text-blue-600 dark:text-blue-400">
-                                  ₱{bill.otherCharges.toLocaleString()}
+                                  <div className="flex items-center">
+                                    <span>
+                                      ₱{bill.otherCharges.toLocaleString()}
+                                    </span>
+                                    <span className="ml-2 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full">
+                                      {bill.expenseItems.length} items
+                                    </span>
+                                  </div>
                                 </td>
                                 <td className="p-4 md:p-8 text-lg md:text-xl font-bold text-foreground">
                                   ₱{bill.grossDue.toLocaleString()}

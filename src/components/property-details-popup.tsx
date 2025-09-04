@@ -28,6 +28,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { EditPropertyPopup } from "@/components/edit-property-popup";
 
 // Define TypeScript interfaces for data structures
 interface BillingEntry {
@@ -87,43 +88,46 @@ export function PropertyDetailsPopup({
   const [error, setError] = useState<string | null>(null);
   const [property, setProperty] = useState<Property | null>(null);
   const [activeTab, setActiveTab] = useState("details");
+  const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
+
+  // Move fetchPropertyDetails outside useEffect so it can be called elsewhere
+  const fetchPropertyDetails = async () => {
+    if (!isOpen || !propertyId) return;
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data, error } = await supabase
+        .from("properties")
+        .select(
+          `
+          *,
+          tenants (
+            *,
+            billing_entries(*)
+          )
+        `
+        )
+        .eq("id", propertyId)
+        .single();
+
+      if (error) throw error;
+
+      setProperty(data as Property);
+    } catch (err) {
+      console.error("Error fetching property details:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to load property details"
+      );
+      toast.error("Failed to load property details");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchPropertyDetails = async () => {
-      if (!isOpen || !propertyId) return;
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const { data, error } = await supabase
-          .from("properties")
-          .select(
-            `
-            *,
-            tenants (
-              *,
-              billing_entries(*)
-            )
-          `
-          )
-          .eq("id", propertyId)
-          .single();
-
-        if (error) throw error;
-
-        setProperty(data as Property);
-      } catch (err) {
-        console.error("Error fetching property details:", err);
-        setError(
-          err instanceof Error ? err.message : "Failed to load property details"
-        );
-        toast.error("Failed to load property details");
-      } finally {
-        setLoading(false);
-      }
-    };
-
+    // Call the function in useEffect
     fetchPropertyDetails();
   }, [propertyId, isOpen]);
 
@@ -638,19 +642,33 @@ export function PropertyDetailsPopup({
         <Separator className="my-6" />
 
         <div className="flex justify-end gap-4">
-          {onEdit && (
-            <Button
-              variant="outline"
-              onClick={() => onEdit(property.id)}
-              className="gap-2"
-            >
-              <Pencil className="h-4 w-4" />
-              Edit Property
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            onClick={() => setIsEditPopupOpen(true)}
+            className="gap-2"
+          >
+            <Pencil className="h-4 w-4" />
+            Edit Property
+          </Button>
           <Button onClick={onClose}>Close</Button>
         </div>
       </DialogContent>
+
+      {isEditPopupOpen && (
+        <EditPropertyPopup
+          propertyId={propertyId}
+          isOpen={isEditPopupOpen}
+          onClose={() => setIsEditPopupOpen(false)}
+          onSuccess={() => {
+            // Refresh data when edit is successful
+            if (onEdit) {
+              onEdit(propertyId);
+            }
+            // Now this call will work properly
+            fetchPropertyDetails();
+          }}
+        />
+      )}
     </Dialog>
   );
 }

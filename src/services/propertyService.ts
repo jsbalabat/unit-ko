@@ -18,6 +18,11 @@ interface PropertyFormData {
     otherCharges: number
     grossDue: number
     status: string
+    expenseItems?: Array<{  // Add this property
+      id: string
+      name: string
+      amount: number
+    }>
   }>
 }
 
@@ -88,11 +93,12 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
         const billingRows = formData.billingSchedule.map((bill, index) => ({
           property_id: property.id,
           tenant_id: tenant!.id,
-          due_date: new Date(bill.dueDate).toISOString().split('T')[0], // Convert to YYYY-MM-DD
+          due_date: new Date(bill.dueDate).toISOString().split('T')[0],
           rent_due: bill.rentDue,
           other_charges: bill.otherCharges,
           gross_due: bill.grossDue,
           status: bill.status,
+          expense_items: JSON.stringify(bill.expenseItems), // Store as JSON string
           billing_period: index + 1,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
