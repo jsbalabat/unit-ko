@@ -6,6 +6,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/button";
 import { Input } from "@/components/input";
@@ -46,6 +47,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { submitPropertyData } from "@/services/propertyService";
 import { toast } from "sonner";
+import { OtherChargesPopup } from "@/components/other-charges-popup";
+import { EditIcon } from "lucide-react";
 
 interface PropertyFormData {
   // Existing fields
@@ -114,6 +117,10 @@ export function MultiStepPopup({
     rentAmount: 0,
     billingSchedule: [],
   });
+  const [isOtherChargesPopupOpen, setIsOtherChargesPopupOpen] = useState(false);
+  const [selectedBillingIndex, setSelectedBillingIndex] = useState<
+    number | null
+  >(null);
 
   // Update total steps based on occupancy status
   const totalSteps = formData.occupancyStatus === "vacant" ? 2 : 4;
@@ -220,6 +227,42 @@ export function MultiStepPopup({
     }
 
     return true;
+  };
+
+  const handleOtherChargesClick = (index: number) => {
+    setSelectedBillingIndex(index);
+    setIsOtherChargesPopupOpen(true);
+  };
+
+  // Function to save updated other charges
+  const handleSaveOtherCharges = (
+    totalAmount: number,
+    items: Array<{ id: string; name: string; amount: number }>
+  ) => {
+    if (selectedBillingIndex === null) return;
+
+    // Create updated billing schedule
+    const updatedSchedule = [...formData.billingSchedule];
+    updatedSchedule[selectedBillingIndex] = {
+      ...updatedSchedule[selectedBillingIndex],
+      otherCharges: totalAmount,
+      grossDue: updatedSchedule[selectedBillingIndex].rentDue + totalAmount,
+      expenseItems: items,
+    };
+
+    // Update form data
+    setFormData({
+      ...formData,
+      billingSchedule: updatedSchedule,
+    });
+
+    // Close popup
+    setIsOtherChargesPopupOpen(false);
+    setSelectedBillingIndex(null);
+
+    toast.success("Other charges updated", {
+      description: "The billing entry has been updated with the new charges.",
+    });
   };
 
   const handleNext = () => {
@@ -545,6 +588,7 @@ export function MultiStepPopup({
                     </div>
                   </div>
                 </DialogTitle>
+                <DialogDescription>Header Description</DialogDescription>
                 <div className="text-right">
                   <div className="text-xs md:text-sm text-muted-foreground mb-1">
                     Progress
@@ -1165,14 +1209,22 @@ export function MultiStepPopup({
                                     <span className="text-sm font-medium text-muted-foreground">
                                       Other Charges
                                     </span>
-                                    <div className="flex items-center">
-                                      <span className="font-medium text-blue-600 dark:text-blue-400">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() =>
+                                        handleOtherChargesClick(index)
+                                      }
+                                      className="flex items-center gap-1 px-2 py-1 h-auto hover:bg-blue-50 dark:hover:bg-blue-950/30 text-blue-600 dark:text-blue-400"
+                                    >
+                                      <span>
                                         ₱{bill.otherCharges.toLocaleString()}
                                       </span>
-                                      <span className="ml-2 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full">
-                                        {bill.expenseItems.length} items
+                                      <span className="ml-1 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-1 py-0.5 rounded-full">
+                                        {bill.expenseItems.length}
                                       </span>
-                                    </div>
+                                      <EditIcon className="h-3 w-3 ml-1" />
+                                    </Button>
                                   </div>
                                   <div className="flex justify-between items-center">
                                     <span className="text-sm font-medium text-muted-foreground">
@@ -1274,12 +1326,22 @@ export function MultiStepPopup({
                                 </td>
                                 <td className="p-4 md:p-8 text-sm md:text-lg font-medium text-blue-600 dark:text-blue-400">
                                   <div className="flex items-center">
-                                    <span>
-                                      ₱{bill.otherCharges.toLocaleString()}
-                                    </span>
-                                    <span className="ml-2 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full">
-                                      {bill.expenseItems.length} items
-                                    </span>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() =>
+                                        handleOtherChargesClick(index)
+                                      }
+                                      className="flex items-center gap-1 px-2 py-1 h-auto hover:bg-blue-50 dark:hover:bg-blue-950/30"
+                                    >
+                                      <span>
+                                        ₱{bill.otherCharges.toLocaleString()}
+                                      </span>
+                                      <span className="ml-1 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 px-2 py-1 rounded-full">
+                                        {bill.expenseItems.length} items
+                                      </span>
+                                      <EditIcon className="h-3 w-3 ml-1 text-blue-600 dark:text-blue-400" />
+                                    </Button>
                                   </div>
                                 </td>
                                 <td className="p-4 md:p-8 text-lg md:text-xl font-bold text-foreground">
@@ -1715,6 +1777,27 @@ export function MultiStepPopup({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Other Charges Popup */}
+      {selectedBillingIndex !== null && (
+        <OtherChargesPopup
+          isOpen={isOtherChargesPopupOpen}
+          onClose={() => {
+            setIsOtherChargesPopupOpen(false);
+            setSelectedBillingIndex(null);
+          }}
+          onSave={handleSaveOtherCharges}
+          initialTotal={
+            formData.billingSchedule[selectedBillingIndex].otherCharges
+          }
+          month={selectedBillingIndex + 1}
+          dueDate={formData.billingSchedule[selectedBillingIndex].dueDate}
+          existingItems={
+            formData.billingSchedule[selectedBillingIndex].expenseItems
+          }
+          disabled={false}
+        />
+      )}
     </>
   );
 }

@@ -84,12 +84,15 @@ export function OtherChargesPopup({
 
   // Add a new expense item
   const addExpenseItem = () => {
+    const newItemId = `exp-${month}-${Date.now()}-${Math.random()
+      .toString(36)
+      .substring(2, 9)}`;
+    console.log("Adding new expense item with ID:", newItemId);
+
     setExpenses([
       ...expenses,
       {
-        id: `exp-${month}-${Date.now()}-${Math.random()
-          .toString(36)
-          .substring(2, 9)}`,
+        id: newItemId,
         name: "",
         amount: 0,
       },

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -37,12 +37,19 @@ interface BillingEntry {
   tenant_id: string;
   due_date: string;
   rent_due: number;
-  other_charges: number;
+  other_charges: number; // Keep for data compatibility
   gross_due: number;
   status: string;
   billing_period: number;
   created_at: string;
   updated_at: string;
+  expense_items?: string; // Add this field for the JSON string of expense items
+}
+
+interface ExpenseItem {
+  id: string;
+  name: string;
+  amount: number;
 }
 
 interface Tenant {
@@ -90,8 +97,8 @@ export function PropertyDetailsPopup({
   const [activeTab, setActiveTab] = useState("details");
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
 
-  // Move fetchPropertyDetails outside useEffect so it can be called elsewhere
-  const fetchPropertyDetails = async () => {
+  // Wrap fetchPropertyDetails in useCallback to prevent recreation on every render
+  const fetchPropertyDetails = useCallback(async () => {
     if (!isOpen || !propertyId) return;
 
     setLoading(true);
@@ -124,12 +131,12 @@ export function PropertyDetailsPopup({
     } finally {
       setLoading(false);
     }
-  };
+  }, [propertyId, isOpen]);
 
   useEffect(() => {
     // Call the function in useEffect
     fetchPropertyDetails();
-  }, [propertyId, isOpen]);
+  }, [fetchPropertyDetails]);
 
   const getStatusColorClass = (status: string): string => {
     switch (status.toLowerCase()) {
@@ -180,6 +187,7 @@ export function PropertyDetailsPopup({
             <DialogTitle className="sr-only">
               Loading Property Details
             </DialogTitle>
+            <DialogDescription>Loading Property Details</DialogDescription>
           </DialogHeader>
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -198,6 +206,7 @@ export function PropertyDetailsPopup({
             <DialogTitle className="sr-only">
               Error Loading Property
             </DialogTitle>
+            <DialogDescription>Error Loading Property</DialogDescription>
           </DialogHeader>
           <Alert variant="destructive" className="mb-4">
             <AlertCircle className="h-4 w-4" />
@@ -245,7 +254,10 @@ export function PropertyDetailsPopup({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto"
+        aria-describedby="dialog-description"
+      >
         <DialogHeader className="border-b pb-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
@@ -268,7 +280,10 @@ export function PropertyDetailsPopup({
                 <DialogTitle className="text-xl font-bold">
                   {property.unit_name}
                 </DialogTitle>
-                <DialogDescription className="flex items-center mt-1">
+                <DialogDescription
+                  className="flex items-center mt-1"
+                  id="dialog-description"
+                >
                   <MapPin className="h-3.5 w-3.5 mr-1 text-muted-foreground" />
                   <span className="text-sm text-muted-foreground">
                     {property.property_location}
@@ -454,36 +469,80 @@ export function PropertyDetailsPopup({
                     </h3>
                     {recentPayments.length > 0 ? (
                       <div className="space-y-3">
-                        {recentPayments.slice(0, 3).map((payment) => (
-                          <div
-                            key={payment.id}
-                            className="flex justify-between items-center p-3 bg-background rounded-lg border"
-                          >
-                            <div className="flex items-center">
-                              <div>
-                                <p className="text-sm font-medium">
-                                  {formatDate(payment.due_date)}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  Payment #{payment.billing_period}
-                                </p>
+                        {recentPayments.slice(0, 3).map((payment) => {
+                          // Parse expense items
+                          const expenseItems: ExpenseItem[] =
+                            payment.expense_items
+                              ? JSON.parse(payment.expense_items)
+                              : [
+                                  {
+                                    id: `default-${payment.id}`,
+                                    name: "Miscellaneous",
+                                    amount: payment.other_charges,
+                                  },
+                                ];
+
+                          return (
+                            <div
+                              key={payment.id}
+                              className="flex justify-between items-center p-3 bg-background rounded-lg border group relative"
+                            >
+                              <div className="flex items-center">
+                                <div>
+                                  <p className="text-sm font-medium">
+                                    {formatDate(payment.due_date)}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Payment #{payment.billing_period}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-sm font-bold">
+                                  {formatCurrency(payment.gross_due)}
+                                </span>
+                                <Badge
+                                  variant="outline"
+                                  className={`block mt-1 text-xs ${getStatusColorClass(
+                                    payment.status
+                                  )}`}
+                                >
+                                  {payment.status}
+                                </Badge>
+
+                                {/* Expense items tooltip */}
+                                <div className="hidden group-hover:block absolute right-0 bottom-full mb-2 bg-popover shadow-md rounded-md p-2 z-10 w-64 border">
+                                  <div className="text-xs font-medium mb-1">
+                                    Expense Breakdown:
+                                  </div>
+                                  <div className="flex justify-between text-xs mb-1">
+                                    <span>Rent</span>
+                                    <span>
+                                      {formatCurrency(payment.rent_due)}
+                                    </span>
+                                  </div>
+                                  {expenseItems.map((item) => (
+                                    <div
+                                      key={item.id}
+                                      className="flex justify-between text-xs mb-1"
+                                    >
+                                      <span>{item.name}</span>
+                                      <span>{formatCurrency(item.amount)}</span>
+                                    </div>
+                                  ))}
+                                  <div className="border-t pt-1 mt-1 text-xs font-semibold">
+                                    <div className="flex justify-between">
+                                      <span>Total</span>
+                                      <span>
+                                        {formatCurrency(payment.gross_due)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <span className="text-sm font-bold">
-                                {formatCurrency(payment.gross_due)}
-                              </span>
-                              <Badge
-                                variant="outline"
-                                className={`block mt-1 text-xs ${getStatusColorClass(
-                                  payment.status
-                                )}`}
-                              >
-                                {payment.status}
-                              </Badge>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center h-24 text-center text-muted-foreground">
@@ -551,7 +610,7 @@ export function PropertyDetailsPopup({
                             <th className="pb-2 font-medium">Billing Period</th>
                             <th className="pb-2 font-medium">Due Date</th>
                             <th className="pb-2 font-medium">Rent Amount</th>
-                            <th className="pb-2 font-medium">Other Charges</th>
+                            <th className="pb-2 font-medium">Expense Items</th>
                             <th className="pb-2 font-medium">Total Due</th>
                             <th className="pb-2 font-medium">Status</th>
                           </tr>
@@ -559,38 +618,84 @@ export function PropertyDetailsPopup({
                         <tbody>
                           {billingEntries
                             .sort((a, b) => a.billing_period - b.billing_period)
-                            .map((entry) => (
-                              <tr
-                                key={entry.id}
-                                className="border-b border-muted hover:bg-muted/50"
-                              >
-                                <td className="py-3 text-sm">
-                                  Month {entry.billing_period}
-                                </td>
-                                <td className="py-3 text-sm">
-                                  {formatDate(entry.due_date)}
-                                </td>
-                                <td className="py-3 text-sm">
-                                  {formatCurrency(entry.rent_due)}
-                                </td>
-                                <td className="py-3 text-sm">
-                                  {formatCurrency(entry.other_charges)}
-                                </td>
-                                <td className="py-3 text-sm font-medium">
-                                  {formatCurrency(entry.gross_due)}
-                                </td>
-                                <td className="py-3 text-sm">
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-xs ${getStatusColorClass(
-                                      entry.status
-                                    )}`}
-                                  >
-                                    {entry.status}
-                                  </Badge>
-                                </td>
-                              </tr>
-                            ))}
+                            .map((entry) => {
+                              // Parse expense items from JSON string, or use default if not available
+                              const expenseItems: ExpenseItem[] =
+                                entry.expense_items
+                                  ? JSON.parse(entry.expense_items)
+                                  : [
+                                      {
+                                        id: `default-${entry.id}`,
+                                        name: "Miscellaneous",
+                                        amount: entry.other_charges,
+                                      },
+                                    ];
+
+                              return (
+                                <tr
+                                  key={entry.id}
+                                  className="border-b border-muted hover:bg-muted/50"
+                                >
+                                  <td className="py-3 text-sm">
+                                    Month {entry.billing_period}
+                                  </td>
+                                  <td className="py-3 text-sm">
+                                    {formatDate(entry.due_date)}
+                                  </td>
+                                  <td className="py-3 text-sm">
+                                    {formatCurrency(entry.rent_due)}
+                                  </td>
+                                  <td className="py-3 text-sm">
+                                    <div className="flex flex-col gap-1">
+                                      {expenseItems.length > 0 ? (
+                                        <>
+                                          {expenseItems.map((item) => (
+                                            <div
+                                              key={item.id}
+                                              className="flex justify-between text-xs"
+                                            >
+                                              <span>{item.name}</span>
+                                              <span>
+                                                {formatCurrency(item.amount)}
+                                              </span>
+                                            </div>
+                                          ))}
+                                          {expenseItems.length > 1 && (
+                                            <div className="border-t pt-1 mt-1 text-xs font-medium">
+                                              <div className="flex justify-between">
+                                                <span>Total Expenses</span>
+                                                <span>
+                                                  {formatCurrency(
+                                                    entry.other_charges
+                                                  )}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <span className="text-muted-foreground text-xs">
+                                          No expenses
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 text-sm font-medium">
+                                    {formatCurrency(entry.gross_due)}
+                                  </td>
+                                  <td className="py-3 text-sm">
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-xs ${getStatusColorClass(
+                                        entry.status
+                                      )}`}
+                                    >
+                                      {entry.status}
+                                    </Badge>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>

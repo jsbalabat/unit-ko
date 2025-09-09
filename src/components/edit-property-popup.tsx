@@ -34,10 +34,22 @@ import {
   Save,
   Lock,
   Unlock,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
 import { OtherChargesPopup } from "@/components/other-charges-popup";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 // Define types
 interface BillingEntry {
@@ -50,6 +62,7 @@ interface BillingEntry {
   gross_due: number;
   status: string;
   billing_period: number;
+  expense_items?: string; // Add this field for the JSON string
   created_at: string;
   updated_at: string;
 }
@@ -135,6 +148,8 @@ export function EditPropertyPopup({
   const [expenseItemsByBillingId, setExpenseItemsByBillingId] = useState<
     Record<string, ExpenseItem[]>
   >({});
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Fetch property data when the popup opens
   useEffect(() => {
@@ -198,6 +213,29 @@ export function EditPropertyPopup({
               status: entry.status,
             })
           );
+
+          // Initialize expense items for each billing entry
+          const initialExpenseItems: Record<string, ExpenseItem[]> = {};
+
+          activeTenant.billing_entries.forEach((entry) => {
+            if (entry.expense_items) {
+              try {
+                // Parse expense items from JSON string
+                const items = JSON.parse(entry.expense_items) as ExpenseItem[];
+                if (Array.isArray(items) && items.length > 0) {
+                  initialExpenseItems[entry.id] = items;
+                }
+              } catch (e) {
+                console.error(
+                  `Error parsing expense items for entry ${entry.id}:`,
+                  e
+                );
+              }
+            }
+          });
+
+          // Set the expense items state
+          setExpenseItemsByBillingId(initialExpenseItems);
         }
 
         // After preparing the initial form data
@@ -275,6 +313,13 @@ export function EditPropertyPopup({
   const handleOtherChargesClick = (index: number) => {
     if (isLocked || !formData) return;
 
+    // Add validation
+    if (!formData.billingSchedule || !formData.billingSchedule[index]) {
+      console.error(`No billing data found for index ${index}`);
+      toast.error("Error: Could not find billing data");
+      return;
+    }
+
     // Set the selected billing index
     setSelectedBillingIndex(index);
 
@@ -301,7 +346,7 @@ export function EditPropertyPopup({
     console.log(
       `Saving expenses for month ${
         selectedBillingIndex + 1
-      }, billing ID: ${billingEntryId}`
+      }, billing ID: ${billingEntryId}, items count: ${items.length}`
     );
 
     // Create updated billing schedule
@@ -313,10 +358,26 @@ export function EditPropertyPopup({
     };
 
     // Save expense items for this specific billing entry ID
-    setExpenseItemsByBillingId((prev) => ({
-      ...prev,
-      [billingEntryId]: items.map((item) => ({ ...item })), // Create deep copy to avoid reference issues
-    }));
+    setExpenseItemsByBillingId((prev) => {
+      // Make sure we're setting by index AND by ID for temporary entries
+      const updatedItems = { ...prev };
+
+      // Save by ID
+      updatedItems[billingEntryId] = items.map((item) => ({
+        ...item,
+        // Add month index to ensure proper tracking
+        monthIndex: selectedBillingIndex,
+      }));
+
+      // Also save by month index for redundancy
+      updatedItems[`month-${selectedBillingIndex}`] = items.map((item) => ({
+        ...item,
+        monthIndex: selectedBillingIndex,
+      }));
+
+      console.log("Updated expense items mapping:", updatedItems);
+      return updatedItems;
+    });
 
     // Update form data
     setFormData({
@@ -327,6 +388,13 @@ export function EditPropertyPopup({
     // Close popup
     setIsOtherChargesPopupOpen(false);
     setSelectedBillingIndex(null);
+
+    // Show success message
+    toast.success("Expense items updated", {
+      description: `Successfully updated ${
+        items.length
+      } expense items for month ${selectedBillingIndex + 1}`,
+    });
   };
 
   // Add this helper function to calculate the proper due date based on dueDay setting
@@ -355,15 +423,19 @@ export function EditPropertyPopup({
     });
   };
 
-  const handleChange = (field: keyof PropertyFormData, value: any) => {
+  const handleChange = (
+    field: keyof PropertyFormData,
+    value: string | number | boolean | Date
+  ) => {
     if (!formData) return;
 
     // Create a copy of the form data
     const updatedFormData = { ...formData, [field]: value };
 
     if (field === "rentAmount" && formData.billingSchedule.length > 0) {
-      // When rent amount changes, only update current and future billing entries
-      const newRentAmount = parseFloat(value) || 0;
+      // Convert to number safely depending on the type
+      const newRentAmount =
+        typeof value === "number" ? value : parseFloat(value as string) || 0;
       const currentDate = new Date();
 
       const updatedSchedule = formData.billingSchedule.map((entry) => {
@@ -435,11 +507,18 @@ export function EditPropertyPopup({
 
   // Update billing status
   const updateBillingStatus = (index: number, status: string) => {
-    if (formData && formData.billingSchedule) {
-      const updatedSchedule = [...formData.billingSchedule];
-      updatedSchedule[index] = { ...updatedSchedule[index], status };
-      setFormData({ ...formData, billingSchedule: updatedSchedule });
+    if (
+      !formData ||
+      !formData.billingSchedule ||
+      !formData.billingSchedule[index]
+    ) {
+      console.error(`Cannot update status for index ${index}: data not found`);
+      return;
     }
+
+    const updatedSchedule = [...formData.billingSchedule];
+    updatedSchedule[index] = { ...updatedSchedule[index], status };
+    setFormData({ ...formData, billingSchedule: updatedSchedule });
   };
 
   const addNewBillingMonth = () => {
@@ -523,12 +602,20 @@ export function EditPropertyPopup({
 
         // Handle billing entries
         for (const entry of formData.billingSchedule) {
+          // Get expense items for this entry
+          const expenseItems = expenseItemsByBillingId[entry.id] || [];
+
           // For existing entries, update them
           if (!entry.id.startsWith("temp-")) {
             const { error: billingError } = await supabase
               .from("billing_entries")
               .update({
                 status: entry.status,
+                other_charges: entry.otherCharges,
+                rent_due: entry.rentDue,
+                gross_due: entry.grossDue,
+                expense_items:
+                  expenseItems.length > 0 ? JSON.stringify(expenseItems) : null,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", entry.id);
@@ -547,6 +634,8 @@ export function EditPropertyPopup({
                 other_charges: entry.otherCharges,
                 gross_due: entry.grossDue,
                 status: entry.status,
+                expense_items:
+                  expenseItems.length > 0 ? JSON.stringify(expenseItems) : null,
                 billing_period: formData.billingSchedule.indexOf(entry) + 1,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
@@ -622,12 +711,68 @@ export function EditPropertyPopup({
     });
   };
 
+  // Add this function to handle the actual deletion
+  const handleDeleteProperty = async () => {
+    if (!formData) return;
+
+    setIsDeleting(true);
+
+    try {
+      // First, delete any billing entries associated with this property
+      if (formData.tenantId) {
+        const { error: billingDeleteError } = await supabase
+          .from("billing_entries")
+          .delete()
+          .eq("property_id", formData.id);
+
+        if (billingDeleteError) throw billingDeleteError;
+
+        // Then delete the tenant
+        const { error: tenantDeleteError } = await supabase
+          .from("tenants")
+          .delete()
+          .eq("id", formData.tenantId);
+
+        if (tenantDeleteError) throw tenantDeleteError;
+      }
+
+      // Finally delete the property
+      const { error: propertyDeleteError } = await supabase
+        .from("properties")
+        .delete()
+        .eq("id", formData.id);
+
+      if (propertyDeleteError) throw propertyDeleteError;
+
+      // Show success message
+      toast.success("Property deleted successfully", {
+        description: `${formData.unitName} and all associated data have been permanently removed.`,
+      });
+
+      // Call the success callback if provided
+      if (onSuccess) onSuccess();
+
+      // Close the dialog
+      onClose();
+    } catch (err) {
+      console.error("Error deleting property:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to delete property"
+      );
+      toast.error("Failed to delete property");
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
+    }
+  };
+
   if (loading) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="sr-only">Loading Property</DialogTitle>
+            <DialogDescription>Loading Property</DialogDescription>
           </DialogHeader>
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -646,6 +791,7 @@ export function EditPropertyPopup({
             <DialogTitle className="sr-only">
               Error Loading Property
             </DialogTitle>
+            <DialogDescription>Error Loading Property</DialogDescription>
           </DialogHeader>
           <Alert variant="destructive" className="mb-4">
             <AlertCircle className="h-4 w-4" />
@@ -663,14 +809,17 @@ export function EditPropertyPopup({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto"
+        aria-describedby="dialog-description"
+      >
         <DialogHeader className="flex flex-row items-center justify-between pt-5">
           <div>
             <DialogTitle className="text-xl flex items-center">
               <Building className="mr-2 h-5 w-5" />
               Edit Property: {formData.unitName}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription id="dialog-description">
               Update property information, tenant details, and payment statuses.
             </DialogDescription>
           </div>
@@ -900,140 +1049,147 @@ export function EditPropertyPopup({
                           </tr>
                         </thead>
                         <tbody>
-                          {formData.billingSchedule.map((entry, index) => {
-                            // Check if this is the last row
-                            const isLastRow =
-                              index === formData.billingSchedule.length - 1;
+                          {formData.billingSchedule
+                            .filter((entry) => entry)
+                            .map((entry, index) => {
+                              // Check if this is the last row
+                              const isLastRow =
+                                index === formData.billingSchedule.length - 1;
 
-                            return (
-                              <tr
-                                key={entry.id}
-                                className="border-b border-muted hover:bg-muted/50"
-                              >
-                                <td className="py-3 text-sm">
-                                  Month {index + 1}
-                                </td>
-                                <td className="py-3 text-sm">
-                                  {entry.dueDate}
-                                </td>
-                                <td className="py-3 text-sm font-medium">
-                                  ₱{entry.rentDue.toLocaleString()}
-                                </td>
-                                <td className="py-3 text-sm">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() =>
-                                      handleOtherChargesClick(index)
-                                    }
-                                    disabled={isLocked}
-                                    className={`px-2 py-1 h-auto ${
-                                      isLocked ? "opacity-70" : ""
-                                    }`}
-                                  >
-                                    ₱{entry.otherCharges.toLocaleString()}
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      width="16"
-                                      height="16"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      className="ml-1 h-3 w-3"
-                                    >
-                                      <path d="M5 12h14"></path>
-                                      <path d="M12 5v14"></path>
-                                    </svg>
-                                  </Button>
-                                </td>
-                                <td className="py-3 text-sm font-medium">
-                                  ₱{entry.grossDue.toLocaleString()}
-                                </td>
-                                <td className="py-3">
-                                  <Select
-                                    value={entry.status}
-                                    onValueChange={(value) =>
-                                      updateBillingStatus(index, value)
-                                    }
-                                    disabled={isLocked}
-                                  >
-                                    <SelectTrigger
-                                      className={`w-40 ${
+                              return (
+                                <tr
+                                  key={entry.id || `row-${index}`}
+                                  className="border-b border-muted hover:bg-muted/50"
+                                >
+                                  <td className="py-3 text-sm">
+                                    Month {index + 1}
+                                  </td>
+                                  <td className="py-3 text-sm">
+                                    {entry.dueDate}
+                                  </td>
+                                  <td className="py-3 text-sm font-medium">
+                                    ₱{(entry.rentDue || 0).toLocaleString()}
+                                  </td>
+                                  <td className="py-3 text-sm">
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() =>
+                                        handleOtherChargesClick(index)
+                                      }
+                                      disabled={isLocked}
+                                      className={`px-2 py-1 h-auto ${
                                         isLocked ? "opacity-70" : ""
                                       }`}
                                     >
-                                      <SelectValue>{entry.status}</SelectValue>
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="Collected - Cash">
-                                        Collected - Cash
-                                      </SelectItem>
-                                      <SelectItem value="Collected - Cheque">
-                                        Collected - Cheque
-                                      </SelectItem>
-                                      <SelectItem value="Collected - Bank Transfer">
-                                        Collected - Bank Transfer
-                                      </SelectItem>
-                                      <SelectItem value="Delayed">
-                                        Delayed
-                                      </SelectItem>
-                                      <SelectItem value="Not Yet Due">
-                                        Not Yet Due
-                                      </SelectItem>
-                                      <SelectItem value="Overdue">
-                                        Overdue
-                                      </SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </td>
-                                <td className="py-3 text-right">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => deleteBillingRow(index)}
-                                    disabled={isLocked || !isLastRow}
-                                    className={`text-red-500 hover:text-red-700 hover:bg-red-50 ${
-                                      isLastRow && !isLocked
-                                        ? ""
-                                        : "opacity-30 cursor-not-allowed"
-                                    }`}
-                                  >
-                                    <svg
-                                      xmlns="http://www.w3.org/2000/svg"
-                                      width="16"
-                                      height="16"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="2"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      className="h-4 w-4"
+                                      ₱
+                                      {(
+                                        entry.otherCharges || 0
+                                      ).toLocaleString()}
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        className="ml-1 h-3 w-3"
+                                      >
+                                        <path d="M5 12h14"></path>
+                                        <path d="M12 5v14"></path>
+                                      </svg>
+                                    </Button>
+                                  </td>
+                                  <td className="py-3 text-sm font-medium">
+                                    ₱{(entry.grossDue || 0).toLocaleString()}
+                                  </td>
+                                  <td className="py-3">
+                                    <Select
+                                      value={entry.status}
+                                      onValueChange={(value) =>
+                                        updateBillingStatus(index, value)
+                                      }
+                                      disabled={isLocked}
                                     >
-                                      <path d="M3 6h18"></path>
-                                      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                                      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-                                      <line
-                                        x1="10"
-                                        y1="11"
-                                        x2="10"
-                                        y2="17"
-                                      ></line>
-                                      <line
-                                        x1="14"
-                                        y1="11"
-                                        x2="14"
-                                        y2="17"
-                                      ></line>
-                                    </svg>
-                                  </Button>
-                                </td>
-                              </tr>
-                            );
-                          })}
+                                      <SelectTrigger
+                                        className={`w-40 ${
+                                          isLocked ? "opacity-70" : ""
+                                        }`}
+                                      >
+                                        <SelectValue>
+                                          {entry.status}
+                                        </SelectValue>
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="Collected - Cash">
+                                          Collected - Cash
+                                        </SelectItem>
+                                        <SelectItem value="Collected - Cheque">
+                                          Collected - Cheque
+                                        </SelectItem>
+                                        <SelectItem value="Collected - Bank Transfer">
+                                          Collected - Bank Transfer
+                                        </SelectItem>
+                                        <SelectItem value="Delayed">
+                                          Delayed
+                                        </SelectItem>
+                                        <SelectItem value="Not Yet Due">
+                                          Not Yet Due
+                                        </SelectItem>
+                                        <SelectItem value="Overdue">
+                                          Overdue
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  </td>
+                                  <td className="py-3 text-right">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => deleteBillingRow(index)}
+                                      disabled={isLocked || !isLastRow}
+                                      className={`text-red-500 hover:text-red-700 hover:bg-red-50 ${
+                                        isLastRow && !isLocked
+                                          ? ""
+                                          : "opacity-30 cursor-not-allowed"
+                                      }`}
+                                    >
+                                      <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="16"
+                                        height="16"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        className="h-4 w-4"
+                                      >
+                                        <path d="M3 6h18"></path>
+                                        <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+                                        <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                                        <line
+                                          x1="10"
+                                          y1="11"
+                                          x2="10"
+                                          y2="17"
+                                        ></line>
+                                        <line
+                                          x1="14"
+                                          y1="11"
+                                          x2="14"
+                                          y2="17"
+                                        ></line>
+                                      </svg>
+                                    </Button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                         </tbody>
                       </table>
                     </div>
@@ -1105,30 +1261,100 @@ export function EditPropertyPopup({
 
         <Separator className="my-6" />
 
-        <div className="flex justify-end gap-4">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
+        <div className="flex justify-between gap-4">
+          {/* Delete button - left side */}
           <Button
-            onClick={handleSubmit}
+            variant="destructive"
+            onClick={() => setIsDeleteDialogOpen(true)}
             disabled={submitting || isLocked}
-            className={`gap-2 ${
-              isLocked ? "opacity-50 cursor-not-allowed" : ""
-            }`}
+            className="gap-2"
           >
-            {submitting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4" />
-                Save Changes
-              </>
-            )}
+            <Trash2 className="h-4 w-4" />
+            Delete Property
           </Button>
+
+          {/* Save/Cancel buttons - right side */}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmit}
+              disabled={submitting || isLocked}
+              className={`gap-2 ${
+                isLocked ? "opacity-50 cursor-not-allowed" : ""
+              }`}
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4" />
+                  Save Changes
+                </>
+              )}
+            </Button>
+          </div>
         </div>
+
+        {/* Delete confirmation dialog */}
+        <AlertDialog
+          open={isDeleteDialogOpen}
+          onOpenChange={setIsDeleteDialogOpen}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="h-5 w-5" />
+                Delete Property Permanently
+              </AlertDialogTitle>
+              <AlertDialogDescription className="space-y-2">
+                <p>
+                  Are you sure you want to delete{" "}
+                  <strong>{formData?.unitName}</strong>? This action cannot be
+                  undone and will permanently remove:
+                </p>
+                <ul className="list-disc pl-6 space-y-1">
+                  <li>The property record</li>
+                  {formData?.occupancyStatus === "occupied" && (
+                    <>
+                      <li>Tenant information for {formData?.tenantName}</li>
+                      <li>
+                        All {formData?.billingSchedule.length} billing entries
+                      </li>
+                      <li>All associated expense items</li>
+                    </>
+                  )}
+                </ul>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleDeleteProperty();
+                }}
+                disabled={isDeleting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete Permanently"
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </DialogContent>
     </Dialog>
   );
