@@ -13,7 +13,7 @@ import {
   FormMessage,
 } from "@/components/form";
 import { Input } from "@/components/input";
-import { useRouter } from "next/navigation";
+// import { useRouter } from "next/navigation";
 
 const formSchema = z.object({
   email: z
@@ -35,7 +35,7 @@ const formSchema = z.object({
 });
 
 export default function TenantLogin() {
-  const router = useRouter();
+  // const router = useRouter();
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -48,7 +48,7 @@ export default function TenantLogin() {
   const onSubmit = () => {
     // (data: LoginFormData)
     // add more code here for the login later
-    router.push("/dashboard/tenant");
+    // router.push("/dashboard/tenant");
   };
 
   const handleFormSubmit = form.handleSubmit(onSubmit, () => {});
