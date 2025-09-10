@@ -14,7 +14,6 @@ import {
 } from "@/components/form";
 import { Input } from "@/components/input";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 
 const formSchema = z.object({
   email: z
@@ -52,7 +51,7 @@ export default function TenantLogin() {
     router.push("/dashboard/tenant");
   };
 
-  const handleFormSubmit = form.handleSubmit(onSubmit, (errors) => {});
+  const handleFormSubmit = form.handleSubmit(onSubmit, () => {});
   return (
     // Login - Landlord
 
