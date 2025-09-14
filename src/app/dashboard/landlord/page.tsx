@@ -13,12 +13,23 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/button";
-import { Building, MapPin, Loader2, AlertCircle } from "lucide-react";
+import {
+  Building,
+  MapPin,
+  Loader2,
+  AlertCircle,
+  Plus,
+  Home,
+  Eye,
+  Edit,
+} from "lucide-react";
 import { MultiStepPopup } from "@/components/form-add-property";
 import { PropertyDetailsPopup } from "@/components/property-details-popup";
 import { useProperties } from "@/hooks/useProperties";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 export default function LandlordDashboard() {
   const [isAddPopupOpen, setIsAddPopupOpen] = useState(false);
@@ -32,9 +43,13 @@ export default function LandlordDashboard() {
   );
   const { properties, stats, loading, error, refetch } = useProperties();
 
-  const handlePropertyComplete = (data: unknown) => {
-    console.log("New property data:", data);
-    // Refetch data to update the dashboard
+  const handlePropertyComplete = (data: { unitName?: string } | unknown) => {
+    const propertyName =
+      typeof data === "object" && data && "unitName" in data
+        ? data.unitName
+        : "New property";
+
+    toast.success(`Successfully added property: ${propertyName}`);
     refetch();
   };
 
@@ -44,31 +59,50 @@ export default function LandlordDashboard() {
   };
 
   const handleEditProperty = (propertyId: string) => {
-    console.log("Property edit requested:", propertyId);
     setEditingPropertyId(propertyId);
     setIsEditPopupOpen(true);
   };
 
+  // Status colors based on property state
+  const getStatusStyles = (status: "occupied" | "vacant") => {
+    if (status === "occupied") {
+      return {
+        indicator: "bg-green-500", // Good standing
+        badge:
+          "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
+        label: "Good Standing",
+      };
+    } else {
+      return {
+        indicator: "bg-yellow-500", // Needs monitoring
+        badge:
+          "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
+        label: "Needs Monitoring",
+      };
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "occupied":
-        return "bg-green-100 text-green-800";
-      case "vacant":
-        return "bg-yellow-100 text-yellow-800";
-      case "maintenance":
-        return "bg-blue-100 text-blue-800";
+      case "Good Standing":
+        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
+      case "Needs Monitoring":
+        return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300";
+      case "Problem / Urgent":
+        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
+      case "Neutral / Administrative":
       default:
-        return "bg-gray-100 text-gray-800";
+        return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
     }
   };
 
   const getPropertyIcon = (type: string) => {
     const colors = [
-      "text-blue-600",
-      "text-purple-600",
-      "text-orange-600",
-      "text-teal-600",
-      "text-red-600",
+      "text-blue-600 dark:text-blue-400",
+      "text-purple-600 dark:text-purple-400",
+      "text-orange-600 dark:text-orange-400",
+      "text-teal-600 dark:text-teal-400",
+      "text-red-600 dark:text-red-400",
     ];
     const index = type.length % colors.length;
     return colors[index];
@@ -87,14 +121,10 @@ export default function LandlordDashboard() {
         <AppSidebar />
         <SidebarInset>
           <SiteHeader />
-          <main>
-            <div className="container mx-auto px-8 lg:px-0 py-8">
-              <div className="flex items-center justify-center h-64">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                  <span>Loading your properties...</span>
-                </div>
-              </div>
+          <main className="h-[calc(100vh-var(--header-height))] flex items-center justify-center">
+            <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 rounded-lg animate-pulse">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="font-medium">Loading your properties...</span>
             </div>
           </main>
         </SidebarInset>
@@ -114,186 +144,204 @@ export default function LandlordDashboard() {
       <AppSidebar />
       <SidebarInset>
         <SiteHeader />
-        <main>
-          <div className="container mx-auto px-8 lg:px-0 py-8 space-y-8">
-            {/* Welcome Section */}
-            <div className="mb-8">
-              <h1 className="text-3xl font-bold mb-2">
-                Welcome to your Dashboard!
-              </h1>
-              <p className="text-gray-600">
-                Manage your properties and rental agreements
-              </p>
+        <main className="pb-12">
+          <div className="container mx-auto px-4 md:px-6 py-6 max-w-7xl">
+            {/* Header Section */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold">
+                  Property Dashboard
+                </h1>
+                <p className="text-muted-foreground mt-1">
+                  Manage your properties and rental agreements
+                </p>
+              </div>
             </div>
 
             {/* Error Alert */}
             {error && (
-              <Alert variant="destructive">
+              <Alert variant="destructive" className="mb-6">
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
 
-            {/* Quick Stats Section - Updated with real data */}
-            <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-4 gap-6 mb-8">
-              <Card className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle>Total Properties</CardTitle>
-                </CardHeader>
-                <CardContent className="text-2xl font-bold">
-                  {stats.totalProperties}
-                </CardContent>
-              </Card>
-              <Card className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle>Active Rentals</CardTitle>
-                </CardHeader>
-                <CardContent className="text-2xl font-bold">
-                  {stats.activeRentals}
-                </CardContent>
-              </Card>
-              <Card className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle>Vacant Properties</CardTitle>
-                </CardHeader>
-                <CardContent className="text-2xl font-bold">
-                  {stats.vacantProperties}
-                </CardContent>
-              </Card>
-              <Card className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle>Total Revenue</CardTitle>
-                </CardHeader>
-                <CardContent className="text-2xl font-bold">
-                  ₱{stats.totalRevenue.toLocaleString()}
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Individual Property Cards Grid - Updated with real data */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {properties.map((property) => {
-                const activeTenant = property.tenants.find((t) => t.is_active);
-                const occupancyText =
-                  property.occupancy_status === "occupied"
-                    ? `${activeTenant ? 1 : 0}/1 unit`
-                    : "0/1 unit";
-
-                return (
-                  <Card
-                    key={property.id}
-                    className="hover:shadow-lg transition-shadow"
-                  >
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg">
-                          {property.unit_name}
-                        </CardTitle>
-                        <Building
-                          className={`h-5 w-5 ${getPropertyIcon(
-                            property.property_type
-                          )}`}
-                        />
-                      </div>
-                      <CardDescription className="flex items-center">
-                        <MapPin className="h-4 w-4 mr-1" />
-                        {property.property_location}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600">
-                          Monthly Rent
-                        </span>
-                        <span className="font-semibold text-green-600">
-                          ₱{property.rent_amount.toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600">
-                          Property Type
-                        </span>
-                        <span className="font-semibold">
-                          {property.property_type}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600">Occupancy</span>
-                        <span className="font-semibold">{occupancyText}</span>
-                      </div>
-                      {activeTenant && (
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-600">Tenant</span>
-                          <span className="font-semibold text-sm">
-                            {activeTenant.tenant_name}
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-600">Status</span>
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs ${getStatusColor(
-                            property.occupancy_status
-                          )}`}
-                        >
-                          {property.occupancy_status === "occupied"
-                            ? "Occupied"
-                            : "Available"}
-                        </span>
-                      </div>
-                    </CardContent>
-                    <CardFooter className="flex gap-2">
-                      <Button
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => handleViewDetails(property.id)}
-                      >
-                        View Details
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="flex-1"
-                        onClick={() => handleEditProperty(property.id)}
-                      >
-                        Edit
-                      </Button>
-                    </CardFooter>
-                  </Card>
-                );
-              })}
+            {/* Quick Stats Section */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 mb-6">
+              <StatCard
+                title="Properties"
+                value={stats.totalProperties}
+                icon={<Home className="h-4 w-4" />}
+                trend="neutral"
+              />
+              <StatCard
+                title="Occupied"
+                value={stats.activeRentals}
+                icon={<Building className="h-4 w-4" />}
+                trend="positive"
+              />
+              <StatCard
+                title="Vacant"
+                value={stats.vacantProperties}
+                icon={<Building className="h-4 w-4" />}
+                trend={stats.vacantProperties > 0 ? "warning" : "neutral"}
+              />
+              <StatCard
+                title="Revenue"
+                value={`₱${stats.totalRevenue.toLocaleString()}`}
+                icon={<Building className="h-4 w-4" />}
+                trend="positive"
+              />
             </div>
 
             {/* Empty State */}
             {properties.length === 0 && !loading && (
-              <div className="text-center py-12">
-                <Building className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold mb-2">
+              <div className="text-center py-10 px-4 border rounded-xl bg-muted/20 mb-6">
+                <Building className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+                <h3 className="text-lg font-semibold mb-2">
                   No Properties Yet
                 </h3>
-                <p className="text-gray-600 mb-4">
+                <p className="text-muted-foreground max-w-md mx-auto mb-4">
                   Start building your property portfolio by adding your first
                   property.
                 </p>
                 <Button onClick={() => setIsAddPopupOpen(true)}>
+                  <Plus className="mr-1.5 h-4 w-4" />
                   Add Your First Property
                 </Button>
               </div>
             )}
 
-            {/* Add New Property Card */}
+            {/* Individual Property Cards Grid */}
             {properties.length > 0 && (
-              <div className="mt-8">
-                <Card className="border-dashed border-2 hover:border-solid transition-all cursor-pointer">
-                  <CardContent className="flex flex-col items-center justify-center py-8">
-                    <Building className="h-12 w-12 text-gray-400 mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
+                {properties.map((property) => {
+                  const activeTenant = property.tenants.find(
+                    (t) => t.is_active
+                  );
+                  const occupancyText =
+                    property.occupancy_status === "occupied"
+                      ? `${activeTenant ? 1 : 0}/1 unit`
+                      : "0/1 unit";
+
+                  return (
+                    <Card
+                      key={property.id}
+                      className="overflow-hidden transition-all hover:shadow-md"
+                    >
+                      <div
+                        className={cn(
+                          "h-1.5",
+                          getStatusStyles(property.occupancy_status).indicator
+                        )}
+                      />
+                      <CardHeader className="pb-2">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-lg line-clamp-1">
+                            {property.unit_name}
+                          </CardTitle>
+                          <Building
+                            className={`h-5 w-5 flex-shrink-0 ${getPropertyIcon(
+                              property.property_type
+                            )}`}
+                          />
+                        </div>
+                        <CardDescription className="flex items-center text-xs">
+                          <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
+                          <span className="truncate">
+                            {property.property_location}
+                          </span>
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-2.5 pb-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">
+                            Monthly Rent
+                          </span>
+                          <span className="font-medium text-green-600 dark:text-green-400">
+                            ₱{property.rent_amount.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">
+                            Property Type
+                          </span>
+                          <span className="font-medium text-sm">
+                            {property.property_type}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">
+                            Occupancy
+                          </span>
+                          <span className="font-medium text-sm">
+                            {occupancyText}
+                          </span>
+                        </div>
+                        {activeTenant && (
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-muted-foreground">
+                              Tenant
+                            </span>
+                            <span className="font-medium text-sm truncate max-w-[150px]">
+                              {activeTenant.tenant_name}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">
+                            Status
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                              getStatusStyles(property.occupancy_status).badge
+                            }`}
+                          >
+                            {getStatusStyles(property.occupancy_status).label}
+                          </span>
+                        </div>
+                      </CardContent>
+                      <CardFooter className="flex gap-2 pt-2 border-t bg-muted/10">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="flex-1 h-9"
+                          onClick={() => handleViewDetails(property.id)}
+                        >
+                          <Eye className="h-4 w-4 mr-1.5" />
+                          Details
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="flex-1 h-9"
+                          onClick={() => handleEditProperty(property.id)}
+                        >
+                          <Edit className="h-4 w-4 mr-1.5" />
+                          Edit
+                        </Button>
+                      </CardFooter>
+                    </Card>
+                  );
+                })}
+
+                {/* Add New Property Card */}
+                <Card className="border-dashed hover:border-solid transition-all cursor-pointer bg-muted/10 hover:bg-muted/20">
+                  <CardContent className="flex flex-col items-center justify-center h-full py-8">
+                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                      <Plus className="h-6 w-6 text-primary" />
+                    </div>
+                    <h3 className="text-lg font-medium mb-1.5">
                       Add New Property
                     </h3>
-                    <p className="text-gray-600 text-center mb-4">
-                      Expand your portfolio by adding a new rental property
+                    <p className="text-muted-foreground text-center text-sm mb-4 max-w-[250px]">
+                      Expand your portfolio with another rental property
                     </p>
-                    <Button onClick={() => setIsAddPopupOpen(true)}>
+                    <Button
+                      onClick={() => setIsAddPopupOpen(true)}
+                      variant="outline"
+                      size="sm"
+                    >
                       Add Property
                     </Button>
                   </CardContent>
@@ -320,6 +368,8 @@ export default function LandlordDashboard() {
           onEdit={handleEditProperty}
         />
       )}
+
+      {/* Edit Property Popup */}
       {editingPropertyId && (
         <EditPropertyPopup
           propertyId={editingPropertyId}
@@ -329,7 +379,6 @@ export default function LandlordDashboard() {
             setEditingPropertyId(null);
           }}
           onSuccess={() => {
-            // Refetch data to update the dashboard
             refetch();
             setIsEditPopupOpen(false);
             setEditingPropertyId(null);
@@ -337,5 +386,42 @@ export default function LandlordDashboard() {
         />
       )}
     </SidebarProvider>
+  );
+}
+
+// New StatCard component for better UI
+interface StatCardProps {
+  title: string;
+  value: number | string;
+  icon?: React.ReactNode;
+  trend?: "positive" | "negative" | "warning" | "neutral";
+}
+
+function StatCard({ title, value, icon, trend = "neutral" }: StatCardProps) {
+  const trendColors = {
+    positive: "text-green-600 dark:text-green-400",
+    negative: "text-red-600 dark:text-red-400",
+    warning: "text-amber-600 dark:text-amber-400",
+    neutral: "text-primary",
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 flex flex-col">
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-muted-foreground font-medium">
+            {title}
+          </span>
+          {icon && (
+            <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
+              {icon}
+            </div>
+          )}
+        </div>
+        <div className={cn("text-2xl font-bold mt-2", trendColors[trend])}>
+          {value}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
