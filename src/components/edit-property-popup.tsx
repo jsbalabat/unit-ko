@@ -140,7 +140,7 @@ export function EditPropertyPopup({
   const [error, setError] = useState<string | null>(null);
   const [property, setProperty] = useState<Property | null>(null);
   const [formData, setFormData] = useState<PropertyFormData | null>(null);
-  const [isLocked, setIsLocked] = useState(false);
+  const [isLocked, setIsLocked] = useState(true);
   const [isOtherChargesPopupOpen, setIsOtherChargesPopupOpen] = useState(false);
   const [selectedBillingIndex, setSelectedBillingIndex] = useState<
     number | null
@@ -769,7 +769,7 @@ export function EditPropertyPopup({
   if (loading) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto [&>button]:hidden">
           <DialogHeader>
             <DialogTitle className="sr-only">Loading Property</DialogTitle>
             <DialogDescription>Loading Property</DialogDescription>
@@ -786,7 +786,7 @@ export function EditPropertyPopup({
   if (error && !formData) {
     return (
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-[900px]">
+        <DialogContent className="sm:max-w-[900px] [&>button]:hidden">
           <DialogHeader>
             <DialogTitle className="sr-only">
               Error Loading Property
@@ -810,7 +810,7 @@ export function EditPropertyPopup({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
-        className="sm:max-w-[95%] md:max-w-[85%] lg:max-w-[900px] w-[95vw] max-h-[90vh] overflow-y-auto p-4 sm:p-6"
+        className="sm:max-w-[95%] md:max-w-[85%] lg:max-w-[900px] w-[95vw] max-h-[90vh] overflow-y-auto p-4 sm:p-6 [&>button]:hidden"
         aria-describedby="dialog-description"
       >
         <DialogHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between pt-2 sm:pt-5 space-y-2 sm:space-y-0">
@@ -1179,6 +1179,33 @@ export function EditPropertyPopup({
                           </tbody>
                         </table>
                       </div>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <Button
+                        size="sm"
+                        onClick={addNewBillingMonth}
+                        disabled={isLocked}
+                        className={`text-xs sm:text-sm flex items-center gap-1.5 ${
+                          isLocked ? "opacity-70" : ""
+                        }`}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className="h-3.5 w-3.5"
+                        >
+                          <path d="M5 12h14"></path>
+                          <path d="M12 5v14"></path>
+                        </svg>
+                        Add New Billing Month
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

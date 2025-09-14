@@ -78,55 +78,50 @@ export function SiteHeader() {
           />
         </div>
 
-        {/* Title - Hidden on smallest screens */}
-        <h1 className="hidden sm:inline-block text-base font-medium">
-          UnitKo Dashboard
-        </h1>
+        {/* Date and Time - Moved to left side */}
+        {currentTime ? (
+          <>
+            {/* Desktop & Tablet: Full date and time */}
+            <div className="hidden md:flex items-center gap-2 px-2.5 py-1.5 bg-muted/50 rounded-lg border text-xs lg:text-sm">
+              <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+              <div className="flex gap-1.5">
+                <span className="font-medium text-foreground leading-tight">
+                  {date}
+                </span>
+                <span className="text-muted-foreground leading-tight">
+                  {time}
+                </span>
+              </div>
+            </div>
+
+            {/* Small screens: Time only */}
+            <div className="hidden xs:flex md:hidden items-center gap-1 px-2 py-1 bg-muted/50 rounded border">
+              <Clock className="h-3 w-3 text-muted-foreground" />
+              <span className="text-xs font-medium text-foreground">
+                {time
+                  ? `${time.split(":").slice(0, 2).join(":")} ${
+                      time.split(" ")[1]
+                    }`
+                  : ""}
+              </span>
+            </div>
+          </>
+        ) : (
+          // Placeholders with same dimensions for each screen size
+          <>
+            <div className="hidden md:flex items-center gap-2 px-2.5 py-1.5 bg-muted/50 rounded-lg border opacity-0">
+              <Clock className="h-3.5 w-3.5" />
+              <div className="w-[180px]"></div>
+            </div>
+            <div className="hidden xs:flex md:hidden items-center gap-1 px-2 py-1 bg-muted/50 rounded border opacity-0">
+              <Clock className="h-3 w-3" />
+              <div className="w-[60px]"></div>
+            </div>
+          </>
+        )}
 
         {/* Right Section */}
         <div className="ml-auto flex items-center gap-1 sm:gap-2 md:gap-3">
-          {/* Date and Time - Different layouts for different screen sizes */}
-          {currentTime ? (
-            <>
-              {/* Desktop & Tablet: Full date and time */}
-              <div className="hidden md:flex items-center gap-2 px-2.5 py-1.5 bg-muted/50 rounded-lg border text-xs lg:text-sm">
-                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-                <div className="flex gap-1.5">
-                  <span className="font-medium text-foreground leading-tight">
-                    {date}
-                  </span>
-                  <span className="text-muted-foreground leading-tight">
-                    {time}
-                  </span>
-                </div>
-              </div>
-
-              {/* Small screens: Time only */}
-              <div className="hidden xs:flex md:hidden items-center gap-1 px-2 py-1 bg-muted/50 rounded border">
-                <Clock className="h-3 w-3 text-muted-foreground" />
-                <span className="text-xs font-medium text-foreground">
-                  {time
-                    ? `${time.split(":").slice(0, 2).join(":")} ${
-                        time.split(" ")[1]
-                      }`
-                    : ""}
-                </span>
-              </div>
-            </>
-          ) : (
-            // Placeholders with same dimensions for each screen size
-            <>
-              <div className="hidden md:flex items-center gap-2 px-2.5 py-1.5 bg-muted/50 rounded-lg border opacity-0">
-                <Clock className="h-3.5 w-3.5" />
-                <div className="w-[180px]"></div>
-              </div>
-              <div className="hidden xs:flex md:hidden items-center gap-1 px-2 py-1 bg-muted/50 rounded border opacity-0">
-                <Clock className="h-3 w-3" />
-                <div className="w-[60px]"></div>
-              </div>
-            </>
-          )}
-
           {/* Desktop: Full Add Property Button */}
           <Button
             size="sm"

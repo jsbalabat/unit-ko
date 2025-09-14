@@ -82,17 +82,26 @@ export default function LandlordDashboard() {
     }
   };
 
+  // Replace the getStatusColor function with a more accurate version
   const getStatusColor = (status: string) => {
-    switch (status) {
-      case "Good Standing":
-        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
-      case "Needs Monitoring":
-        return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300";
-      case "Problem / Urgent":
-        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
-      case "Neutral / Administrative":
-      default:
-        return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
+    // Normalize status text for consistent comparison
+    const normalizedStatus = status.toLowerCase();
+
+    if (normalizedStatus.includes("good standing")) {
+      return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
+    } else if (
+      normalizedStatus.includes("needs monitoring") ||
+      normalizedStatus.includes("delayed")
+    ) {
+      return "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300";
+    } else if (
+      normalizedStatus.includes("problem") ||
+      normalizedStatus.includes("urgent") ||
+      normalizedStatus.includes("overdue")
+    ) {
+      return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
+    } else {
+      return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300";
     }
   };
 
@@ -218,7 +227,100 @@ export default function LandlordDashboard() {
                 {properties.map((property) => {
                   const activeTenant = property.tenants.find(
                     (t) => t.is_active
-                  );
+                  ) as (typeof property.tenants)[0] & {
+                    billing_entries?: BillingEntry[];
+                  };
+
+                  // Get the status for this property
+                  const propertyStatus = (() => {
+                    if (
+                      property.occupancy_status !== "occupied" ||
+                      !activeTenant
+                    ) {
+                      return {
+                        text: "Vacant",
+                        color: getStatusColor("Neutral / Administrative"),
+                      };
+                    }
+
+                    // If no billing entries, return Good Standing
+                    if (
+                      !activeTenant.billing_entries ||
+                      activeTenant.billing_entries.length === 0
+                    ) {
+                      return {
+                        text: "Good Standing",
+                        color: getStatusColor("Good Standing"),
+                      };
+                    }
+
+                    // Get current date for comparison
+                    const currentDate = new Date();
+
+                    // Sort billing entries by billing period (month number)
+                    const sortedEntries = [
+                      ...activeTenant.billing_entries,
+                    ].sort(
+                      (a, b) =>
+                        (a.billing_period || 0) - (b.billing_period || 0)
+                    );
+
+                    // Find entries up to the current month
+                    const relevantEntries = sortedEntries.filter((entry) => {
+                      const dueDate = new Date(entry.due_date);
+                      // Include entries for this month and previous months
+                      return (
+                        dueDate.getFullYear() < currentDate.getFullYear() ||
+                        (dueDate.getFullYear() === currentDate.getFullYear() &&
+                          dueDate.getMonth() <= currentDate.getMonth())
+                      );
+                    });
+
+                    // If no relevant entries (all future), show Good Standing
+                    if (relevantEntries.length === 0) {
+                      return {
+                        text: "Good Standing",
+                        color: getStatusColor("Good Standing"),
+                      };
+                    }
+
+                    // Check if any relevant entries have Problem/Urgent status
+                    const hasUrgentIssues = relevantEntries.some(
+                      (entry) =>
+                        entry.status.toLowerCase().includes("problem") ||
+                        entry.status.toLowerCase().includes("urgent") ||
+                        entry.status.toLowerCase().includes("overdue")
+                    );
+
+                    if (hasUrgentIssues) {
+                      return {
+                        text: "Problem / Urgent",
+                        color: getStatusColor("Problem / Urgent"),
+                      };
+                    }
+
+                    // Check if any relevant entries need monitoring
+                    const needsMonitoring = relevantEntries.some(
+                      (entry) =>
+                        entry.status.toLowerCase().includes("monitoring") ||
+                        entry.status.toLowerCase().includes("delayed") ||
+                        entry.status.toLowerCase().includes("needs")
+                    );
+
+                    if (needsMonitoring) {
+                      return {
+                        text: "Needs Monitoring",
+                        color: getStatusColor("Needs Monitoring"),
+                      };
+                    }
+
+                    // If all relevant entries are in Good Standing, return Good Standing
+                    return {
+                      text: "Good Standing",
+                      color: getStatusColor("Good Standing"),
+                    };
+                  })();
+
                   const occupancyText =
                     property.occupancy_status === "occupied"
                       ? `${activeTenant ? 1 : 0}/1 unit`
@@ -293,11 +395,9 @@ export default function LandlordDashboard() {
                             Status
                           </span>
                           <span
-                            className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                              getStatusStyles(property.occupancy_status).badge
-                            }`}
+                            className={`px-2 py-0.5 rounded-full text-xs font-medium ${propertyStatus.color}`}
                           >
-                            {getStatusStyles(property.occupancy_status).label}
+                            {propertyStatus.text}
                           </span>
                         </div>
                       </CardContent>
@@ -424,4 +524,12 @@ function StatCard({ title, value, icon, trend = "neutral" }: StatCardProps) {
       </CardContent>
     </Card>
   );
+}
+
+// First, let's update your BillingEntry interface at the top of the file to match what's coming from the database
+interface BillingEntry {
+  id: string;
+  status: string;
+  due_date: string;
+  billing_period?: number;
 }
