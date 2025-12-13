@@ -28,11 +28,16 @@ import {
   FileText,
   ClipboardCheck,
   CreditCard,
+  Home,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
+import {
+  AmenitiesPopup,
+  AVAILABLE_AMENITIES,
+} from "@/components/amenities-popup";
 // import { ScrollArea } from "@/components/ui/scroll-area";
 
 // Define TypeScript interfaces for data structures
@@ -78,6 +83,7 @@ interface Property {
   occupancy_status: "occupied" | "vacant";
   property_location: string;
   rent_amount: number;
+  amenities?: string; // JSON string array of amenity IDs
   created_at: string;
   updated_at: string;
   tenants?: Tenant[];
@@ -101,6 +107,7 @@ export function PropertyDetailsPopup({
   const [property, setProperty] = useState<Property | null>(null);
   const [activeTab, setActiveTab] = useState("details");
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
+  const [isAmenitiesPopupOpen, setIsAmenitiesPopupOpen] = useState(false);
 
   // Wrap fetchPropertyDetails in useCallback to prevent recreation on every render
   const fetchPropertyDetails = useCallback(async () => {
@@ -187,7 +194,78 @@ export function PropertyDetailsPopup({
   };
 
   const formatDate = (dateString: string): string => {
-    return new Date(dateString).toLocaleDateString("en-US", {
+    if (!dateString) return "";
+
+    // Check if it's already formatted (e.g., "Sep 14, 2025")
+    if (dateString.includes(",")) {
+      return dateString;
+    }
+
+    // Handle ISO date string (YYYY-MM-DD)
+    if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const [year, month, day] = dateString.split("-").map(Number);
+      const date = new Date(year, month - 1, day);
+
+      return date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+
+    // Handle full ISO datetime strings (with T or Z)
+    if (dateString.includes("T") || dateString.includes("Z")) {
+      const date = new Date(dateString);
+      return date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+
+    // Fallback: try to parse and handle as local date
+    const parts = dateString.split("-");
+    if (parts.length === 3) {
+      const [year, month, day] = parts.map(Number);
+      const date = new Date(year, month - 1, day);
+
+      return date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    }
+
+    // Last resort fallback
+    return dateString;
+  };
+
+  const formatDueDate = (dateString: string): string => {
+    if (!dateString) return "";
+
+    // If already formatted, return as is
+    if (dateString.includes(",")) {
+      return dateString;
+    }
+
+    // Parse the date string manually to avoid timezone conversion
+    let year: number, month: number, day: number;
+
+    if (dateString.includes("-")) {
+      [year, month, day] = dateString.split("-").map(Number);
+    } else if (dateString.includes("/")) {
+      const parts = dateString.split("/");
+      month = parseInt(parts[0]);
+      day = parseInt(parts[1]);
+      year = parseInt(parts[2]);
+    } else {
+      return dateString;
+    }
+
+    // Create date in local timezone
+    const date = new Date(year, month - 1, day);
+
+    return date.toLocaleDateString("en-US", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -196,10 +274,15 @@ export function PropertyDetailsPopup({
 
   // Calculate days until due
   const calculateDaysUntilDue = (dueDate: string): number => {
-    return Math.ceil(
-      (new Date(dueDate).getTime() - new Date().getTime()) /
-        (1000 * 60 * 60 * 24)
-    );
+    // Parse as local date to avoid timezone offset
+    const [year, month, day] = dueDate.split("-").map(Number);
+    const due = new Date(year, month - 1, day);
+
+    // Get today at midnight local time
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   };
 
   if (loading) {
@@ -510,7 +593,7 @@ export function PropertyDetailsPopup({
                                 <Clock className="h-3.5 w-3.5 text-blue-500 mr-1.5 flex-shrink-0" />
                                 <div>
                                   <p className="text-xs md:text-sm font-medium">
-                                    {formatDate(payment.due_date)}
+                                    {formatDueDate(payment.due_date)}
                                   </p>
                                   <p className="text-[10px] md:text-xs text-muted-foreground">
                                     Due in{" "}
@@ -634,6 +717,61 @@ export function PropertyDetailsPopup({
                   </Card>
                 </div>
               )}
+
+              {/* Amenities Section */}
+              <Card className="shadow-sm">
+                <CardContent className="p-4 md:p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-base md:text-lg font-semibold flex items-center">
+                      <Home className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
+                      What this place offers
+                    </h3>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsAmenitiesPopupOpen(true)}
+                      className="text-xs h-8"
+                    >
+                      <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                      Edit
+                    </Button>
+                  </div>
+
+                  {property &&
+                  property.amenities &&
+                  JSON.parse(property.amenities).length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {JSON.parse(property.amenities).map(
+                        (amenityId: string) => {
+                          const amenity = AVAILABLE_AMENITIES.find(
+                            (a) => a.id === amenityId
+                          );
+                          if (!amenity) return null;
+                          return (
+                            <div
+                              key={amenity.id}
+                              className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20"
+                            >
+                              <span className="text-muted-foreground">
+                                {amenity.icon}
+                              </span>
+                              <span className="text-sm">{amenity.name}</span>
+                            </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+                      <Home className="h-8 w-8 mb-2 opacity-40" />
+                      <p className="text-sm">No amenities added yet</p>
+                      <p className="text-xs mt-1">
+                        Click Edit to add amenities to this property
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
 
@@ -781,7 +919,7 @@ export function PropertyDetailsPopup({
                                           </div>
                                         </td>
                                         <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                          {formatDate(entry.due_date)}
+                                          {formatDueDate(entry.due_date)}
                                         </td>
                                         <td className="px-3 py-2 text-xs font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
                                           {formatCurrency(entry.rent_due)}
@@ -896,6 +1034,33 @@ export function PropertyDetailsPopup({
           </Button>
         </div>
       </DialogContent>
+
+      <AmenitiesPopup
+        isOpen={isAmenitiesPopupOpen}
+        onClose={() => setIsAmenitiesPopupOpen(false)}
+        currentAmenities={
+          property?.amenities ? JSON.parse(property.amenities) : []
+        }
+        onSave={async (selectedAmenities) => {
+          try {
+            const { error } = await supabase
+              .from("properties")
+              .update({ amenities: JSON.stringify(selectedAmenities) })
+              .eq("id", propertyId);
+
+            if (error) throw error;
+
+            // Refresh property data
+            await fetchPropertyDetails();
+            toast.success("Amenities updated successfully");
+          } catch (err) {
+            console.error("Error updating amenities:", err);
+            toast.error(
+              "Failed to update amenities. The amenities column may not exist in the database yet."
+            );
+          }
+        }}
+      />
 
       {isEditPopupOpen && (
         <EditPropertyPopup
