@@ -109,7 +109,10 @@ export function NavUser({
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
-              <DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => router.push("/dashboard/landlord/profile")}
+                className="cursor-pointer"
+              >
                 <IconUserCircle />
                 Account
               </DropdownMenuItem>
