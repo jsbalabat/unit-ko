@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  IconArchive,
   IconCamera,
   IconChartBar,
   IconDashboard,
@@ -132,6 +133,11 @@ const data = {
     },
   ],
   documents: [
+    {
+      name: "Archived Rentals",
+      url: "/dashboard/landlord/archives",
+      icon: IconArchive,
+    },
     {
       name: "Data Library",
       url: "#",
