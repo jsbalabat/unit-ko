@@ -57,6 +57,7 @@ interface PropertyFormData {
   propertyType: string;
   occupancyStatus: "occupied" | "vacant";
   tenantName: string;
+  tenantEmail: string;
   contactNumber: string;
   propertyLocation: string;
   contractMonths: number;
@@ -83,6 +84,7 @@ interface ValidationErrors {
   unitName?: string;
   propertyType?: string;
   tenantName?: string;
+  tenantEmail?: string;
   contactNumber?: string;
   propertyLocation?: string;
   contractMonths?: string;
@@ -110,11 +112,12 @@ export function MultiStepPopup({
     propertyType: "",
     occupancyStatus: "vacant",
     tenantName: "",
+    tenantEmail: "",
     contactNumber: "",
     propertyLocation: "",
     contractMonths: 6,
     rentStartDate: "",
-    dueDay: "30th/31st - Last Day",
+    dueDay: "15",
     rentAmount: 0,
     billingSchedule: [],
   });
@@ -169,6 +172,12 @@ export function MultiStepPopup({
           "Tenant name is required for occupied properties";
       } else if (formData.tenantName.trim().length < 2) {
         newErrors.tenantName = "Tenant name must be at least 2 characters";
+      }
+
+      if (!formData.tenantEmail.trim()) {
+        newErrors.tenantEmail = "Email is required for occupied properties";
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.tenantEmail)) {
+        newErrors.tenantEmail = "Please enter a valid email address";
       }
 
       if (!formData.contactNumber.trim()) {
@@ -325,6 +334,7 @@ export function MultiStepPopup({
       propertyType: "",
       occupancyStatus: "vacant",
       tenantName: "",
+      tenantEmail: "",
       contactNumber: "",
       propertyLocation: "",
       contractMonths: 6,
@@ -350,76 +360,63 @@ export function MultiStepPopup({
       }>;
     }> = [];
 
-    const startDate = new Date(formData.rentStartDate);
+    if (!formData.rentStartDate) {
+      toast.error("Please select a rent start date first");
+      return;
+    }
+
+    // Parse the start date as local date to avoid timezone issues
+    const [startYear, startMonth, startDay] = formData.rentStartDate
+      .split("-")
+      .map(Number);
+    // const startDate = new Date(startYear, startMonth - 1, startDay);
 
     for (let i = 0; i < formData.contractMonths; i++) {
-      const dueDate = new Date(startDate);
-      dueDate.setMonth(dueDate.getMonth() + i);
+      // Create a new date for each billing period
+      const dueDate = new Date(startYear, startMonth - 1 + i, startDay);
 
-      switch (formData.dueDay) {
-        case "30th/31st - Last Day":
-          // Set to last day of month
-          dueDate.setMonth(dueDate.getMonth() + 1);
-          dueDate.setDate(0);
-          break;
-        case "15th - Mid Month":
-          // Set to 15th of the month
-          dueDate.setDate(15);
-          break;
-        case "1st - First Day":
-          // Set to 1st of the month
-          dueDate.setDate(1);
-          break;
-        default:
-          // Fallback to last day of month
-          dueDate.setMonth(dueDate.getMonth() + 1);
-          dueDate.setDate(0);
+      if (formData.dueDay === "last") {
+        dueDate.setMonth(dueDate.getMonth() + 1, 0);
+      } else {
+        const dueDay = parseInt(formData.dueDay) || 1;
+        const lastDayOfMonth = new Date(
+          dueDate.getFullYear(),
+          dueDate.getMonth() + 1,
+          0
+        ).getDate();
+
+        dueDate.setDate(Math.min(dueDay, lastDayOfMonth));
       }
 
-      // Create default expense items with random values
-      const utilities = Math.floor(Math.random() * 5000) + 1000;
-      const maintenance = Math.floor(Math.random() * 3000) + 500;
-      const misc = Math.floor(Math.random() * 2000) + 500;
+      const year = dueDate.getFullYear();
+      const month = String(dueDate.getMonth() + 1).padStart(2, "0");
+      const day = String(dueDate.getDate()).padStart(2, "0");
+      const formattedDate = `${year}-${month}-${day}`;
 
-      const otherCharges = utilities + maintenance + misc;
+      const otherCharges = 0;
+      const expenseItems: Array<{
+        id: string;
+        name: string;
+        amount: number;
+      }> = [];
 
-      // Default expense items
-      const expenseItems = [
-        {
-          id: `exp-${i}-utilities-${Date.now()}`,
-          name: "Utilities",
-          amount: utilities,
-        },
-        {
-          id: `exp-${i}-maintenance-${Date.now()}`,
-          name: "Maintenance",
-          amount: maintenance,
-        },
-        {
-          id: `exp-${i}-misc-${Date.now()}`,
-          name: "Miscellaneous",
-          amount: misc,
-        },
-      ];
-
-      // Format date for better display
-      const formattedDate = dueDate.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
+      // Determine initial status based on due date
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const status = dueDate < today ? "Overdue" : "Not Yet Due";
 
       schedule.push({
         dueDate: formattedDate,
         rentDue: formData.rentAmount,
         otherCharges: otherCharges,
         grossDue: formData.rentAmount + otherCharges,
-        status: "Good Standing",
+        status: status,
         expenseItems: expenseItems,
       });
     }
 
     setFormData((prev) => ({ ...prev, billingSchedule: schedule }));
+    toast.success("Billing schedule generated successfully");
   };
 
   const handleComplete = async () => {
@@ -428,12 +425,10 @@ export function MultiStepPopup({
       const result = await submitPropertyData(formData);
 
       if (result.success && result.data) {
-        // Show success toast
         toast.success("Property Added Successfully!", {
           description: `${formData.unitName} has been added to your portfolio.`,
         });
 
-        // Pass the original form data instead of result.data
         onComplete(formData);
 
         // Close and reset form
@@ -445,6 +440,7 @@ export function MultiStepPopup({
           propertyType: "",
           occupancyStatus: "vacant",
           tenantName: "",
+          tenantEmail: "",
           contactNumber: "",
           propertyLocation: "",
           contractMonths: 0,
@@ -454,7 +450,6 @@ export function MultiStepPopup({
           billingSchedule: [],
         });
       } else {
-        // Show error toast
         toast.error("Failed to Add Property", {
           description: result.error || "An unexpected error occurred.",
         });
@@ -471,7 +466,7 @@ export function MultiStepPopup({
 
   const updateFormData = (field: keyof PropertyFormData, value: unknown) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
-    // Clear error for this field when user starts typing
+
     if (errors[field as keyof ValidationErrors]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
@@ -487,7 +482,6 @@ export function MultiStepPopup({
   };
 
   const getStepInfo = (step: number) => {
-    // For vacant properties, adjust step display
     if (formData.occupancyStatus === "vacant") {
       switch (step) {
         case 1:
@@ -841,6 +835,32 @@ export function MultiStepPopup({
 
                           <div className="space-y-2">
                             <Label
+                              htmlFor="tenantEmail"
+                              className="text-sm font-medium"
+                            >
+                              Email Address *
+                            </Label>
+                            <Input
+                              id="tenantEmail"
+                              type="email"
+                              value={formData.tenantEmail}
+                              onChange={(e) =>
+                                updateFormData("tenantEmail", e.target.value)
+                              }
+                              placeholder="tenant@example.com"
+                              className={`h-9 text-sm ${
+                                errors.tenantEmail ? "border-destructive" : ""
+                              }`}
+                            />
+                            {errors.tenantEmail && (
+                              <p className="text-xs text-destructive">
+                                {errors.tenantEmail}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label
                               htmlFor="contactNumber"
                               className="text-sm font-medium"
                             >
@@ -988,41 +1008,87 @@ export function MultiStepPopup({
                         </p>
                       </div>
 
-                      <div className="space-y-2">
+                      <div className="space-y-2 md:col-span-2">
                         <Label
                           htmlFor="dueDay"
                           className="text-sm font-medium flex items-center gap-1.5"
                         >
                           <Calendar className="h-3.5 w-3.5 text-purple-600" />
-                          Payment Due Date *
+                          Payment Due Day of Month *
                         </Label>
-                        <Select
-                          value={formData.dueDay}
-                          onValueChange={(value) =>
-                            updateFormData("dueDay", value)
-                          }
-                        >
-                          <SelectTrigger className="h-9 text-sm">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="30th/31st - Last Day">
-                              30th/31st - Last Day of Month
-                            </SelectItem>
-                            <SelectItem value="15th - Mid Month">
-                              15th - Mid Month
-                            </SelectItem>
-                            <SelectItem value="1st - First Day">
-                              1st - First Day of Month
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
+
+                        {/* Quick Selection Buttons */}
+                        <div className="grid grid-cols-3 gap-2 mb-2">
+                          <Button
+                            type="button"
+                            variant={
+                              formData.dueDay === "1" ? "default" : "outline"
+                            }
+                            size="sm"
+                            onClick={() => updateFormData("dueDay", "1")}
+                            className="h-8 text-xs"
+                          >
+                            1st - First Day
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={
+                              formData.dueDay === "15" ? "default" : "outline"
+                            }
+                            size="sm"
+                            onClick={() => updateFormData("dueDay", "15")}
+                            className="h-8 text-xs"
+                          >
+                            15th - Mid Month
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={
+                              formData.dueDay === "last" ? "default" : "outline"
+                            }
+                            size="sm"
+                            onClick={() => updateFormData("dueDay", "last")}
+                            className="h-8 text-xs"
+                          >
+                            Last Day
+                          </Button>
+                        </div>
+
+                        {/* Custom Day Input */}
+                        <div className="flex items-center gap-2">
+                          <Input
+                            id="dueDay"
+                            type="number"
+                            value={
+                              formData.dueDay === "last" ? "" : formData.dueDay
+                            }
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (
+                                value === "" ||
+                                (parseInt(value) >= 1 && parseInt(value) <= 31)
+                              ) {
+                                updateFormData("dueDay", value);
+                              }
+                            }}
+                            placeholder="Or enter custom day (1-31)"
+                            min="1"
+                            max="31"
+                            className="h-9 text-sm flex-1"
+                            disabled={formData.dueDay === "last"}
+                          />
+                          <span className="text-xs text-muted-foreground whitespace-nowrap">
+                            day of month
+                          </span>
+                        </div>
+
                         <p className="text-xs text-muted-foreground">
-                          When monthly rent is due
+                          Select a preset or enter a custom day (1-31). Note:
+                          Day 31 will adjust to last day for shorter months.
                         </p>
                       </div>
 
-                      <div className="space-y-2">
+                      <div className="space-y-2 md:col-span-2">
                         <Label
                           htmlFor="rentAmount"
                           className="text-sm font-medium flex items-center gap-1.5"
@@ -1080,6 +1146,21 @@ export function MultiStepPopup({
                             ? new Date(formData.rentStartDate)
                             : new Date();
                           date.setMonth(date.getMonth() + i);
+
+                          // Set the due day based on selection
+                          if (formData.dueDay === "last") {
+                            date.setMonth(date.getMonth() + 1);
+                            date.setDate(0); // Last day of month
+                          } else {
+                            const dueDay = parseInt(formData.dueDay) || 1;
+                            const lastDayOfMonth = new Date(
+                              date.getFullYear(),
+                              date.getMonth() + 1,
+                              0
+                            ).getDate();
+                            date.setDate(Math.min(dueDay, lastDayOfMonth));
+                          }
+
                           return (
                             <div
                               key={i}
@@ -1088,6 +1169,7 @@ export function MultiStepPopup({
                               <Calendar className="h-3 w-3 text-purple-500" />
                               {date.toLocaleDateString("default", {
                                 month: "short",
+                                day: "numeric",
                                 year: "numeric",
                               })}
                             </div>
