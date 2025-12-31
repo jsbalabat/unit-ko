@@ -48,7 +48,7 @@ export function useProperties() {
           property_location,
           rent_amount,
           created_at,
-          tenants!inner (
+          tenants (
             id,
             tenant_name,
             contact_number,
