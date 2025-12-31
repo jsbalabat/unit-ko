@@ -15,6 +15,7 @@ import {
 import { Input } from "@/components/input";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { ModeToggle } from "@/components/mode-toggle";
 import { supabase } from "@/lib/supabase";
 import { useState } from "react";
@@ -137,6 +138,17 @@ export default function LandlordRegister() {
 
         {/* Registration Form */}
         <main className="flex flex-col items-center justify-center min-h-screen gap-6 px-4">
+          <div className="w-1/2 max-w-md">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => router.push("/auth/landlord/login")}
+              className="w-fit -ml-2 mb-2"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+          </div>
           <h1 className="text-2xl font-bold">Landlord Registration</h1>
 
           {error && (

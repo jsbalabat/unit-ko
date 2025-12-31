@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { SiteHeader } from "@/components/site-header";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -28,6 +28,7 @@ import { PropertyDetailsPopup } from "@/components/property-details-popup";
 import { useProperties } from "@/hooks/useProperties";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
+import { PropertyFilterBar } from "@/components/property-filter-bar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -42,6 +43,14 @@ export default function LandlordDashboard() {
     null
   );
   const { properties, stats, loading, error, refetch } = useProperties();
+
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedPropertyTypes, setSelectedPropertyTypes] = useState<string[]>(
+    []
+  );
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [sortBy, setSortBy] = useState("name-asc");
 
   const handlePropertyComplete = (data: { unitName?: string } | unknown) => {
     const propertyName =
@@ -62,6 +71,137 @@ export default function LandlordDashboard() {
     setEditingPropertyId(propertyId);
     setIsEditPopupOpen(true);
   };
+
+  // Get unique property types and statuses from properties
+  const availablePropertyTypes = useMemo(() => {
+    const types = properties.map((p) => p.property_type);
+    return Array.from(new Set(types)).sort();
+  }, [properties]);
+
+  const availableStatuses = useMemo(() => {
+    return ["Good Standing", "Needs Monitoring", "Problem / Urgent", "Vacant"];
+  }, []);
+
+  // Helper function to get property status (same logic as in the render)
+  const getPropertyStatus = useCallback((property: (typeof properties)[0]) => {
+    if (property.occupancy_status !== "occupied") {
+      return "Vacant";
+    }
+
+    const activeTenant = property.tenants.find((t) => t.is_active) as
+      | ((typeof property.tenants)[0] & { billing_entries?: BillingEntry[] })
+      | undefined;
+
+    if (
+      !activeTenant ||
+      !activeTenant.billing_entries ||
+      activeTenant.billing_entries.length === 0
+    ) {
+      return "Good Standing";
+    }
+
+    const currentDate = new Date();
+    const sortedEntries = [...activeTenant.billing_entries].sort(
+      (a, b) => (a.billing_period || 0) - (b.billing_period || 0)
+    );
+
+    const relevantEntries = sortedEntries.filter((entry) => {
+      const dueDate = new Date(entry.due_date);
+      return (
+        dueDate.getFullYear() < currentDate.getFullYear() ||
+        (dueDate.getFullYear() === currentDate.getFullYear() &&
+          dueDate.getMonth() <= currentDate.getMonth())
+      );
+    });
+
+    if (relevantEntries.length === 0) {
+      return "Good Standing";
+    }
+
+    const hasUrgentIssues = relevantEntries.some(
+      (entry) =>
+        entry.status.toLowerCase().includes("problem") ||
+        entry.status.toLowerCase().includes("urgent") ||
+        entry.status.toLowerCase().includes("overdue")
+    );
+
+    if (hasUrgentIssues) {
+      return "Problem / Urgent";
+    }
+
+    const needsMonitoring = relevantEntries.some(
+      (entry) =>
+        entry.status.toLowerCase().includes("monitoring") ||
+        entry.status.toLowerCase().includes("delayed") ||
+        entry.status.toLowerCase().includes("needs")
+    );
+
+    if (needsMonitoring) {
+      return "Needs Monitoring";
+    }
+
+    return "Good Standing";
+  }, []);
+
+  // Filter and sort properties
+  const filteredAndSortedProperties = useMemo(() => {
+    let filtered = [...properties];
+
+    // Apply search filter
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (p) =>
+          p.unit_name.toLowerCase().includes(search) ||
+          p.property_location.toLowerCase().includes(search) ||
+          p.property_type.toLowerCase().includes(search)
+      );
+    }
+
+    // Apply property type filter
+    if (selectedPropertyTypes.length > 0) {
+      filtered = filtered.filter((p) =>
+        selectedPropertyTypes.includes(p.property_type)
+      );
+    }
+
+    // Apply status filter
+    if (selectedStatuses.length > 0) {
+      filtered = filtered.filter((p) => {
+        const status = getPropertyStatus(p);
+        return selectedStatuses.includes(status);
+      });
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case "name-asc":
+          return a.unit_name.localeCompare(b.unit_name);
+        case "name-desc":
+          return b.unit_name.localeCompare(a.unit_name);
+        case "rent-asc":
+          return a.rent_amount - b.rent_amount;
+        case "rent-desc":
+          return b.rent_amount - a.rent_amount;
+        case "status-occupied":
+          return a.occupancy_status === "occupied" ? -1 : 1;
+        case "status-vacant":
+          return a.occupancy_status === "vacant" ? -1 : 1;
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  }, [
+    properties,
+    searchTerm,
+    selectedPropertyTypes,
+    selectedStatuses,
+    sortBy,
+    getPropertyStatus,
+  ]);
 
   // Status colors based on property state
   const getStatusStyles = (status: "occupied" | "vacant") => {
@@ -175,6 +315,22 @@ export default function LandlordDashboard() {
               </Alert>
             )}
 
+            {/* Filter Bar */}
+            {properties.length > 0 && (
+              <div className="mb-6">
+                <PropertyFilterBar
+                  totalCount={properties.length}
+                  filteredCount={filteredAndSortedProperties.length}
+                  onSearchChange={setSearchTerm}
+                  onPropertyTypeChange={setSelectedPropertyTypes}
+                  onStatusChange={setSelectedStatuses}
+                  onSortChange={setSortBy}
+                  availablePropertyTypes={availablePropertyTypes}
+                  availableStatuses={availableStatuses}
+                />
+              </div>
+            )}
+
             {/* Quick Stats Section */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 mb-6">
               <StatCard
@@ -224,7 +380,7 @@ export default function LandlordDashboard() {
             {/* Individual Property Cards Grid */}
             {properties.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
-                {properties.map((property) => {
+                {filteredAndSortedProperties.map((property) => {
                   const activeTenant = property.tenants.find(
                     (t) => t.is_active
                   ) as (typeof property.tenants)[0] & {

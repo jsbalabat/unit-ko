@@ -21,7 +21,7 @@ import { supabase } from "@/lib/supabase";
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Building, Mail, Lock, Loader2 } from "lucide-react";
+import { ArrowLeft, Building, Mail, Lock, Loader2 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const loginLandLordSchema = z.object({
@@ -240,6 +240,15 @@ export default function LandlordLogin() {
 
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="space-y-2 text-center pb-6">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push("/")}
+            className="w-fit -ml-2 mb-2"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
           <div className="flex justify-center mb-2">
             <div className="rounded-full bg-primary/10 p-2">
               <Building className="h-6 w-6 text-primary" />
