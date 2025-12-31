@@ -21,11 +21,23 @@ export interface Tenant {
   id: string
   property_id: string
   tenant_name: string
+  email: string
   contact_number: string
   contract_months: number
   rent_start_date: string
   due_day: string
   is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface Profile {
+  id: string
+  email: string
+  full_name: string
+  phone: string | null
+  role: 'landlord' | 'tenant'
+  tenant_id: string | null
   created_at: string
   updated_at: string
 }

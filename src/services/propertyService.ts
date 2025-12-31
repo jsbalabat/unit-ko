@@ -6,6 +6,7 @@ interface PropertyFormData {
   propertyType: string
   occupancyStatus: 'occupied' | 'vacant'
   tenantName: string
+  tenantEmail: string
   contactNumber: string
   propertyLocation: string
   contractMonths: number
@@ -69,6 +70,7 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
         .insert({
           property_id: property.id,
           tenant_name: formData.tenantName,
+          email: formData.tenantEmail,
           contact_number: formData.contactNumber,
           contract_months: formData.contractMonths,
           rent_start_date: formData.rentStartDate,
@@ -88,7 +90,32 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
 
       tenant = tenantData
 
-      // 3. Insert Billing Entries (only if occupied and has billing schedule)
+      // 3. Create profile entry for tenant (optional - skip if table doesn't exist)
+      if (!tenant || !tenant.id) {
+        // Cleanup: Delete the property if tenant data is invalid
+        await supabase.from('properties').delete().eq('id', property.id)
+        throw new Error('Tenant creation failed: Invalid tenant data')
+      }
+
+      // Try to create profile, but don't fail if profiles table doesn't exist yet
+      try {
+        await supabase
+          .from('profiles')
+          .insert({
+            email: formData.tenantEmail,
+            full_name: formData.tenantName,
+            phone: formData.contactNumber,
+            role: 'tenant',
+            tenant_id: tenant.id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+      } catch (profileError) {
+        // Log the error but continue - profile creation is optional until migration is run
+        console.warn('Profile creation skipped (table may not exist yet):', profileError)
+      }
+
+      // 4. Insert Billing Entries (only if occupied and has billing schedule)
       if (formData.billingSchedule.length > 0) {
         const billingRows = formData.billingSchedule.map((bill, index) => ({
           property_id: property.id,
