@@ -399,17 +399,32 @@ export function EditPropertyPopup({
 
   // Add this helper function to calculate the proper due date based on dueDay setting
   const calculateDueDate = (baseDate: Date, dueDay: string): Date => {
-    // const year = baseDate.getFullYear(); //unused
     const month = baseDate.getMonth();
-
     const result = new Date(baseDate);
 
-    if (dueDay === "1st - First Day") {
+    // Handle new numeric format (1-31) and special values
+    if (dueDay === "last" || dueDay === "30th/31st - Last Day") {
+      // Set to last day of month
+      result.setMonth(month + 1, 0);
+    } else if (dueDay === "1" || dueDay === "1st - First Day") {
       result.setDate(1);
-    } else if (dueDay === "15th - Mid Month") {
+    } else if (dueDay === "15" || dueDay === "15th - Mid Month") {
       result.setDate(15);
     } else {
-      result.setMonth(month + 1, 0);
+      // Handle custom numeric day (1-31)
+      const dayNumber = parseInt(dueDay);
+      if (!isNaN(dayNumber) && dayNumber >= 1 && dayNumber <= 31) {
+        const lastDayOfMonth = new Date(
+          result.getFullYear(),
+          month + 1,
+          0
+        ).getDate();
+        // Set to the specified day, or last day if the month doesn't have that many days
+        result.setDate(Math.min(dayNumber, lastDayOfMonth));
+      } else {
+        // Default to last day if format is unrecognized
+        result.setMonth(month + 1, 0);
+      }
     }
 
     return result;
@@ -610,6 +625,7 @@ export function EditPropertyPopup({
             const { error: billingError } = await supabase
               .from("billing_entries")
               .update({
+                due_date: entry.dueDate,
                 status: entry.status,
                 other_charges: entry.otherCharges,
                 rent_due: entry.rentDue,
@@ -993,27 +1009,86 @@ export function EditPropertyPopup({
                     </div>
 
                     <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor="dueDay">Payment Due Date</Label>
-                      <Select
-                        value={formData.dueDay}
-                        onValueChange={(value) => handleChange("dueDay", value)}
-                        disabled={isLocked}
+                      <Label
+                        htmlFor="dueDay"
+                        className="text-sm font-medium flex items-center gap-1.5"
                       >
-                        <SelectTrigger className={isLocked ? "opacity-70" : ""}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="30th/31st - Last Day">
-                            30th/31st - Last Day of Month
-                          </SelectItem>
-                          <SelectItem value="15th - Mid Month">
-                            15th - Mid Month
-                          </SelectItem>
-                          <SelectItem value="1st - First Day">
-                            1st - First Day of Month
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                        <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                        Payment Due Day of Month
+                      </Label>
+
+                      {/* Quick Selection Buttons */}
+                      <div className="grid grid-cols-3 gap-2 mb-2">
+                        <Button
+                          type="button"
+                          variant={
+                            formData.dueDay === "1" ? "default" : "outline"
+                          }
+                          size="sm"
+                          onClick={() => handleChange("dueDay", "1")}
+                          disabled={isLocked}
+                          className="h-8 text-xs"
+                        >
+                          1st - First Day
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={
+                            formData.dueDay === "15" ? "default" : "outline"
+                          }
+                          size="sm"
+                          onClick={() => handleChange("dueDay", "15")}
+                          disabled={isLocked}
+                          className="h-8 text-xs"
+                        >
+                          15th - Mid Month
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={
+                            formData.dueDay === "last" ? "default" : "outline"
+                          }
+                          size="sm"
+                          onClick={() => handleChange("dueDay", "last")}
+                          disabled={isLocked}
+                          className="h-8 text-xs"
+                        >
+                          Last Day
+                        </Button>
+                      </div>
+
+                      {/* Custom Day Input */}
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="dueDay"
+                          type="number"
+                          value={
+                            formData.dueDay === "last" ? "" : formData.dueDay
+                          }
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            if (
+                              value === "" ||
+                              (parseInt(value) >= 1 && parseInt(value) <= 31)
+                            ) {
+                              handleChange("dueDay", value);
+                            }
+                          }}
+                          placeholder="Or enter custom day (1-31)"
+                          min="1"
+                          max="31"
+                          className="h-9 text-sm flex-1"
+                          disabled={isLocked || formData.dueDay === "last"}
+                        />
+                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                          day of month
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-muted-foreground">
+                        Select a preset or enter a custom day (1-31). Note: Day
+                        31 will adjust to last day for shorter months.
+                      </p>
                     </div>
                   </div>
 
