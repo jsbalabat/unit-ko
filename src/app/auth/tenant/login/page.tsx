@@ -13,10 +13,12 @@ import {
   FormMessage,
 } from "@/components/form";
 import { Input } from "@/components/input";
-import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Lock, Mail, User } from "lucide-react";
-// import { useRouter } from "next/navigation";
+import { ArrowLeft, Mail, User } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { authenticateTenantByEmail } from "@/services/tenantService";
+import { toast } from "sonner";
 
 const formSchema = z.object({
   email: z
@@ -30,31 +32,41 @@ const formSchema = z.object({
     .max(50, {
       message: "Email must be at most 50 characters long",
     }),
-  password: z
-    .string()
-    .min(1, {
-      message: "Password must be at least 5 characters long",
-    })
-    .max(100, {
-      message: "Password must be at most 100 characters long",
-    }),
 });
 
 export default function TenantLogin() {
-  // const router = useRouter();
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       email: "",
-      password: "",
     },
   });
 
-  const onSubmit = () => {
-    // (data: LoginFormData)
-    // add more code here for the login later
-    // router.push("/dashboard/tenant");
+  const onSubmit = async (data: z.infer<typeof formSchema>) => {
+    setIsLoading(true);
+
+    try {
+      const tenantId = await authenticateTenantByEmail(data.email);
+
+      if (tenantId) {
+        // Store tenant ID in sessionStorage for the dashboard
+        sessionStorage.setItem("tenantId", tenantId);
+        sessionStorage.setItem("tenantEmail", data.email);
+
+        toast.success("Login successful! Redirecting...");
+        router.push("/dashboard/tenant");
+      } else {
+        toast.error("No tenant account found with this email address");
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      toast.error("An error occurred during login. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleFormSubmit = form.handleSubmit(onSubmit, () => {});
@@ -63,6 +75,15 @@ export default function TenantLogin() {
     <main className="flex min-h-screen items-center justify-center bg-muted/30 px-4 py-8 sm:px-6 md:py-12">
       <Card className="w-full max-w-[400px] shadow-lg">
         <CardHeader className="space-y-1 pb-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push("/")}
+            className="w-fit -ml-2 mb-2"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
           <div className="flex justify-center mb-2">
             <div className="rounded-full bg-primary/10 p-2">
               <User className="h-6 w-6 text-primary" />
@@ -97,85 +118,16 @@ export default function TenantLogin() {
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-2 text-sm">
-                      <Lock className="h-3.5 w-3.5" />
-                      Password
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        type="password"
-                        placeholder="••••••••"
-                        className="h-10"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
 
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
-                    id="remember"
-                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                  />
-                  <label
-                    htmlFor="remember"
-                    className="text-xs text-muted-foreground"
-                  >
-                    Remember me
-                  </label>
-                </div>
-                <Link
-                  href="/auth/forgot-password"
-                  className="text-xs text-primary hover:underline"
-                >
-                  Forgot password?
-                </Link>
-              </div>
-
-              <Button type="submit" className="w-full">
-                Sign In
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? "Signing In..." : "Sign In"}
               </Button>
 
-              <div className="text-center text-sm">
-                <span className="text-muted-foreground">New to Unitko? </span>
-                <Link
-                  href="/auth/tenant/register"
-                  className="text-primary hover:underline"
-                >
-                  Create an account
-                </Link>
+              <div className="text-center text-sm text-muted-foreground">
+                Enter your email address to access your tenant dashboard
               </div>
             </form>
           </Form>
-
-          <div className="relative my-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-muted"></div>
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">
-                Or continue with
-              </span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Button variant="outline" type="button" className="h-9 text-xs">
-              Google
-            </Button>
-            <Button variant="outline" type="button" className="h-9 text-xs">
-              Facebook
-            </Button>
-          </div>
         </CardContent>
       </Card>
     </main>
