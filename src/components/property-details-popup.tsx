@@ -29,6 +29,7 @@ import {
   ClipboardCheck,
   CreditCard,
   Home,
+  Archive,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
@@ -38,6 +39,8 @@ import {
   AmenitiesPopup,
   AVAILABLE_AMENITIES,
 } from "@/components/amenities-popup";
+import { PropertyResetDialog } from "@/components/property-reset-dialog";
+import { archiveAndResetProperty } from "@/services/archiveService";
 // import { ScrollArea } from "@/components/ui/scroll-area";
 
 // Define TypeScript interfaces for data structures
@@ -108,6 +111,7 @@ export function PropertyDetailsPopup({
   const [activeTab, setActiveTab] = useState("details");
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
   const [isAmenitiesPopupOpen, setIsAmenitiesPopupOpen] = useState(false);
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
 
   // Wrap fetchPropertyDetails in useCallback to prevent recreation on every render
   const fetchPropertyDetails = useCallback(async () => {
@@ -1015,15 +1019,28 @@ export function PropertyDetailsPopup({
 
         {/* Footer Actions - Fixed at bottom */}
         <div className="border-t mt-auto p-4 md:p-6 bg-background/95 backdrop-blur-sm flex justify-between items-center flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={() => setIsEditPopupOpen(true)}
-            className="gap-1.5 h-9 text-xs sm:text-sm"
-            size="sm"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            Edit Property
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setIsEditPopupOpen(true)}
+              className="gap-1.5 h-9 text-xs sm:text-sm"
+              size="sm"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Edit Property
+            </Button>
+            {property.occupancy_status === "occupied" && activeTenant && (
+              <Button
+                variant="outline"
+                onClick={() => setIsResetDialogOpen(true)}
+                className="gap-1.5 h-9 text-xs sm:text-sm border-orange-200 text-orange-600 hover:bg-orange-50 hover:text-orange-700 dark:border-orange-800 dark:text-orange-400 dark:hover:bg-orange-900/20"
+                size="sm"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Reset Property
+              </Button>
+            )}
+          </div>
 
           <Button
             onClick={onClose}
@@ -1077,6 +1094,36 @@ export function PropertyDetailsPopup({
           }}
         />
       )}
+
+      <PropertyResetDialog
+        isOpen={isResetDialogOpen}
+        onClose={() => setIsResetDialogOpen(false)}
+        onConfirm={async (remarks) => {
+          if (!activeTenant) {
+            toast.error("No active tenant found");
+            return;
+          }
+
+          const result = await archiveAndResetProperty({
+            propertyId: propertyId,
+            tenantId: activeTenant.id,
+            remarks: remarks,
+          });
+
+          if (result.success) {
+            toast.success("Property reset successfully");
+            onClose(); // Close the details popup
+            // Optionally refresh the parent component
+            if (onEdit) {
+              onEdit(propertyId);
+            }
+          } else {
+            toast.error(result.error || "Failed to reset property");
+          }
+        }}
+        propertyName={property.unit_name}
+        tenantName={activeTenant?.tenant_name || ""}
+      />
     </Dialog>
   );
 }

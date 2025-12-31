@@ -1,273 +1,432 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { toast } from "sonner";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
   DialogDescription,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/button";
-import { Input } from "@/components/ui/input";
+import { Input } from "@/components/input";
 import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Loader2, Trash2, Plus } from "lucide-react";
+import { Plus, Trash2, DollarSign, Lightbulb } from "lucide-react";
+import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 
-// Define a type for expense items
 interface ExpenseItem {
   id: string;
   name: string;
   amount: number;
 }
 
+interface SuggestedExpense {
+  name: string;
+  category: string;
+}
+
 interface OtherChargesPopupProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (totalAmount: number, items: ExpenseItem[]) => void;
-  initialTotal: number;
+  onSave: (total: number, items: ExpenseItem[]) => void;
+  initialTotal?: number;
   month: number;
   dueDate: string;
-  disabled: boolean;
-  existingItems?: ExpenseItem[]; // Add this new prop
+  existingItems?: ExpenseItem[];
+  disabled?: boolean;
 }
 
 export function OtherChargesPopup({
   isOpen,
   onClose,
   onSave,
-  initialTotal,
+  // initialTotal = 0,
   month,
   dueDate,
+  existingItems = [],
   disabled = false,
-  existingItems = [], // Default to empty array
 }: OtherChargesPopupProps) {
-  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [expenseItems, setExpenseItems] =
+    useState<ExpenseItem[]>(existingItems);
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemAmount, setNewItemAmount] = useState("");
+  const [showCustomForm, setShowCustomForm] = useState(false);
 
-  // Initialize expenses with existing items or default items
+  // Predefined expense suggestions
+  const suggestedExpenses: SuggestedExpense[] = [
+    {
+      name: "Utilities (Water & Electricity)",
+      category: "Utilities",
+    },
+    {
+      name: "Internet & Cable",
+      category: "Utilities",
+    },
+    {
+      name: "Maintenance Fee",
+      category: "Maintenance",
+    },
+    {
+      name: "Homeowners Association",
+      category: "Fees",
+    },
+    {
+      name: "Parking Fee",
+      category: "Fees",
+    },
+    {
+      name: "Security Service",
+      category: "Services",
+    },
+    {
+      name: "Garbage Collection",
+      category: "Services",
+    },
+    {
+      name: "Property Insurance",
+      category: "Insurance",
+    },
+    {
+      name: "Pest Control",
+      category: "Maintenance",
+    },
+    {
+      name: "Cleaning Service",
+      category: "Services",
+    },
+  ];
+
   useEffect(() => {
-    if (isOpen) {
-      // If we have existing items for this billing entry, use those
-      if (existingItems.length > 0) {
-        console.log(
-          `Loading ${existingItems.length} existing expense items for month ${month}`
-        );
-        setExpenses(existingItems.map((item) => ({ ...item }))); // Deep copy
-      }
-      // Otherwise, create a default item based on the initial total
-      else if (initialTotal > 0) {
-        const defaultExpense = {
-          id: `exp-${month}-${Date.now()}`, // Include month in ID for better uniqueness
-          name: "Other charges",
-          amount: initialTotal,
-        };
-        setExpenses([defaultExpense]);
-      }
-      // For new entries with no amount, start with an empty item
-      else {
-        setExpenses([
-          {
-            id: `exp-${month}-${Date.now()}`, // Include month in ID
-            name: "",
-            amount: 0,
-          },
-        ]);
-      }
+    if (existingItems.length > 0) {
+      setExpenseItems(existingItems);
     }
-  }, [isOpen, initialTotal, existingItems, month]);
+  }, [existingItems]);
 
-  // Calculate the total of all expenses
-  const totalAmount = expenses.reduce((sum, item) => sum + item.amount, 0);
-
-  // Add a new expense item
-  const addExpenseItem = () => {
-    const newItemId = `exp-${month}-${Date.now()}-${Math.random()
-      .toString(36)
-      .substring(2, 9)}`;
-    console.log("Adding new expense item with ID:", newItemId);
-
-    setExpenses([
-      ...expenses,
-      {
-        id: newItemId,
-        name: "",
-        amount: 0,
-      },
-    ]);
+  const calculateTotal = () => {
+    return expenseItems.reduce((sum, item) => sum + item.amount, 0);
   };
 
-  // Remove an expense item
-  const removeExpenseItem = (id: string) => {
-    // Don't allow removing the last item
-    if (expenses.length <= 1) {
-      toast.error("You must have at least one expense item");
+  const addSuggestedExpense = (suggestion: SuggestedExpense) => {
+    const newItem: ExpenseItem = {
+      id: `exp-${Date.now()}-${Math.random()}`,
+      name: suggestion.name,
+      amount: 0,
+    };
+    setExpenseItems([...expenseItems, newItem]);
+    toast.success("Expense added", {
+      description: `${suggestion.name} added. Please enter the amount.`,
+    });
+  };
+
+  const addCustomExpense = () => {
+    if (!newItemName.trim()) {
+      toast.error("Please enter an expense name");
       return;
     }
 
-    setExpenses(expenses.filter((item) => item.id !== id));
+    const amount = parseFloat(newItemAmount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
+
+    const newItem: ExpenseItem = {
+      id: `exp-${Date.now()}-${Math.random()}`,
+      name: newItemName.trim(),
+      amount: amount,
+    };
+
+    setExpenseItems([...expenseItems, newItem]);
+    setNewItemName("");
+    setNewItemAmount("");
+    setShowCustomForm(false);
+
+    toast.success("Custom expense added", {
+      description: `${newItem.name} added successfully`,
+    });
   };
 
-  // Update an expense item
-  const updateExpenseItem = (
-    id: string,
-    field: "name" | "amount",
-    value: string | number
-  ) => {
-    setExpenses(
-      expenses.map((item) => {
-        if (item.id === id) {
-          return {
-            ...item,
-            [field]: field === "amount" ? Number(value) || 0 : value,
-          };
-        }
-        return item;
-      })
+  const updateExpenseAmount = (id: string, amount: number) => {
+    setExpenseItems(
+      expenseItems.map((item) =>
+        item.id === id ? { ...item, amount: Math.max(0, amount) } : item
+      )
     );
   };
 
-  // Save changes
+  const removeExpense = (id: string) => {
+    setExpenseItems(expenseItems.filter((item) => item.id !== id));
+    toast.info("Expense removed");
+  };
+
   const handleSave = () => {
-    // Validate that all expenses have names
-    const hasEmptyNames = expenses.some((item) => !item.name.trim());
-    if (hasEmptyNames) {
-      toast.error("All expense items must have a name");
+    if (expenseItems.length === 0) {
+      toast.error("Please add at least one expense item");
       return;
     }
 
-    setIsSubmitting(true);
-
-    try {
-      // Call the onSave callback with the total amount and expense items
-      onSave(totalAmount, expenses);
-
-      // Show success message
-      toast.success("Other charges updated successfully");
-
-      // Close the dialog
-      onClose();
-    } catch (error) {
-      toast.error("Failed to save changes");
-      console.error("Error saving other charges:", error);
-    } finally {
-      setIsSubmitting(false);
-    }
+    const total = calculateTotal();
+    onSave(total, expenseItems);
   };
 
+  const handleCancel = () => {
+    setExpenseItems(existingItems);
+    setNewItemName("");
+    setNewItemAmount("");
+    setShowCustomForm(false);
+    onClose();
+  };
+
+  // Filter out already added expenses from suggestions
+  const availableSuggestions = suggestedExpenses.filter(
+    (suggestion) => !expenseItems.some((item) => item.name === suggestion.name)
+  );
+
+  // Group suggestions by category
+  const groupedSuggestions = availableSuggestions.reduce((acc, suggestion) => {
+    if (!acc[suggestion.category]) {
+      acc[suggestion.category] = [];
+    }
+    acc[suggestion.category].push(suggestion);
+    return acc;
+  }, {} as Record<string, SuggestedExpense[]>);
+
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[600px]">
-        <DialogHeader>
-          <DialogTitle className="text-xl">Edit Other Charges</DialogTitle>
-          <DialogDescription>
-            Month {month} - Due on {dueDate}
+    <Dialog open={isOpen} onOpenChange={handleCancel}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+        <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3">
+          <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
+            <DollarSign className="h-5 w-5 text-primary" />
+            Other Charges - Month {month}
+          </DialogTitle>
+          <DialogDescription className="text-xs sm:text-sm">
+            Due Date: {dueDate}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {/* Expenses Table */}
-          <div className="border rounded-md">
-            <table className="w-full">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left py-2 px-4 font-medium">
-                    Description
-                  </th>
-                  <th className="text-left py-2 px-4 font-medium">Amount</th>
-                  <th className="w-10 py-2 px-2"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {expenses.map((item) => (
-                  <tr key={item.id} className="border-t">
-                    <td className="py-2 px-4">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-6">
+          {/* Suggested Expenses Section */}
+          {availableSuggestions.length > 0 && (
+            <div className="mb-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Lightbulb className="h-4 w-4 text-amber-500" />
+                <h3 className="text-sm font-semibold">Suggested Expenses</h3>
+                <Badge variant="outline" className="text-xs">
+                  {availableSuggestions.length} available
+                </Badge>
+              </div>
+
+              <div className="space-y-3">
+                {Object.entries(groupedSuggestions).map(
+                  ([category, suggestions]) => (
+                    <div key={category}>
+                      <p className="text-xs font-medium text-muted-foreground mb-2">
+                        {category}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {suggestions.map((suggestion) => (
+                          <Button
+                            key={suggestion.name}
+                            variant="outline"
+                            size="sm"
+                            onClick={() => addSuggestedExpense(suggestion)}
+                            disabled={disabled}
+                            className="justify-start h-auto py-2 px-3 hover:bg-primary/5"
+                          >
+                            <span className="text-xs text-left">
+                              {suggestion.name}
+                            </span>
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            </div>
+          )}
+
+          <Separator className="my-4" />
+
+          {/* Custom Expense Section */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold">Custom Expense</h3>
+              {!showCustomForm && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowCustomForm(true)}
+                  disabled={disabled}
+                  className="text-xs"
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  Add Custom
+                </Button>
+              )}
+            </div>
+
+            {showCustomForm && (
+              <Card className="mb-4 border-dashed">
+                <CardContent className="p-3 sm:p-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="customName" className="text-xs">
+                        Expense Name
+                      </Label>
                       <Input
-                        value={item.name}
-                        onChange={(e) =>
-                          updateExpenseItem(item.id, "name", e.target.value)
-                        }
-                        placeholder="e.g., Utilities, Maintenance"
+                        id="customName"
+                        value={newItemName}
+                        onChange={(e) => setNewItemName(e.target.value)}
+                        placeholder="e.g., Pool Maintenance"
+                        className="h-8 text-sm"
                         disabled={disabled}
                       />
-                    </td>
-                    <td className="py-2 px-4">
-                      <div className="relative">
-                        <span className="absolute left-3 top-2.5">₱</span>
-                        <Input
-                          type="number"
-                          className="pl-7"
-                          value={item.amount || ""}
-                          onChange={(e) =>
-                            updateExpenseItem(item.id, "amount", e.target.value)
-                          }
-                          placeholder="0"
-                          disabled={disabled}
-                        />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="customAmount" className="text-xs">
+                        Amount (₱)
+                      </Label>
+                      <Input
+                        id="customAmount"
+                        type="number"
+                        value={newItemAmount}
+                        onChange={(e) => setNewItemAmount(e.target.value)}
+                        placeholder="0.00"
+                        className="h-8 text-sm"
+                        disabled={disabled}
+                      />
+                    </div>
+                  </div>
+                  <div className=" gap-2 mt-4 flex">
+                    <Button
+                      size="sm"
+                      onClick={addCustomExpense}
+                      disabled={disabled}
+                      className="p-1"
+                    >
+                      <Plus />
+                      Add
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setShowCustomForm(false);
+                        setNewItemName("");
+                        setNewItemAmount("");
+                      }}
+                      className="text-s h-8"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          <Separator className="my-4" />
+
+          {/* Current Expenses List */}
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold mb-3">
+              Added Expenses ({expenseItems.length})
+            </h3>
+
+            {expenseItems.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <p className="text-sm">No expenses added yet</p>
+                <p className="text-xs mt-1">
+                  Add suggested or custom expenses above
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {expenseItems.map((item) => (
+                  <Card key={item.id} className="shadow-sm">
+                    <CardContent className="pl-4 pr-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {item.name}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="relative w-28 sm:w-32">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                              ₱
+                            </span>
+                            <Input
+                              type="number"
+                              value={item.amount}
+                              onChange={(e) =>
+                                updateExpenseAmount(
+                                  item.id,
+                                  parseFloat(e.target.value) || 0
+                                )
+                              }
+                              className="h-8 text-sm pl-6 pr-2"
+                              disabled={disabled}
+                            />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeExpense(item.id)}
+                            disabled={disabled}
+                            className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                    </td>
-                    <td className="py-2 px-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeExpenseItem(item.id)}
-                        disabled={disabled || expenses.length <= 1}
-                        className="h-8 w-8 p-0"
-                      >
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
-                    </td>
-                  </tr>
+                    </CardContent>
+                  </Card>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            )}
           </div>
 
-          {/* Add New Item Button */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={addExpenseItem}
-            disabled={disabled}
-            className="w-full flex items-center justify-center gap-1"
-          >
-            <Plus className="h-4 w-4" />
-            Add Expense Item
-          </Button>
-
-          <Separator />
-
-          {/* Total */}
-          <div className="flex justify-between items-center px-2">
-            <Label className="font-medium text-base">
-              Total Other Charges:
-            </Label>
-            <span className="text-xl font-bold">
-              ₱{totalAmount.toLocaleString()}
-            </span>
-          </div>
+          {/* Total Summary */}
+          {expenseItems.length > 0 && (
+            <Card className="bg-primary/5 border-primary/20">
+              <CardContent className="pl-4 pr-4 py-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-semibold">
+                    Total Other Charges
+                  </span>
+                  <span className="text-lg font-bold text-primary">
+                    ₱{calculateTotal().toLocaleString()}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={disabled || isSubmitting}
-            className="gap-2"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              "Save Changes"
-            )}
-          </Button>
+        <DialogFooter className="px-4 sm:px-6 py-3 sm:py-4 border-t bg-muted/20">
+          <div className="flex gap-2 w-full sm:w-auto">
+            <Button
+              variant="outline"
+              onClick={handleCancel}
+              className="flex-1 sm:flex-none text-xs sm:text-sm"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              disabled={disabled || expenseItems.length === 0}
+              className="flex-1 sm:flex-none text-xs sm:text-sm"
+            >
+              Save Changes
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
