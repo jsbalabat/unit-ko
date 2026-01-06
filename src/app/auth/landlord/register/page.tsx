@@ -42,6 +42,19 @@ const registerLandlordSchema = z
     username: z.string().min(3, {
       message: "Username must be at least 3 characters long",
     }),
+    phone: z
+      .string()
+      .optional()
+      .refine(
+        (val) =>
+          !val ||
+          /^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/.test(
+            val
+          ),
+        {
+          message: "Invalid phone number format",
+        }
+      ),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords don't match",
@@ -63,6 +76,7 @@ export default function LandlordRegister() {
       username: "",
       password: "",
       confirmPassword: "",
+      phone: "",
     },
     mode: "onSubmit",
   });
@@ -72,36 +86,79 @@ export default function LandlordRegister() {
     setError(null);
 
     try {
-      // Step 1: Create user account (profile automatically created by trigger)
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-      });
+      // Check if user already exists
+      const { data: existingUser } = await supabase
+        .from("profiles")
+        .select("email")
+        .eq("email", data.email)
+        .maybeSingle();
 
-      if (authError) {
-        setError(authError.message);
+      // Only show error if email exists, ignore "not found" errors
+      if (existingUser) {
+        setError(
+          "This email is already registered. Please use a different email or login."
+        );
         return;
       }
 
-      if (authData.user) {
-        // Step 2: Update the profile with username and ensure role is landlord
-        // The basic profile is already created by the database trigger
-        const { error: updateError } = await supabase
-          .from("profiles")
-          .update({
+      // Step 1: Create user account
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+          data: {
             username: data.username,
-            role: "landlord", // Ensure role is set correctly
-          })
-          .eq("id", authData.user.id);
+            role: "landlord",
+          },
+        },
+      });
 
-        if (updateError) {
-          console.error("Profile update error:", updateError);
-          setError(`Failed to update profile: ${updateError.message}`);
-          return;
+      if (authError) {
+        console.error("Auth error:", authError);
+
+        // Provide user-friendly error messages
+        if (
+          authError.message.includes("already registered") ||
+          authError.message.includes("invalid")
+        ) {
+          setError(
+            "This email is already registered. Please use a different email or try logging in."
+          );
+        } else if (authError.message.includes("weak")) {
+          setError("Password is too weak. Please use a stronger password.");
+        } else {
+          setError(`Registration failed: ${authError.message}`);
         }
-
-        setShowConfirmDialog(true);
+        return;
       }
+
+      if (!authData.user) {
+        setError("Registration failed. No user data received.");
+        return;
+      }
+
+      // Step 2: Wait for trigger to create profile, then update it with user details
+      // The database trigger automatically creates a profile when a user is created
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      // Update the profile with full_name and phone
+      // The trigger already set id, email, and role
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({
+          full_name: data.username,
+          phone: data.phone || null,
+        })
+        .eq("id", authData.user.id);
+
+      if (updateError) {
+        console.error("Profile update error:", updateError);
+        setError(`Failed to update profile: ${updateError.message}`);
+        return;
+      }
+
+      setShowConfirmDialog(true);
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "An unexpected error occurred";
@@ -190,6 +247,24 @@ export default function LandlordRegister() {
                       <Input
                         type="text"
                         placeholder="JuanDelaCruz"
+                        disabled={isLoading}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Phone Number (Optional)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="tel"
+                        placeholder="+63 912 345 6789"
                         disabled={isLoading}
                         {...field}
                       />

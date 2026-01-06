@@ -189,6 +189,26 @@ export function PropertyDetailsPopup({
     return "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800/50 dark:text-gray-300 dark:border-gray-700/50";
   };
 
+  // Convert billing status to payment display status
+  const getPaymentDisplayStatus = (status: string): string => {
+    const lowerStatus = status.toLowerCase();
+    // Good Standing = Paid
+    if (lowerStatus === "good standing" || lowerStatus.includes("collected")) {
+      return "Paid";
+    }
+    // All others = Pending
+    return "Pending";
+  };
+
+  // Get color class for payment display status
+  const getPaymentStatusColorClass = (displayStatus: string): string => {
+    if (displayStatus === "Paid") {
+      return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-800/50";
+    }
+    // Pending
+    return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-800/50";
+  };
+
   const formatCurrency = (amount: number): string => {
     return new Intl.NumberFormat("en-PH", {
       style: "currency",
@@ -344,32 +364,55 @@ export function PropertyDetailsPopup({
 
   const activeTenant = property.tenants?.find((t) => t.is_active);
   const billingEntries = activeTenant?.billing_entries || [];
-  const upcomingPayments = billingEntries
-    .filter((entry) => entry.status === "Not Yet Due")
-    .sort(
-      (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
-    );
+
+  const currentDate = new Date();
+  currentDate.setHours(0, 0, 0, 0);
+
+  // Recent Transactions: Paid entries (Good Standing) that are past or current
   const recentPayments = billingEntries
-    .filter(
-      (entry) =>
-        entry.status.includes("Collected") || entry.status === "Delayed"
-    )
+    .filter((entry) => {
+      const dueDate = new Date(entry.due_date);
+      dueDate.setHours(0, 0, 0, 0);
+      const isPaid = entry.status === "Good Standing";
+      const isPastOrCurrent = dueDate <= currentDate;
+      return isPaid && isPastOrCurrent;
+    })
     .sort(
       (a, b) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime()
     )
     .slice(0, 5);
 
+  // Upcoming Payments: Unpaid entries (not Good Standing) that are current or future
+  const upcomingPayments = billingEntries
+    .filter((entry) => {
+      const dueDate = new Date(entry.due_date);
+      dueDate.setHours(0, 0, 0, 0);
+      const isUnpaid = entry.status !== "Good Standing";
+      const isCurrentOrFuture = dueDate >= currentDate;
+      return isUnpaid && isCurrentOrFuture;
+    })
+    .sort(
+      (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+    );
+
   // Calculate financial summaries
+  // Total Revenue: All paid entries (Good Standing)
   const totalRevenue = billingEntries
-    .filter((entry) => entry.status.includes("Collected"))
+    .filter((entry) => entry.status === "Good Standing")
     .reduce((sum, entry) => sum + entry.gross_due, 0);
 
+  // Pending Payments: All unpaid entries except Problem/Urgent (Needs Monitoring, Neutral/Administrative)
   const pendingPayments = billingEntries
-    .filter((entry) => entry.status === "Not Yet Due")
+    .filter(
+      (entry) =>
+        entry.status === "Needs Monitoring" ||
+        entry.status === "Neutral / Administrative"
+    )
     .reduce((sum, entry) => sum + entry.gross_due, 0);
 
+  // Overdue Amount: Problem/Urgent entries
   const overdueAmount = billingEntries
-    .filter((entry) => entry.status === "Overdue" || entry.status === "Delayed")
+    .filter((entry) => entry.status === "Problem / Urgent")
     .reduce((sum, entry) => sum + entry.gross_due, 0);
 
   return (
@@ -588,29 +631,44 @@ export function PropertyDetailsPopup({
                       </h3>
                       {upcomingPayments.length > 0 ? (
                         <div className="space-y-2 md:space-y-3">
-                          {upcomingPayments.slice(0, 3).map((payment) => (
-                            <div
-                              key={payment.id}
-                              className="flex justify-between items-center p-2 md:p-3 bg-muted/30 rounded-lg border"
-                            >
-                              <div className="flex items-center">
-                                <Clock className="h-3.5 w-3.5 text-blue-500 mr-1.5 flex-shrink-0" />
-                                <div>
-                                  <p className="text-xs md:text-sm font-medium">
-                                    {formatDueDate(payment.due_date)}
-                                  </p>
-                                  <p className="text-[10px] md:text-xs text-muted-foreground">
-                                    Due in{" "}
-                                    {calculateDaysUntilDue(payment.due_date)}{" "}
-                                    days
-                                  </p>
+                          {upcomingPayments.slice(0, 3).map((payment) => {
+                            const displayStatus = getPaymentDisplayStatus(
+                              payment.status
+                            );
+                            return (
+                              <div
+                                key={payment.id}
+                                className="flex justify-between items-center p-2 md:p-3 bg-muted/30 rounded-lg border"
+                              >
+                                <div className="flex items-center">
+                                  <Clock className="h-3.5 w-3.5 text-blue-500 mr-1.5 flex-shrink-0" />
+                                  <div>
+                                    <p className="text-xs md:text-sm font-medium">
+                                      {formatDueDate(payment.due_date)}
+                                    </p>
+                                    <p className="text-[10px] md:text-xs text-muted-foreground">
+                                      Due in{" "}
+                                      {calculateDaysUntilDue(payment.due_date)}{" "}
+                                      days
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-xs md:text-sm font-bold block">
+                                    {formatCurrency(payment.gross_due)}
+                                  </span>
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-[10px] md:text-xs mt-1 ${getPaymentStatusColorClass(
+                                      displayStatus
+                                    )}`}
+                                  >
+                                    {displayStatus}
+                                  </Badge>
                                 </div>
                               </div>
-                              <span className="text-xs md:text-sm font-bold">
-                                {formatCurrency(payment.gross_due)}
-                              </span>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center h-20 md:h-24 text-center text-muted-foreground">
@@ -665,11 +723,11 @@ export function PropertyDetailsPopup({
                                   </span>
                                   <Badge
                                     variant="outline"
-                                    className={`block mt-1 text-[10px] md:text-xs ${getStatusColorClass(
-                                      payment.status
+                                    className={`block mt-1 text-[10px] md:text-xs ${getPaymentStatusColorClass(
+                                      getPaymentDisplayStatus(payment.status)
                                     )}`}
                                   >
-                                    {payment.status}
+                                    {getPaymentDisplayStatus(payment.status)}
                                   </Badge>
 
                                   {/* Expense items tooltip - more mobile friendly */}

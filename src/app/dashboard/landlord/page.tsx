@@ -536,16 +536,14 @@ export default function LandlordDashboard() {
                             {occupancyText}
                           </span>
                         </div>
-                        {activeTenant && (
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs text-muted-foreground">
-                              Tenant
-                            </span>
-                            <span className="font-medium text-sm truncate max-w-[150px]">
-                              {activeTenant.tenant_name}
-                            </span>
-                          </div>
-                        )}
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">
+                            Tenant
+                          </span>
+                          <span className="font-medium text-sm truncate max-w-[150px]">
+                            {activeTenant ? activeTenant.tenant_name : "-"}
+                          </span>
+                        </div>
                         <div className="flex justify-between items-center">
                           <span className="text-xs text-muted-foreground">
                             Status

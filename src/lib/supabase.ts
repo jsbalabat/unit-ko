@@ -34,7 +34,8 @@ export interface Tenant {
 export interface Profile {
   id: string
   email: string
-  full_name: string
+  full_name: string | null
+  username: string | null
   phone: string | null
   role: 'landlord' | 'tenant'
   tenant_id: string | null
