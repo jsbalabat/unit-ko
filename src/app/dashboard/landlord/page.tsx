@@ -2,8 +2,6 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { SiteHeader } from "@/components/site-header";
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { AppSidebar } from "@/components/app-sidebar";
 import {
   Card,
   CardContent,
@@ -259,352 +257,327 @@ export default function LandlordDashboard() {
 
   if (loading) {
     return (
-      <SidebarProvider
-        style={
-          {
-            "--sidebar-width": "calc(var(--spacing) * 72)",
-            "--header-height": "calc(var(--spacing) * 12)",
-          } as React.CSSProperties
-        }
-      >
-        <AppSidebar />
-        <SidebarInset>
-          <SiteHeader />
-          <main className="h-[calc(100vh-var(--header-height))] flex items-center justify-center">
-            <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 rounded-lg animate-pulse">
-              <Loader2 className="h-5 w-5 animate-spin" />
-              <span className="font-medium">Loading your properties...</span>
-            </div>
-          </main>
-        </SidebarInset>
-      </SidebarProvider>
+      <>
+        <SiteHeader />
+        <main className="h-[calc(100vh-4rem)] flex items-center justify-center">
+          <div className="flex items-center gap-3 px-4 py-3 bg-muted/30 rounded-lg animate-pulse">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="font-medium">Loading your properties...</span>
+          </div>
+        </main>
+      </>
     );
   }
 
   return (
-    <SidebarProvider
-      style={
-        {
-          "--sidebar-width": "calc(var(--spacing) * 72)",
-          "--header-height": "calc(var(--spacing) * 12)",
-        } as React.CSSProperties
-      }
-    >
-      <AppSidebar />
-      <SidebarInset>
-        <SiteHeader />
-        <main className="pb-12">
-          <div className="container mx-auto px-4 md:px-6 py-6 max-w-7xl">
-            {/* Header Section */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
-              <div>
-                <h1 className="text-2xl md:text-3xl font-bold">
-                  Property Dashboard
-                </h1>
-                <p className="text-muted-foreground mt-1">
-                  Manage your properties and rental agreements
-                </p>
-              </div>
+    <>
+      <SiteHeader />
+      <main className="pb-12">
+        <div className="container mx-auto px-4 md:px-6 py-6 max-w-7xl">
+          {/* Header Section */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold">
+                Property Dashboard
+              </h1>
+              <p className="text-muted-foreground mt-1">
+                Manage your properties and rental agreements
+              </p>
             </div>
+          </div>
 
-            {/* Error Alert */}
-            {error && (
-              <Alert variant="destructive" className="mb-6">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
+          {/* Error Alert */}
+          {error && (
+            <Alert variant="destructive" className="mb-6">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
 
-            {/* Filter Bar */}
-            {properties.length > 0 && (
-              <div className="mb-6">
-                <PropertyFilterBar
-                  totalCount={properties.length}
-                  filteredCount={filteredAndSortedProperties.length}
-                  onSearchChange={setSearchTerm}
-                  onPropertyTypeChange={setSelectedPropertyTypes}
-                  onStatusChange={setSelectedStatuses}
-                  onSortChange={setSortBy}
-                  availablePropertyTypes={availablePropertyTypes}
-                  availableStatuses={availableStatuses}
-                />
-              </div>
-            )}
-
-            {/* Quick Stats Section */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 mb-6">
-              <StatCard
-                title="Properties"
-                value={stats.totalProperties}
-                icon={<Home className="h-4 w-4" />}
-                trend="neutral"
-              />
-              <StatCard
-                title="Occupied"
-                value={stats.activeRentals}
-                icon={<Building className="h-4 w-4" />}
-                trend="positive"
-              />
-              <StatCard
-                title="Vacant"
-                value={stats.vacantProperties}
-                icon={<Building className="h-4 w-4" />}
-                trend={stats.vacantProperties > 0 ? "warning" : "neutral"}
-              />
-              <StatCard
-                title="Revenue"
-                value={`₱${stats.totalRevenue.toLocaleString()}`}
-                icon={<Building className="h-4 w-4" />}
-                trend="positive"
+          {/* Filter Bar */}
+          {properties.length > 0 && (
+            <div className="mb-6">
+              <PropertyFilterBar
+                totalCount={properties.length}
+                filteredCount={filteredAndSortedProperties.length}
+                onSearchChange={setSearchTerm}
+                onPropertyTypeChange={setSelectedPropertyTypes}
+                onStatusChange={setSelectedStatuses}
+                onSortChange={setSortBy}
+                availablePropertyTypes={availablePropertyTypes}
+                availableStatuses={availableStatuses}
               />
             </div>
+          )}
 
-            {/* Empty State */}
-            {properties.length === 0 && !loading && (
-              <div className="text-center py-10 px-4 border rounded-xl bg-muted/20 mb-6">
-                <Building className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                <h3 className="text-lg font-semibold mb-2">
-                  No Properties Yet
-                </h3>
-                <p className="text-muted-foreground max-w-md mx-auto mb-4">
-                  Start building your property portfolio by adding your first
-                  property.
-                </p>
-                <Button onClick={() => setIsAddPopupOpen(true)}>
-                  <Plus className="mr-1.5 h-4 w-4" />
-                  Add Your First Property
-                </Button>
-              </div>
-            )}
+          {/* Quick Stats Section */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 mb-6">
+            <StatCard
+              title="Properties"
+              value={stats.totalProperties}
+              icon={<Home className="h-4 w-4" />}
+              trend="neutral"
+            />
+            <StatCard
+              title="Occupied"
+              value={stats.activeRentals}
+              icon={<Building className="h-4 w-4" />}
+              trend="positive"
+            />
+            <StatCard
+              title="Vacant"
+              value={stats.vacantProperties}
+              icon={<Building className="h-4 w-4" />}
+              trend={stats.vacantProperties > 0 ? "warning" : "neutral"}
+            />
+            <StatCard
+              title="Revenue"
+              value={`₱${stats.totalRevenue.toLocaleString()}`}
+              icon={<Building className="h-4 w-4" />}
+              trend="positive"
+            />
+          </div>
 
-            {/* Individual Property Cards Grid */}
-            {properties.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
-                {filteredAndSortedProperties.map((property) => {
-                  const activeTenant = property.tenants.find(
-                    (t) => t.is_active
-                  ) as (typeof property.tenants)[0] & {
-                    billing_entries?: BillingEntry[];
-                  };
+          {/* Empty State */}
+          {properties.length === 0 && !loading && (
+            <div className="text-center py-10 px-4 border rounded-xl bg-muted/20 mb-6">
+              <Building className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
+              <h3 className="text-lg font-semibold mb-2">No Properties Yet</h3>
+              <p className="text-muted-foreground max-w-md mx-auto mb-4">
+                Start building your property portfolio by adding your first
+                property.
+              </p>
+              <Button onClick={() => setIsAddPopupOpen(true)}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                Add Your First Property
+              </Button>
+            </div>
+          )}
 
-                  // Get the status for this property
-                  const propertyStatus = (() => {
-                    if (
-                      property.occupancy_status !== "occupied" ||
-                      !activeTenant
-                    ) {
-                      return {
-                        text: "Vacant",
-                        color: getStatusColor("Neutral / Administrative"),
-                      };
-                    }
+          {/* Individual Property Cards Grid */}
+          {properties.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
+              {filteredAndSortedProperties.map((property) => {
+                const activeTenant = property.tenants.find(
+                  (t) => t.is_active
+                ) as (typeof property.tenants)[0] & {
+                  billing_entries?: BillingEntry[];
+                };
 
-                    // If no billing entries, return Good Standing
-                    if (
-                      !activeTenant.billing_entries ||
-                      activeTenant.billing_entries.length === 0
-                    ) {
-                      return {
-                        text: "Good Standing",
-                        color: getStatusColor("Good Standing"),
-                      };
-                    }
+                // Get the status for this property
+                const propertyStatus = (() => {
+                  if (
+                    property.occupancy_status !== "occupied" ||
+                    !activeTenant
+                  ) {
+                    return {
+                      text: "Vacant",
+                      color: getStatusColor("Neutral / Administrative"),
+                    };
+                  }
 
-                    // Get current date for comparison
-                    const currentDate = new Date();
-
-                    // Sort billing entries by billing period (month number)
-                    const sortedEntries = [
-                      ...activeTenant.billing_entries,
-                    ].sort(
-                      (a, b) =>
-                        (a.billing_period || 0) - (b.billing_period || 0)
-                    );
-
-                    // Find entries up to the current month
-                    const relevantEntries = sortedEntries.filter((entry) => {
-                      const dueDate = new Date(entry.due_date);
-                      // Include entries for this month and previous months
-                      return (
-                        dueDate.getFullYear() < currentDate.getFullYear() ||
-                        (dueDate.getFullYear() === currentDate.getFullYear() &&
-                          dueDate.getMonth() <= currentDate.getMonth())
-                      );
-                    });
-
-                    // If no relevant entries (all future), show Good Standing
-                    if (relevantEntries.length === 0) {
-                      return {
-                        text: "Good Standing",
-                        color: getStatusColor("Good Standing"),
-                      };
-                    }
-
-                    // Check if any relevant entries have Problem/Urgent status
-                    const hasUrgentIssues = relevantEntries.some(
-                      (entry) =>
-                        entry.status.toLowerCase().includes("problem") ||
-                        entry.status.toLowerCase().includes("urgent") ||
-                        entry.status.toLowerCase().includes("overdue")
-                    );
-
-                    if (hasUrgentIssues) {
-                      return {
-                        text: "Problem / Urgent",
-                        color: getStatusColor("Problem / Urgent"),
-                      };
-                    }
-
-                    // Check if any relevant entries need monitoring
-                    const needsMonitoring = relevantEntries.some(
-                      (entry) =>
-                        entry.status.toLowerCase().includes("monitoring") ||
-                        entry.status.toLowerCase().includes("delayed") ||
-                        entry.status.toLowerCase().includes("needs")
-                    );
-
-                    if (needsMonitoring) {
-                      return {
-                        text: "Needs Monitoring",
-                        color: getStatusColor("Needs Monitoring"),
-                      };
-                    }
-
-                    // If all relevant entries are in Good Standing, return Good Standing
+                  // If no billing entries, return Good Standing
+                  if (
+                    !activeTenant.billing_entries ||
+                    activeTenant.billing_entries.length === 0
+                  ) {
                     return {
                       text: "Good Standing",
                       color: getStatusColor("Good Standing"),
                     };
-                  })();
+                  }
 
-                  const occupancyText =
-                    property.occupancy_status === "occupied"
-                      ? `${activeTenant ? 1 : 0}/1 unit`
-                      : "0/1 unit";
+                  // Get current date for comparison
+                  const currentDate = new Date();
 
-                  return (
-                    <Card
-                      key={property.id}
-                      className="overflow-hidden transition-all hover:shadow-md"
-                    >
-                      <div
-                        className={cn(
-                          "h-1.5",
-                          getStatusStyles(property.occupancy_status).indicator
-                        )}
-                      />
-                      <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
-                          <CardTitle className="text-lg line-clamp-1">
-                            {property.unit_name}
-                          </CardTitle>
-                          <Building
-                            className={`h-5 w-5 flex-shrink-0 ${getPropertyIcon(
-                              property.property_type
-                            )}`}
-                          />
-                        </div>
-                        <CardDescription className="flex items-center text-xs">
-                          <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
-                          <span className="truncate">
-                            {property.property_location}
-                          </span>
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-2.5 pb-3">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs text-muted-foreground">
-                            Monthly Rent
-                          </span>
-                          <span className="font-medium text-green-600 dark:text-green-400">
-                            ₱{property.rent_amount.toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs text-muted-foreground">
-                            Property Type
-                          </span>
-                          <span className="font-medium text-sm">
-                            {property.property_type}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs text-muted-foreground">
-                            Occupancy
-                          </span>
-                          <span className="font-medium text-sm">
-                            {occupancyText}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs text-muted-foreground">
-                            Tenant
-                          </span>
-                          <span className="font-medium text-sm truncate max-w-[150px]">
-                            {activeTenant ? activeTenant.tenant_name : "-"}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs text-muted-foreground">
-                            Status
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-xs font-medium ${propertyStatus.color}`}
-                          >
-                            {propertyStatus.text}
-                          </span>
-                        </div>
-                      </CardContent>
-                      <CardFooter className="flex gap-2 pt-2 border-t bg-muted/10">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="flex-1 h-9"
-                          onClick={() => handleViewDetails(property.id)}
-                        >
-                          <Eye className="h-4 w-4 mr-1.5" />
-                          Details
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="flex-1 h-9"
-                          onClick={() => handleEditProperty(property.id)}
-                        >
-                          <Edit className="h-4 w-4 mr-1.5" />
-                          Edit
-                        </Button>
-                      </CardFooter>
-                    </Card>
+                  // Sort billing entries by billing period (month number)
+                  const sortedEntries = [...activeTenant.billing_entries].sort(
+                    (a, b) => (a.billing_period || 0) - (b.billing_period || 0)
                   );
-                })}
 
-                {/* Add New Property Card */}
-                <Card className="border-dashed hover:border-solid transition-all cursor-pointer bg-muted/10 hover:bg-muted/20">
-                  <CardContent className="flex flex-col items-center justify-center h-full py-8">
-                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
-                      <Plus className="h-6 w-6 text-primary" />
-                    </div>
-                    <h3 className="text-lg font-medium mb-1.5">
-                      Add New Property
-                    </h3>
-                    <p className="text-muted-foreground text-center text-sm mb-4 max-w-[250px]">
-                      Expand your portfolio with another rental property
-                    </p>
-                    <Button
-                      onClick={() => setIsAddPopupOpen(true)}
-                      variant="outline"
-                      size="sm"
-                    >
-                      Add Property
-                    </Button>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-          </div>
-        </main>
-      </SidebarInset>
+                  // Find entries up to the current month
+                  const relevantEntries = sortedEntries.filter((entry) => {
+                    const dueDate = new Date(entry.due_date);
+                    // Include entries for this month and previous months
+                    return (
+                      dueDate.getFullYear() < currentDate.getFullYear() ||
+                      (dueDate.getFullYear() === currentDate.getFullYear() &&
+                        dueDate.getMonth() <= currentDate.getMonth())
+                    );
+                  });
+
+                  // If no relevant entries (all future), show Good Standing
+                  if (relevantEntries.length === 0) {
+                    return {
+                      text: "Good Standing",
+                      color: getStatusColor("Good Standing"),
+                    };
+                  }
+
+                  // Check if any relevant entries have Problem/Urgent status
+                  const hasUrgentIssues = relevantEntries.some(
+                    (entry) =>
+                      entry.status.toLowerCase().includes("problem") ||
+                      entry.status.toLowerCase().includes("urgent") ||
+                      entry.status.toLowerCase().includes("overdue")
+                  );
+
+                  if (hasUrgentIssues) {
+                    return {
+                      text: "Problem / Urgent",
+                      color: getStatusColor("Problem / Urgent"),
+                    };
+                  }
+
+                  // Check if any relevant entries need monitoring
+                  const needsMonitoring = relevantEntries.some(
+                    (entry) =>
+                      entry.status.toLowerCase().includes("monitoring") ||
+                      entry.status.toLowerCase().includes("delayed") ||
+                      entry.status.toLowerCase().includes("needs")
+                  );
+
+                  if (needsMonitoring) {
+                    return {
+                      text: "Needs Monitoring",
+                      color: getStatusColor("Needs Monitoring"),
+                    };
+                  }
+
+                  // If all relevant entries are in Good Standing, return Good Standing
+                  return {
+                    text: "Good Standing",
+                    color: getStatusColor("Good Standing"),
+                  };
+                })();
+
+                const occupancyText =
+                  property.occupancy_status === "occupied"
+                    ? `${activeTenant ? 1 : 0}/1 unit`
+                    : "0/1 unit";
+
+                return (
+                  <Card
+                    key={property.id}
+                    className="overflow-hidden transition-all hover:shadow-md"
+                  >
+                    <div
+                      className={cn(
+                        "h-1.5",
+                        getStatusStyles(property.occupancy_status).indicator
+                      )}
+                    />
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-lg line-clamp-1">
+                          {property.unit_name}
+                        </CardTitle>
+                        <Building
+                          className={`h-5 w-5 flex-shrink-0 ${getPropertyIcon(
+                            property.property_type
+                          )}`}
+                        />
+                      </div>
+                      <CardDescription className="flex items-center text-xs">
+                        <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
+                        <span className="truncate">
+                          {property.property_location}
+                        </span>
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-2.5 pb-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-muted-foreground">
+                          Monthly Rent
+                        </span>
+                        <span className="font-medium text-green-600 dark:text-green-400">
+                          ₱{property.rent_amount.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-muted-foreground">
+                          Property Type
+                        </span>
+                        <span className="font-medium text-sm">
+                          {property.property_type}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-muted-foreground">
+                          Occupancy
+                        </span>
+                        <span className="font-medium text-sm">
+                          {occupancyText}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-muted-foreground">
+                          Tenant
+                        </span>
+                        <span className="font-medium text-sm truncate max-w-[150px]">
+                          {activeTenant ? activeTenant.tenant_name : "-"}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-muted-foreground">
+                          Status
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-xs font-medium ${propertyStatus.color}`}
+                        >
+                          {propertyStatus.text}
+                        </span>
+                      </div>
+                    </CardContent>
+                    <CardFooter className="flex gap-2 pt-2 border-t bg-muted/10">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="flex-1 h-9"
+                        onClick={() => handleViewDetails(property.id)}
+                      >
+                        <Eye className="h-4 w-4 mr-1.5" />
+                        Details
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="flex-1 h-9"
+                        onClick={() => handleEditProperty(property.id)}
+                      >
+                        <Edit className="h-4 w-4 mr-1.5" />
+                        Edit
+                      </Button>
+                    </CardFooter>
+                  </Card>
+                );
+              })}
+
+              {/* Add New Property Card */}
+              <Card className="border-dashed hover:border-solid transition-all cursor-pointer bg-muted/10 hover:bg-muted/20">
+                <CardContent className="flex flex-col items-center justify-center h-full py-8">
+                  <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                    <Plus className="h-6 w-6 text-primary" />
+                  </div>
+                  <h3 className="text-lg font-medium mb-1.5">
+                    Add New Property
+                  </h3>
+                  <p className="text-muted-foreground text-center text-sm mb-4 max-w-[250px]">
+                    Expand your portfolio with another rental property
+                  </p>
+                  <Button
+                    onClick={() => setIsAddPopupOpen(true)}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Add Property
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </div>
+      </main>
 
       {/* Multi-Step Popup for Adding Property */}
       <MultiStepPopup
@@ -639,7 +612,7 @@ export default function LandlordDashboard() {
           }}
         />
       )}
-    </SidebarProvider>
+    </>
   );
 }
 

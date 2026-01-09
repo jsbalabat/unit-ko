@@ -34,11 +34,19 @@ export async function archiveAndResetProperty(data: ResetPropertyData): Promise<
   try {
     const { propertyId, tenantId, remarks } = data;
 
-    // 1. Fetch current property data
+    // Get current user to verify ownership
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    if (!user) {
+      throw new Error('User not authenticated');
+    }
+
+    // 1. Fetch current property data (only if owned by current user)
     const { data: property, error: propertyError } = await supabase
       .from('properties')
       .select('*')
       .eq('id', propertyId)
+      .eq('landlord_id', user.id)
       .single();
 
     if (propertyError || !property) {
@@ -190,10 +198,18 @@ export async function fetchArchivedTenantsByProperty(propertyId: string): Promis
   error: string | null;
 }> {
   try {
+    // Get current user to verify ownership
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user) {
+      throw new Error('User not authenticated')
+    }
+
     const { data, error } = await supabase
       .from('archived_tenants')
       .select('*')
       .eq('property_id', propertyId)
+      .eq('landlord_id', user.id)
       .order('archived_at', { ascending: false });
 
     if (error) {

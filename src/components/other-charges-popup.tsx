@@ -59,7 +59,15 @@ export function OtherChargesPopup({
   // Predefined expense suggestions
   const suggestedExpenses: SuggestedExpense[] = [
     {
-      name: "Utilities (Water & Electricity)",
+      name: "Utilities (General)",
+      category: "Utilities",
+    },
+    {
+      name: "Water",
+      category: "Utilities",
+    },
+    {
+      name: "Electricity",
       category: "Utilities",
     },
     {

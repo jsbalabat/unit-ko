@@ -38,14 +38,23 @@ export function useProperties() {
   const fetchProperties = async () => {
     try {
       setLoading(true)
+      setError(null)
       
       // Get current user
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      
+      if (userError) {
+        console.error('User authentication error:', userError)
+        throw new Error('Failed to get user: ' + userError.message)
+      }
       
       if (!user) {
         throw new Error('User not authenticated')
       }
+
+      console.log('Fetching properties for user:', user.id)
       
+      // Fetch only properties belonging to the current landlord
       const { data, error } = await supabase
         .from('properties')
         .select(`
@@ -67,7 +76,10 @@ export function useProperties() {
         .eq('landlord_id', user.id)
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        console.error('Properties fetch error:', error)
+        throw error
+      }
 
       const propertiesData = data || []
       setProperties(propertiesData)
@@ -86,7 +98,10 @@ export function useProperties() {
         vacantProperties,
         totalRevenue
       })
+      
+      setError(null)
     } catch (err) {
+      console.error('Error in fetchProperties:', err)
       setError(err instanceof Error ? err.message : 'Failed to fetch properties')
     } finally {
       setLoading(false)

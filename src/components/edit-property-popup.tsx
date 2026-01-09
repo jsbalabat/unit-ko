@@ -1335,7 +1335,7 @@ export function EditPropertyPopup({
             Delete Property
           </Button>
 
-          {/* Save/Cancel buttons - top on mobile, right on desktop */}
+          {/* Save/Back buttons - top on mobile, right on desktop */}
           <div className="flex gap-2 sm:gap-3">
             <Button
               variant="outline"
@@ -1343,7 +1343,7 @@ export function EditPropertyPopup({
               className="text-xs sm:text-sm h-8 sm:h-9"
               size="sm"
             >
-              Cancel
+              Back
             </Button>
             <Button
               onClick={handleSubmit}
