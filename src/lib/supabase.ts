@@ -8,6 +8,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 // Database types for TypeScript
 export interface Property {
   id: string
+  landlord_id: string
   unit_name: string
   property_type: string
   occupancy_status: 'occupied' | 'vacant'

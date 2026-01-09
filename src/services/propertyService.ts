@@ -39,12 +39,20 @@ interface PropertySubmissionResult {
 
 export async function submitPropertyData(formData: PropertyFormData): Promise<PropertySubmissionResult> {
   try {
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user) {
+      throw new Error('User not authenticated')
+    }
+    
     // Start a transaction-like approach by inserting in order
     
     // 1. Insert Property
     const { data: property, error: propertyError } = await supabase
       .from('properties')
       .insert({
+        landlord_id: user.id,
         unit_name: formData.unitName,
         property_type: formData.propertyType,
         occupancy_status: formData.occupancyStatus,

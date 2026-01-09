@@ -83,6 +83,7 @@ export async function archiveAndResetProperty(data: ResetPropertyData): Promise<
     const { error: archiveError } = await supabase
       .from('archived_tenants')
       .insert({
+        landlord_id: property.landlord_id,
         property_id: propertyId,
         property_name: property.unit_name,
         property_type: property.property_type,
@@ -157,9 +158,17 @@ export async function fetchArchivedTenants(): Promise<{
   error: string | null;
 }> {
   try {
+    // Get current user
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user) {
+      throw new Error('User not authenticated')
+    }
+    
     const { data, error } = await supabase
       .from('archived_tenants')
       .select('*')
+      .eq('landlord_id', user.id)
       .order('archived_at', { ascending: false });
 
     if (error) {

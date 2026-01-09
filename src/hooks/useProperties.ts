@@ -38,10 +38,19 @@ export function useProperties() {
   const fetchProperties = async () => {
     try {
       setLoading(true)
+      
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        throw new Error('User not authenticated')
+      }
+      
       const { data, error } = await supabase
         .from('properties')
         .select(`
           id,
+          landlord_id,
           unit_name,
           property_type,
           occupancy_status,
@@ -55,6 +64,7 @@ export function useProperties() {
             is_active
           )
         `)
+        .eq('landlord_id', user.id)
         .order('created_at', { ascending: false })
 
       if (error) throw error
