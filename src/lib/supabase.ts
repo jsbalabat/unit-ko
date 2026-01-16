@@ -14,6 +14,8 @@ export interface Property {
   occupancy_status: 'occupied' | 'vacant'
   property_location: string
   rent_amount: number
+  max_tenants?: number // Bed space support
+  bed_space_billing_mode?: string // 'unified' or 'per_tenant'
   created_at: string
   updated_at: string
 }
@@ -24,6 +26,8 @@ export interface Tenant {
   tenant_name: string
   email: string
   contact_number: string
+  pax?: number
+  tenant_slot?: number // Bed space slot number
   contract_months: number
   rent_start_date: string
   due_day: string

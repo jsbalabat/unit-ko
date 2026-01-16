@@ -52,6 +52,44 @@ export async function authenticateTenantByEmail(email: string): Promise<string |
 }
 
 /**
+ * Authenticate tenant by email or contact number
+ */
+export async function authenticateTenant(identifier: string): Promise<string | null> {
+  try {
+    // First, try to authenticate by email (check profiles table)
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('tenant_id, role')
+      .eq('email', identifier)
+      .eq('role', 'tenant')
+      .maybeSingle()
+
+    // If found in profiles by email, return tenant_id
+    if (profile && profile.tenant_id) {
+      return profile.tenant_id
+    }
+
+    // If not found by email, try to find by contact number in tenants table
+    const { data: tenant, error: tenantError } = await supabase
+      .from('tenants')
+      .select('id')
+      .eq('contact_number', identifier)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (tenant) {
+      return tenant.id
+    }
+
+    // Not found by either method
+    return null
+  } catch (error) {
+    console.error('Error authenticating tenant:', error)
+    return null
+  }
+}
+
+/**
  * Fetch tenant dashboard data including property and billing info
  */
 export async function fetchTenantDashboardData(tenantId: string): Promise<TenantDashboardData | null> {
