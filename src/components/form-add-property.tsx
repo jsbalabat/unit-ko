@@ -51,14 +51,29 @@ import { OtherChargesPopup } from "@/components/other-charges-popup";
 import { EditIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Interface for individual tenant in bed space
+interface TenantInfo {
+  tenantName: string;
+  tenantEmail: string;
+  contactNumber: string;
+}
+
 interface PropertyFormData {
   // Existing fields
   unitName: string;
   propertyType: string;
   occupancyStatus: "occupied" | "vacant";
+
+  // Legacy fields (kept for backward compatibility with single tenant)
   tenantName: string;
   tenantEmail: string;
   contactNumber: string;
+
+  // Bed space fields (pax = maxTenants = number of tenants)
+  pax: number; // Legacy: kept for backward compatibility, same as maxTenants
+  maxTenants: number;
+  tenants: TenantInfo[];
+
   propertyLocation: string;
   contractMonths: number;
   rentStartDate: string;
@@ -83,13 +98,16 @@ interface PropertyFormData {
 interface ValidationErrors {
   unitName?: string;
   propertyType?: string;
+  maxTenants?: string;
   tenantName?: string;
   tenantEmail?: string;
   contactNumber?: string;
+  pax?: string;
   propertyLocation?: string;
   contractMonths?: string;
   rentStartDate?: string;
   rentAmount?: string;
+  [key: string]: string | undefined; // Allow dynamic keys for tenant validation
 }
 
 interface MultiStepPopupProps {
@@ -114,6 +132,9 @@ export function MultiStepPopup({
     tenantName: "",
     tenantEmail: "",
     contactNumber: "",
+    pax: 1,
+    maxTenants: 1,
+    tenants: [],
     propertyLocation: "",
     contractMonths: 6,
     rentStartDate: "",
@@ -167,27 +188,48 @@ export function MultiStepPopup({
 
     // Tenant details validation (only if occupied)
     if (formData.occupancyStatus === "occupied") {
-      if (!formData.tenantName.trim()) {
-        newErrors.tenantName =
-          "Tenant name is required for occupied properties";
-      } else if (formData.tenantName.trim().length < 2) {
-        newErrors.tenantName = "Tenant name must be at least 2 characters";
+      // Max Tenants validation
+      if (!formData.maxTenants || formData.maxTenants < 1) {
+        newErrors.maxTenants = "At least 1 tenant slot is required";
+      } else if (formData.maxTenants > 20) {
+        newErrors.maxTenants = "Maximum 20 tenant slots allowed";
       }
 
-      if (!formData.tenantEmail.trim()) {
-        newErrors.tenantEmail = "Email is required for occupied properties";
-      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.tenantEmail)) {
-        newErrors.tenantEmail = "Please enter a valid email address";
-      }
+      // If bed space (multiple tenants), validate tenant array
+      if (formData.maxTenants > 1) {
+        // At least one tenant must be filled
+        const hasAnyTenant = formData.tenants.some(
+          (t) => t.tenantName || t.tenantEmail || t.contactNumber
+        );
 
-      if (!formData.contactNumber.trim()) {
-        newErrors.contactNumber =
-          "Contact number is required for occupied properties";
-      } else if (
-        !/^(\+63|0)?9\d{9}$/.test(formData.contactNumber.replace(/\s|-/g, ""))
-      ) {
-        newErrors.contactNumber =
-          "Please enter a valid Philippine mobile number (e.g., 09123456789)";
+        if (!hasAnyTenant) {
+          newErrors.tenantName =
+            "At least one tenant is required for occupied property";
+        }
+      } else {
+        // Single tenant mode - use legacy validation
+        if (!formData.tenantName.trim()) {
+          newErrors.tenantName =
+            "Tenant name is required for occupied properties";
+        } else if (formData.tenantName.trim().length < 2) {
+          newErrors.tenantName = "Tenant name must be at least 2 characters";
+        }
+
+        if (!formData.tenantEmail.trim()) {
+          newErrors.tenantEmail = "Email is required for occupied properties";
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.tenantEmail)) {
+          newErrors.tenantEmail = "Please enter a valid email address";
+        }
+
+        if (!formData.contactNumber.trim()) {
+          newErrors.contactNumber =
+            "Contact number is required for occupied properties";
+        } else if (
+          !/^(\+63|0)?9\d{9}$/.test(formData.contactNumber.replace(/\s|-/g, ""))
+        ) {
+          newErrors.contactNumber =
+            "Please enter a valid Philippine mobile number (e.g., 09123456789)";
+        }
       }
     }
 
@@ -224,19 +266,106 @@ export function MultiStepPopup({
   };
 
   const validateBillingSchedule = (): boolean => {
-    // Check if any billing entries still have "Unassigned" status
-    const hasUnassignedStatus = formData.billingSchedule.some(
-      (entry) => entry.status === "Unassigned"
-    );
+    // Billing schedule validation (if needed in the future)
+    return true;
+  };
 
-    if (hasUnassignedStatus) {
-      toast.error("Please assign a status to all billing entries", {
-        description: "All entries must have a valid status selected.",
-      });
-      return false;
+  // Helper function to generate tenant fields based on maxTenants
+  const handleMaxTenantsChange = (value: number) => {
+    const newMaxTenants = Math.max(1, Math.min(20, value)); // Limit between 1-20
+
+    // Generate tenant array based on new max
+    const newTenants: TenantInfo[] = [];
+    for (let i = 0; i < newMaxTenants; i++) {
+      // Keep existing tenant data if it exists, otherwise create empty
+      newTenants.push(
+        formData.tenants[i] || {
+          tenantName: "",
+          tenantEmail: "",
+          contactNumber: "",
+        }
+      );
     }
 
-    return true;
+    setFormData({
+      ...formData,
+      pax: newMaxTenants, // Keep pax in sync with maxTenants
+      maxTenants: newMaxTenants,
+      tenants: newTenants,
+    });
+  };
+
+  // Helper function to update individual tenant data
+  const updateTenantData = (
+    index: number,
+    field: keyof TenantInfo,
+    value: string | number
+  ) => {
+    const newTenants = [...formData.tenants];
+    newTenants[index] = {
+      ...newTenants[index],
+      [field]: value,
+    };
+    setFormData({
+      ...formData,
+      tenants: newTenants,
+    });
+  };
+
+  // Validate all tenants for occupied bed space
+  const validateTenants = (): boolean => {
+    const newErrors: ValidationErrors = {};
+    let isValid = true;
+
+    formData.tenants.forEach((tenant, index) => {
+      // Check if at least one tenant field is filled (partial validation)
+      const hasAnyData =
+        tenant.tenantName || tenant.tenantEmail || tenant.contactNumber;
+
+      // If any field is filled, validate all fields for this tenant
+      if (hasAnyData) {
+        if (!tenant.tenantName.trim()) {
+          newErrors[`tenant${index}_name`] = `Tenant ${
+            index + 1
+          } name is required`;
+          isValid = false;
+        } else if (tenant.tenantName.trim().length < 2) {
+          newErrors[`tenant${index}_name`] = `Tenant ${
+            index + 1
+          } name must be at least 2 characters`;
+          isValid = false;
+        }
+
+        if (!tenant.tenantEmail.trim()) {
+          newErrors[`tenant${index}_email`] = `Tenant ${
+            index + 1
+          } email is required`;
+          isValid = false;
+        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tenant.tenantEmail)) {
+          newErrors[
+            `tenant${index}_email`
+          ] = `Please enter a valid email for tenant ${index + 1}`;
+          isValid = false;
+        }
+
+        if (!tenant.contactNumber.trim()) {
+          newErrors[`tenant${index}_contact`] = `Tenant ${
+            index + 1
+          } contact is required`;
+          isValid = false;
+        } else if (
+          !/^(\+63|0)?9\d{9}$/.test(tenant.contactNumber.replace(/\s|-/g, ""))
+        ) {
+          newErrors[
+            `tenant${index}_contact`
+          ] = `Invalid Philippine mobile number for tenant ${index + 1}`;
+          isValid = false;
+        }
+      }
+    });
+
+    setErrors(newErrors);
+    return isValid;
   };
 
   const handleOtherChargesClick = (index: number) => {
@@ -280,6 +409,14 @@ export function MultiStepPopup({
 
     if (currentStep === 1) {
       isValid = validateStep1();
+      // Additional validation for bed space mode with multiple tenants
+      if (
+        isValid &&
+        formData.occupancyStatus === "occupied" &&
+        formData.maxTenants > 1
+      ) {
+        isValid = validateTenants();
+      }
     } else if (currentStep === 2 && formData.occupancyStatus === "occupied") {
       isValid = validateStep2();
     } else if (currentStep === 3 && formData.occupancyStatus === "occupied") {
@@ -336,6 +473,9 @@ export function MultiStepPopup({
       tenantName: "",
       tenantEmail: "",
       contactNumber: "",
+      pax: 1,
+      maxTenants: 1,
+      tenants: [],
       propertyLocation: "",
       contractMonths: 6,
       rentStartDate: "",
@@ -442,6 +582,9 @@ export function MultiStepPopup({
           tenantName: "",
           tenantEmail: "",
           contactNumber: "",
+          pax: 1,
+          maxTenants: 1,
+          tenants: [],
           propertyLocation: "",
           contractMonths: 0,
           rentStartDate: "",
@@ -470,15 +613,6 @@ export function MultiStepPopup({
     if (errors[field as keyof ValidationErrors]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
-  };
-
-  const updateBillingStatus = (index: number, newStatus: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      billingSchedule: prev.billingSchedule.map((bill, i) =>
-        i === index ? { ...bill, status: newStatus } : bill
-      ),
-    }));
   };
 
   const getStepInfo = (step: number) => {
@@ -768,6 +902,41 @@ export function MultiStepPopup({
                     </div>
 
                     <div className="space-y-4">
+                      {/* Max Tenants / Bed Space Configuration */}
+                      <div className="space-y-2">
+                        <Label
+                          htmlFor="maxTenants"
+                          className="text-sm font-medium flex items-center gap-1.5"
+                        >
+                          Number of Tenants (Pax) *
+                        </Label>
+                        <Input
+                          id="maxTenants"
+                          type="number"
+                          min="1"
+                          max="20"
+                          value={formData.maxTenants}
+                          onChange={(e) =>
+                            handleMaxTenantsChange(
+                              parseInt(e.target.value) || 1
+                            )
+                          }
+                          placeholder="1"
+                          className={`h-9 text-sm ${
+                            errors.maxTenants ? "border-destructive" : ""
+                          }`}
+                        />
+                        {errors.maxTenants && (
+                          <p className="text-xs text-destructive">
+                            {errors.maxTenants}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Number of tenant slots/bed spaces in this property
+                          (1-20)
+                        </p>
+                      </div>
+
                       <div>
                         <Label className="text-sm font-medium">Status</Label>
                         <div className="grid grid-cols-2 gap-2 mt-1">
@@ -807,82 +976,268 @@ export function MultiStepPopup({
                       </div>
 
                       {formData.occupancyStatus === "occupied" && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-border">
-                          <div className="space-y-2">
-                            <Label
-                              htmlFor="tenantName"
-                              className="text-sm font-medium"
-                            >
-                              Tenant Name *
-                            </Label>
-                            <Input
-                              id="tenantName"
-                              value={formData.tenantName}
-                              onChange={(e) =>
-                                updateFormData("tenantName", e.target.value)
-                              }
-                              placeholder="Tenant's full name"
-                              className={`h-9 text-sm ${
-                                errors.tenantName ? "border-destructive" : ""
-                              }`}
-                            />
-                            {errors.tenantName && (
-                              <p className="text-xs text-destructive">
-                                {errors.tenantName}
-                              </p>
-                            )}
-                          </div>
+                        <div className="space-y-4 pt-3 border-t border-border">
+                          {/* Display mode indicator */}
+                          {formData.maxTenants > 1 && (
+                            <Alert className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
+                              <AlertCircle className="h-4 w-4 text-blue-600" />
+                              <AlertDescription className="text-xs text-blue-800 dark:text-blue-300">
+                                <strong>Bed Space Mode:</strong> You can add up
+                                to {formData.maxTenants} tenants. Fill in
+                                details for occupied slots (optional for vacant
+                                slots).
+                              </AlertDescription>
+                            </Alert>
+                          )}
 
-                          <div className="space-y-2">
-                            <Label
-                              htmlFor="tenantEmail"
-                              className="text-sm font-medium"
-                            >
-                              Email Address *
-                            </Label>
-                            <Input
-                              id="tenantEmail"
-                              type="email"
-                              value={formData.tenantEmail}
-                              onChange={(e) =>
-                                updateFormData("tenantEmail", e.target.value)
-                              }
-                              placeholder="tenant@example.com"
-                              className={`h-9 text-sm ${
-                                errors.tenantEmail ? "border-destructive" : ""
-                              }`}
-                            />
-                            {errors.tenantEmail && (
-                              <p className="text-xs text-destructive">
-                                {errors.tenantEmail}
-                              </p>
-                            )}
-                          </div>
+                          {/* Dynamic Tenant Fields */}
+                          {formData.maxTenants === 1 ? (
+                            // Single Tenant Mode (Legacy)
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <Label
+                                  htmlFor="tenantName"
+                                  className="text-sm font-medium"
+                                >
+                                  Tenant Name *
+                                </Label>
+                                <Input
+                                  id="tenantName"
+                                  value={formData.tenantName}
+                                  onChange={(e) =>
+                                    updateFormData("tenantName", e.target.value)
+                                  }
+                                  placeholder="Tenant's full name"
+                                  className={`h-9 text-sm ${
+                                    errors.tenantName
+                                      ? "border-destructive"
+                                      : ""
+                                  }`}
+                                />
+                                {errors.tenantName && (
+                                  <p className="text-xs text-destructive">
+                                    {errors.tenantName}
+                                  </p>
+                                )}
+                              </div>
 
-                          <div className="space-y-2">
-                            <Label
-                              htmlFor="contactNumber"
-                              className="text-sm font-medium"
-                            >
-                              Contact Number *
-                            </Label>
-                            <Input
-                              id="contactNumber"
-                              value={formData.contactNumber}
-                              onChange={(e) =>
-                                updateFormData("contactNumber", e.target.value)
-                              }
-                              placeholder="e.g., 09123456789"
-                              className={`h-9 text-sm ${
-                                errors.contactNumber ? "border-destructive" : ""
-                              }`}
-                            />
-                            {errors.contactNumber && (
-                              <p className="text-xs text-destructive">
-                                {errors.contactNumber}
-                              </p>
-                            )}
-                          </div>
+                              <div className="space-y-2">
+                                <Label
+                                  htmlFor="tenantEmail"
+                                  className="text-sm font-medium"
+                                >
+                                  Email Address *
+                                </Label>
+                                <Input
+                                  id="tenantEmail"
+                                  type="email"
+                                  value={formData.tenantEmail}
+                                  onChange={(e) =>
+                                    updateFormData(
+                                      "tenantEmail",
+                                      e.target.value
+                                    )
+                                  }
+                                  placeholder="tenant@example.com"
+                                  className={`h-9 text-sm ${
+                                    errors.tenantEmail
+                                      ? "border-destructive"
+                                      : ""
+                                  }`}
+                                />
+                                {errors.tenantEmail && (
+                                  <p className="text-xs text-destructive">
+                                    {errors.tenantEmail}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label
+                                  htmlFor="contactNumber"
+                                  className="text-sm font-medium"
+                                >
+                                  Contact Number *
+                                </Label>
+                                <Input
+                                  id="contactNumber"
+                                  value={formData.contactNumber}
+                                  onChange={(e) =>
+                                    updateFormData(
+                                      "contactNumber",
+                                      e.target.value
+                                    )
+                                  }
+                                  placeholder="e.g., 09123456789"
+                                  className={`h-9 text-sm ${
+                                    errors.contactNumber
+                                      ? "border-destructive"
+                                      : ""
+                                  }`}
+                                />
+                                {errors.contactNumber && (
+                                  <p className="text-xs text-destructive">
+                                    {errors.contactNumber}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="space-y-2">
+                                <Label
+                                  htmlFor="pax"
+                                  className="text-sm font-medium flex items-center gap-1.5"
+                                >
+                                  <User className="h-3.5 w-3.5" />
+                                  Number of Pax *
+                                </Label>
+                                <Input
+                                  id="pax"
+                                  type="number"
+                                  min="1"
+                                  max="20"
+                                  value={formData.pax}
+                                  onChange={(e) =>
+                                    updateFormData(
+                                      "pax",
+                                      parseInt(e.target.value) || 1
+                                    )
+                                  }
+                                  placeholder="1"
+                                  className={`h-9 text-sm ${
+                                    errors.pax ? "border-destructive" : ""
+                                  }`}
+                                />
+                                {errors.pax && (
+                                  <p className="text-xs text-destructive">
+                                    {errors.pax}
+                                  </p>
+                                )}
+                                <p className="text-xs text-muted-foreground">
+                                  Number of persons
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            // Multiple Tenants Mode (Bed Space)
+                            <div className="space-y-4">
+                              {formData.tenants.map((tenant, index) => (
+                                <Card
+                                  key={index}
+                                  className="border-l-4 border-l-primary"
+                                >
+                                  <CardContent className="p-4">
+                                    <div className="flex items-center justify-between mb-3">
+                                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                                        <User className="h-4 w-4 text-primary" />
+                                        Tenant Slot #{index + 1}
+                                      </h4>
+                                      <span className="text-xs text-muted-foreground">
+                                        {tenant.tenantName
+                                          ? "Occupied"
+                                          : "Vacant"}
+                                      </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                      <div className="space-y-2">
+                                        <Label
+                                          htmlFor={`tenant${index}_name`}
+                                          className="text-xs font-medium"
+                                        >
+                                          Tenant Name
+                                        </Label>
+                                        <Input
+                                          id={`tenant${index}_name`}
+                                          value={tenant.tenantName}
+                                          onChange={(e) =>
+                                            updateTenantData(
+                                              index,
+                                              "tenantName",
+                                              e.target.value
+                                            )
+                                          }
+                                          placeholder="Full name"
+                                          className={`h-9 text-sm ${
+                                            errors[`tenant${index}_name`]
+                                              ? "border-destructive"
+                                              : ""
+                                          }`}
+                                        />
+                                        {errors[`tenant${index}_name`] && (
+                                          <p className="text-xs text-destructive">
+                                            {errors[`tenant${index}_name`]}
+                                          </p>
+                                        )}
+                                      </div>
+
+                                      <div className="space-y-2">
+                                        <Label
+                                          htmlFor={`tenant${index}_email`}
+                                          className="text-xs font-medium"
+                                        >
+                                          Email Address
+                                        </Label>
+                                        <Input
+                                          id={`tenant${index}_email`}
+                                          type="email"
+                                          value={tenant.tenantEmail}
+                                          onChange={(e) =>
+                                            updateTenantData(
+                                              index,
+                                              "tenantEmail",
+                                              e.target.value
+                                            )
+                                          }
+                                          placeholder="email@example.com"
+                                          className={`h-9 text-sm ${
+                                            errors[`tenant${index}_email`]
+                                              ? "border-destructive"
+                                              : ""
+                                          }`}
+                                        />
+                                        {errors[`tenant${index}_email`] && (
+                                          <p className="text-xs text-destructive">
+                                            {errors[`tenant${index}_email`]}
+                                          </p>
+                                        )}
+                                      </div>
+
+                                      <div className="space-y-2">
+                                        <Label
+                                          htmlFor={`tenant${index}_contact`}
+                                          className="text-xs font-medium"
+                                        >
+                                          Contact Number
+                                        </Label>
+                                        <Input
+                                          id={`tenant${index}_contact`}
+                                          value={tenant.contactNumber}
+                                          onChange={(e) =>
+                                            updateTenantData(
+                                              index,
+                                              "contactNumber",
+                                              e.target.value
+                                            )
+                                          }
+                                          placeholder="09XXXXXXXXX"
+                                          className={`h-9 text-sm ${
+                                            errors[`tenant${index}_contact`]
+                                              ? "border-destructive"
+                                              : ""
+                                          }`}
+                                        />
+                                        {errors[`tenant${index}_contact`] && (
+                                          <p className="text-xs text-destructive">
+                                            {errors[`tenant${index}_contact`]}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -894,7 +1249,6 @@ export function MultiStepPopup({
                                 htmlFor="vacantRentAmount"
                                 className="text-sm font-medium flex items-center gap-1.5"
                               >
-                                <DollarSign className="h-3.5 w-3.5 text-green-600" />
                                 Expected Monthly Rent (₱) *
                               </Label>
                             </div>
@@ -1093,7 +1447,6 @@ export function MultiStepPopup({
                           htmlFor="rentAmount"
                           className="text-sm font-medium flex items-center gap-1.5"
                         >
-                          <DollarSign className="h-3.5 w-3.5 text-purple-600" />
                           Monthly Rent Amount (₱) *
                         </Label>
                         <Input
@@ -1244,40 +1597,13 @@ export function MultiStepPopup({
                                 ₱{bill.grossDue.toLocaleString()}
                               </div>
                             </div>
-                            <div>
+                            <div className="col-span-2">
                               <div className="text-muted-foreground">
                                 Status
                               </div>
-                              <Select
-                                value={bill.status}
-                                onValueChange={(value) =>
-                                  updateBillingStatus(index, value)
-                                }
-                              >
-                                <SelectTrigger
-                                  className={`h-7 text-xs ${
-                                    bill.status === "Unassigned"
-                                      ? "text-muted-foreground border-dashed"
-                                      : ""
-                                  }`}
-                                >
-                                  <SelectValue placeholder="Status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="Good Standing">
-                                    Good Standing
-                                  </SelectItem>
-                                  <SelectItem value="Needs Monitoring">
-                                    Needs Monitoring
-                                  </SelectItem>
-                                  <SelectItem value="Problem / Urgent">
-                                    Problem / Urgent
-                                  </SelectItem>
-                                  <SelectItem value="Neutral / Administrative">
-                                    Neutral / Administrative
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
+                              <div className="text-xs font-medium px-2 py-1 rounded bg-muted inline-block">
+                                {bill.status}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1329,37 +1655,10 @@ export function MultiStepPopup({
                               <td className="p-2 text-xs font-semibold">
                                 ₱{bill.grossDue.toLocaleString()}
                               </td>
-                              <td className="p-2">
-                                <Select
-                                  value={bill.status}
-                                  onValueChange={(value) =>
-                                    updateBillingStatus(index, value)
-                                  }
-                                >
-                                  <SelectTrigger
-                                    className={`h-7 text-xs w-32 ${
-                                      bill.status === "Unassigned"
-                                        ? "text-muted-foreground border-dashed"
-                                        : ""
-                                    }`}
-                                  >
-                                    <SelectValue placeholder="Status" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="Good Standing">
-                                      Good Standing
-                                    </SelectItem>
-                                    <SelectItem value="Needs Monitoring">
-                                      Needs Monitoring
-                                    </SelectItem>
-                                    <SelectItem value="Problem / Urgent">
-                                      Problem / Urgent
-                                    </SelectItem>
-                                    <SelectItem value="Neutral / Administrative">
-                                      Neutral / Administrative
-                                    </SelectItem>
-                                  </SelectContent>
-                                </Select>
+                              <td className="p-2 text-xs">
+                                <span className="inline-block px-2 py-1 rounded bg-muted text-xs font-medium">
+                                  {bill.status}
+                                </span>
                               </td>
                             </tr>
                           ))}

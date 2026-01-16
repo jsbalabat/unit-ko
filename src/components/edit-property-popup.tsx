@@ -27,7 +27,6 @@ import {
   Building,
   User,
   Calendar,
-  // DollarSign,
   // Clock,
   Loader2,
   AlertCircle,
@@ -72,6 +71,7 @@ interface Tenant {
   property_id: string;
   tenant_name: string;
   contact_number: string;
+  pax?: number;
   contract_months: number;
   rent_start_date: string;
   due_day: string;
@@ -98,11 +98,13 @@ interface PropertyFormData {
   id: string;
   unitName: string;
   propertyType: string;
+  propertyLocation: string;
   occupancyStatus: "occupied" | "vacant";
   rentAmount: number;
   tenantId?: string;
   tenantName: string;
   contactNumber: string;
+  pax: number;
   contractMonths: number;
   rentStartDate: string;
   dueDay: string;
@@ -187,11 +189,13 @@ export function EditPropertyPopup({
           id: propertyData.id,
           unitName: propertyData.unit_name,
           propertyType: propertyData.property_type,
+          propertyLocation: propertyData.property_location,
           occupancyStatus: propertyData.occupancy_status,
           rentAmount: propertyData.rent_amount,
           tenantId: activeTenant?.id,
           tenantName: activeTenant?.tenant_name || "",
           contactNumber: activeTenant?.contact_number || "",
+          pax: activeTenant?.pax || 1,
           contractMonths: activeTenant?.contract_months || 0,
           rentStartDate: activeTenant?.rent_start_date || "",
           dueDay: activeTenant?.due_day || "30th/31st - Last Day",
@@ -520,22 +524,6 @@ export function EditPropertyPopup({
     setFormData(updatedFormData);
   };
 
-  // Update billing status
-  const updateBillingStatus = (index: number, status: string) => {
-    if (
-      !formData ||
-      !formData.billingSchedule ||
-      !formData.billingSchedule[index]
-    ) {
-      console.error(`Cannot update status for index ${index}: data not found`);
-      return;
-    }
-
-    const updatedSchedule = [...formData.billingSchedule];
-    updatedSchedule[index] = { ...updatedSchedule[index], status };
-    setFormData({ ...formData, billingSchedule: updatedSchedule });
-  };
-
   const addNewBillingMonth = () => {
     if (!formData || isLocked) return;
 
@@ -594,6 +582,7 @@ export function EditPropertyPopup({
         .update({
           unit_name: formData.unitName,
           property_type: formData.propertyType,
+          property_location: formData.propertyLocation,
           rent_amount: formData.rentAmount,
           updated_at: new Date().toISOString(),
         })
@@ -941,15 +930,26 @@ export function EditPropertyPopup({
                     </div>
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="propertyLocation">Address</Label>
+                    <Input
+                      id="propertyLocation"
+                      value={formData.propertyLocation}
+                      onChange={(e) =>
+                        handleChange("propertyLocation", e.target.value)
+                      }
+                      disabled={isLocked}
+                      className={isLocked ? "opacity-70" : ""}
+                      placeholder="Enter property address"
+                    />
+                  </div>
+
                   <div className="space-y-2 bg-muted/20 p-3 rounded-md">
                     <p className="text-xs text-muted-foreground">
                       Property ID: {formData.id}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Occupancy Status: {formData.occupancyStatus}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Property Location cannot be modified
                     </p>
                   </div>
                 </div>
@@ -992,6 +992,31 @@ export function EditPropertyPopup({
                         disabled={isLocked}
                         className={isLocked ? "opacity-70" : ""}
                       />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="pax"
+                        className="flex items-center gap-1.5"
+                      >
+                        <User className="h-3.5 w-3.5" />
+                        Number of Pax (Bed Space)
+                      </Label>
+                      <Input
+                        id="pax"
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={formData.pax}
+                        onChange={(e) =>
+                          handleChange("pax", parseInt(e.target.value) || 1)
+                        }
+                        disabled={isLocked}
+                        className={isLocked ? "opacity-70" : ""}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Number of persons sharing this unit
+                      </p>
                     </div>
 
                     <div className="space-y-2">
@@ -1200,37 +1225,9 @@ export function EditPropertyPopup({
                                       ₱{(entry.grossDue || 0).toLocaleString()}
                                     </td>
                                     <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm">
-                                      <Select
-                                        value={entry.status}
-                                        onValueChange={(value) =>
-                                          updateBillingStatus(index, value)
-                                        }
-                                        disabled={isLocked}
-                                      >
-                                        <SelectTrigger
-                                          className={`w-[110px] sm:w-40 h-7 sm:h-9 text-xs sm:text-sm ${
-                                            isLocked ? "opacity-70" : ""
-                                          }`}
-                                        >
-                                          <SelectValue>
-                                            {entry.status}
-                                          </SelectValue>
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="Good Standing">
-                                            Good Standing
-                                          </SelectItem>
-                                          <SelectItem value="Needs Monitoring">
-                                            Needs Monitoring
-                                          </SelectItem>
-                                          <SelectItem value="Problem / Urgent Action">
-                                            Problem / Urgent
-                                          </SelectItem>
-                                          <SelectItem value="Neutral / Administrative">
-                                            Neutral / Admin
-                                          </SelectItem>
-                                        </SelectContent>
-                                      </Select>
+                                      <span className="inline-block px-2 py-1 rounded bg-muted text-xs font-medium">
+                                        {entry.status}
+                                      </span>
                                     </td>
                                     <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm text-right">
                                       <Button
