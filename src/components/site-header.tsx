@@ -9,6 +9,9 @@ import {
   HelpCircle,
   LogOut,
   User,
+  FileText,
+  CreditCard,
+  Bell,
 } from "lucide-react";
 import { MultiStepPopup } from "@/components/form-add-property";
 import { useState, useEffect } from "react";
@@ -23,11 +26,15 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { supabase } from "@/lib/supabase";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 export function SiteHeader() {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState<Date | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [userPlan, setUserPlan] = useState<string>("Free Plan");
+  const [userName, setUserName] = useState<string>("Juan Dela Cruz");
+  const [userEmail, setUserEmail] = useState<string>("landlord@example.com");
   const router = useRouter();
 
   // Update time every second, but only on the client side
@@ -40,6 +47,52 @@ export function SiteHeader() {
     }, 1000);
 
     return () => clearInterval(timer);
+  }, []);
+
+  // Fetch user subscription plan and profile data
+  useEffect(() => {
+    const fetchUserData = async () => {
+      try {
+        const {
+          data: { user },
+          error: authError,
+        } = await supabase.auth.getUser();
+
+        if (authError || !user) return;
+
+        // Set email
+        setUserEmail(user.email || "landlord@example.com");
+
+        // Fetch profile data including subscription plan
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("subscription_plan, full_name")
+          .eq("id", user.id)
+          .single();
+
+        if (!profileError && profile) {
+          // Set user name
+          if (profile.full_name) {
+            setUserName(profile.full_name);
+          }
+
+          // Set plan display
+          const planDisplayNames: Record<string, string> = {
+            free: "Free Plan",
+            basic: "Basic Plan",
+            premium: "Premium Plan",
+            enterprise: "Enterprise Plan",
+          };
+
+          const plan = profile.subscription_plan || "free";
+          setUserPlan(planDisplayNames[plan] || "Free Plan");
+        }
+      } catch (error) {
+        console.error("Error fetching user data:", error);
+      }
+    };
+
+    fetchUserData();
   }, []);
 
   const handlePropertyComplete = (data: unknown) => {
@@ -98,12 +151,15 @@ export function SiteHeader() {
     <header className="flex h-14 sm:h-16 shrink-0 items-center gap-1 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30 transition-[width,height] ease-linear">
       <div className="flex w-full items-center gap-1 px-3 sm:px-4 lg:gap-2 lg:px-6">
         {/* App Logo and Brand */}
-        <div className="flex items-center">
+        <Link
+          href="/"
+          className="flex items-center cursor-pointer hover:opacity-80 transition-opacity"
+        >
           <div className="flex items-center justify-center w-7 h-7 rounded-md bg-primary/10 text-primary mr-2">
             <Home className="h-3.5 w-3.5" />
           </div>
           <span className="font-semibold text-sm">Unitko</span>
-        </div>
+        </Link>
 
         {/* Date and Time - Moved to left side */}
         {currentTime ? (
@@ -159,6 +215,20 @@ export function SiteHeader() {
             <span className="hidden sm:inline-block">Add Property</span>
           </Button>
 
+          {/* Notifications Button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="hidden xs:flex relative h-8 w-8 lg:h-9 lg:w-9"
+          >
+            <Bell className="h-4 w-4" />
+            {/* Notification Badge */}
+            <span className="absolute top-1 right-1 flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+            </span>
+          </Button>
+
           {/* Large screens: Mode Toggle direct */}
           <div className="hidden sm:block">
             <ModeToggle />
@@ -174,7 +244,12 @@ export function SiteHeader() {
               >
                 <Avatar className="h-8 w-8">
                   <AvatarFallback className="text-xs bg-primary/10 text-primary font-medium">
-                    JD
+                    {userName
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                      .toUpperCase()
+                      .slice(0, 2)}
                   </AvatarFallback>
                 </Avatar>
               </Button>
@@ -182,14 +257,30 @@ export function SiteHeader() {
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuLabel>
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">
-                    Juan Dela Cruz
-                  </p>
+                  <p className="text-sm font-medium leading-none">{userName}</p>
                   <p className="text-xs leading-none text-muted-foreground">
-                    landlord@example.com
+                    {userEmail}
+                  </p>
+                  <p className="text-xs leading-none text-primary font-medium mt-1.5">
+                    {userPlan}
                   </p>
                 </div>
               </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => router.push("/subscription")}
+                className="cursor-pointer"
+              >
+                <FileText className="mr-2 h-4 w-4" />
+                <span>Monthly Statement</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => window.open("https://www.gcash.com", "_blank")}
+                className="cursor-pointer"
+              >
+                <CreditCard className="mr-2 h-4 w-4" />
+                <span>Payment Channels</span>
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => router.push("/dashboard/landlord/profile")}
@@ -231,16 +322,41 @@ export function SiteHeader() {
               <div className="flex items-center px-2 pt-1 pb-2">
                 <Avatar className="h-8 w-8 mr-2">
                   <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
-                    JD
+                    {userName
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                      .toUpperCase()
+                      .slice(0, 2)}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="text-sm font-medium">Juan Dela Cruz</p>
-                  <p className="text-xs text-muted-foreground">
-                    landlord@example.com
+                  <p className="text-sm font-medium">{userName}</p>
+                  <p className="text-xs text-muted-foreground">{userEmail}</p>
+                  <p className="text-xs text-primary font-medium mt-0.5">
+                    {userPlan}
                   </p>
                 </div>
               </div>
+              <DropdownMenuSeparator />
+
+              {/* Payment Section */}
+              <DropdownMenuItem
+                onClick={() => router.push("/subscription")}
+                className="flex items-center gap-2 cursor-pointer"
+              >
+                <FileText className="h-4 w-4" />
+                <span className="text-sm">Monthly Statement</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuItem
+                onClick={() => window.open("https://www.gcash.com", "_blank")}
+                className="flex items-center gap-2 cursor-pointer"
+              >
+                <CreditCard className="h-4 w-4" />
+                <span className="text-sm">Payment Channels</span>
+              </DropdownMenuItem>
+
               <DropdownMenuSeparator />
 
               {/* Menu Items */}
@@ -270,6 +386,14 @@ export function SiteHeader() {
               >
                 <Plus className="h-4 w-4" />
                 <span className="text-sm">Add Property</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuItem className="flex items-center gap-2 cursor-pointer relative">
+                <Bell className="h-4 w-4" />
+                <span className="text-sm">Notifications</span>
+                <span className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                  3
+                </span>
               </DropdownMenuItem>
 
               <DropdownMenuSeparator className="my-1" />
