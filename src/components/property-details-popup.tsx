@@ -852,7 +852,6 @@ export function PropertyDetailsPopup({
                           <h3 className="text-xs text-muted-foreground font-medium">
                             Total Revenue
                           </h3>
-                          <DollarSign className="h-4 w-4 text-green-500 opacity-70" />
                         </div>
                         <p className="text-lg sm:text-xl md:text-2xl font-bold text-green-600 dark:text-green-400">
                           {formatCurrency(totalRevenue)}
@@ -1059,9 +1058,7 @@ export function PropertyDetailsPopup({
                 </>
               ) : (
                 <div className="flex flex-col items-center justify-center p-8 md:p-12 text-center">
-                  <div className="rounded-full bg-muted/50 p-4 mb-4">
-                    <DollarSign className="h-8 w-8 md:h-10 md:w-10 text-muted-foreground opacity-40" />
-                  </div>
+                  <div className="rounded-full bg-muted/50 p-4 mb-4"></div>
                   <h3 className="text-base md:text-lg font-medium mt-2">
                     No Financial Records
                   </h3>

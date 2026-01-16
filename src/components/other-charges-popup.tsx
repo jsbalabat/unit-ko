@@ -14,7 +14,7 @@ import { Input } from "@/components/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Trash2, DollarSign, Lightbulb } from "lucide-react";
+import { Plus, Trash2, Lightbulb } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 
@@ -208,7 +208,6 @@ export function OtherChargesPopup({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col p-0">
         <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3">
           <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
-            <DollarSign className="h-5 w-5 text-primary" />
             Other Charges - Month {month}
           </DialogTitle>
           <DialogDescription className="text-xs sm:text-sm">
