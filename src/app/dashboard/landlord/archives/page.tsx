@@ -18,7 +18,6 @@ import {
   Archive,
   User,
   Calendar,
-  DollarSign,
   FileText,
   Eye,
 } from "lucide-react";
@@ -165,7 +164,6 @@ export default function ArchivesPage() {
                       )}
                     </p>
                   </div>
-                  <DollarSign className="h-8 w-8 text-green-600" />
                 </div>
               </CardContent>
             </Card>
@@ -359,7 +357,6 @@ export default function ArchivesPage() {
                 {/* Financial Summary */}
                 <div className="space-y-3">
                   <h3 className="font-semibold flex items-center gap-2">
-                    <DollarSign className="h-4 w-4" />
                     Financial Summary
                   </h3>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

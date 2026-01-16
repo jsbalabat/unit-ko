@@ -17,20 +17,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Mail, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { authenticateTenantByEmail } from "@/services/tenantService";
+import { authenticateTenant } from "@/services/tenantService";
 import { toast } from "sonner";
 
 const formSchema = z.object({
-  email: z
+  identifier: z
     .string()
     .min(1, {
-      message: "Email must not be empty",
+      message: "Contact number or email must not be empty",
     })
-    .email({
-      message: "Please enter a valid email address",
-    })
-    .max(50, {
-      message: "Email must be at most 50 characters long",
+    .max(100, {
+      message: "Input must be at most 100 characters long",
     }),
 });
 
@@ -41,7 +38,7 @@ export default function TenantLogin() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      email: "",
+      identifier: "",
     },
   });
 
@@ -49,17 +46,19 @@ export default function TenantLogin() {
     setIsLoading(true);
 
     try {
-      const tenantId = await authenticateTenantByEmail(data.email);
+      const tenantId = await authenticateTenant(data.identifier);
 
       if (tenantId) {
         // Store tenant ID in sessionStorage for the dashboard
         sessionStorage.setItem("tenantId", tenantId);
-        sessionStorage.setItem("tenantEmail", data.email);
+        sessionStorage.setItem("tenantIdentifier", data.identifier);
 
         toast.success("Login successful! Redirecting...");
         router.push("/dashboard/tenant");
       } else {
-        toast.error("No tenant account found with this email address");
+        toast.error(
+          "No tenant account found with this contact number or email address"
+        );
       }
     } catch (error) {
       console.error("Login error:", error);
@@ -99,17 +98,17 @@ export default function TenantLogin() {
             <form onSubmit={handleFormSubmit} className="space-y-4">
               <FormField
                 control={form.control}
-                name="email"
+                name="identifier"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center gap-2 text-sm">
                       <Mail className="h-3.5 w-3.5" />
-                      Email Address
+                      Contact Number / Email
                     </FormLabel>
                     <FormControl>
                       <Input
-                        type="email"
-                        placeholder="juandelacruz@gmail.com"
+                        type="text"
+                        placeholder="09123456789 or juandelacruz@gmail.com"
                         className="h-10"
                         {...field}
                       />
@@ -124,7 +123,8 @@ export default function TenantLogin() {
               </Button>
 
               <div className="text-center text-sm text-muted-foreground">
-                Enter your email address to access your tenant dashboard
+                Enter your contact number or email to access your tenant
+                dashboard
               </div>
             </form>
           </Form>

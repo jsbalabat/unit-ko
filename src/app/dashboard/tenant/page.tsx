@@ -14,12 +14,15 @@ import { Separator } from "@/components/ui/separator";
 import {
   Building2,
   Calendar,
-  DollarSign,
   Home,
   Mail,
   MapPin,
   Phone,
   User,
+  CreditCard,
+  Wallet,
+  Banknote,
+  AlertCircle,
 } from "lucide-react";
 import {
   fetchTenantDashboardData,
@@ -27,12 +30,25 @@ import {
 } from "@/services/tenantService";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { toast } from "sonner";
 
 export default function TenantDashboard() {
   const router = useRouter();
   const [dashboardData, setDashboardData] =
     useState<TenantDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [selectedBilling, setSelectedBilling] = useState<any>(null);
+  const [isTraditionalPaymentOpen, setIsTraditionalPaymentOpen] =
+    useState(false);
 
   useEffect(() => {
     const loadDashboard = async () => {
@@ -67,6 +83,31 @@ export default function TenantDashboard() {
     sessionStorage.removeItem("tenantId");
     sessionStorage.removeItem("tenantEmail");
     router.push("/auth/tenant/login");
+  };
+
+  const handlePayNow = (billing: any) => {
+    setSelectedBilling(billing);
+    setIsPaymentDialogOpen(true);
+  };
+
+  const handleDigitalPayment = (method: string) => {
+    toast.info(`Redirecting to ${method}...`);
+    // In production, integrate with actual payment gateway
+    setTimeout(() => {
+      window.open("https://www.gcash.com", "_blank");
+    }, 500);
+  };
+
+  const handleNotifyLandlordTraditional = () => {
+    setIsPaymentDialogOpen(false);
+    setIsTraditionalPaymentOpen(true);
+  };
+
+  const handleSendTraditionalNotification = () => {
+    toast.success(
+      "Landlord notified! They will contact you to arrange payment."
+    );
+    setIsTraditionalPaymentOpen(false);
   };
 
   if (isLoading) {
@@ -255,7 +296,6 @@ export default function TenantDashboard() {
               <div className="rounded-lg bg-primary/5 p-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <DollarSign className="h-5 w-5 text-primary" />
                     <div>
                       <p className="text-sm font-medium">Monthly Rent</p>
                       <p className="text-xs text-muted-foreground">
@@ -276,7 +316,6 @@ export default function TenantDashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5" />
               Billing Summary
             </CardTitle>
             <CardDescription>Overview of your rental payments</CardDescription>
@@ -348,14 +387,26 @@ export default function TenantDashboard() {
                           )}
                         </p>
                       </div>
-                      <div className="text-right">
-                        <p className="font-semibold text-lg">
-                          ₱{entry.gross_due.toLocaleString()}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Rent: ₱{entry.rent_due.toLocaleString()} + Charges: ₱
-                          {entry.other_charges.toLocaleString()}
-                        </p>
+                      <div className="text-right space-y-2">
+                        <div>
+                          <p className="font-semibold text-lg">
+                            ₱{entry.gross_due.toLocaleString()}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Rent: ₱{entry.rent_due.toLocaleString()} + Charges:{" "}
+                            ₱{entry.other_charges.toLocaleString()}
+                          </p>
+                        </div>
+                        {entry.status !== "paid" && (
+                          <Button
+                            size="sm"
+                            onClick={() => handlePayNow(entry)}
+                            className="w-full"
+                          >
+                            <CreditCard className="h-4 w-4 mr-2" />
+                            Pay Now
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -369,6 +420,190 @@ export default function TenantDashboard() {
           </CardContent>
         </Card>
       </main>
+
+      {/* Payment Options Dialog */}
+      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CreditCard className="h-5 w-5" />
+              Payment Options
+            </DialogTitle>
+            <DialogDescription>
+              Choose your preferred payment method
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedBilling && (
+            <div className="space-y-4">
+              {/* Fee Breakdown */}
+              <Card className="bg-muted/50">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium">
+                    Fee Breakdown
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 pt-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Base Rent</span>
+                    <span className="font-medium">
+                      ₱{selectedBilling.rent_due.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Other Charges</span>
+                    <span className="font-medium">
+                      ₱{selectedBilling.other_charges.toLocaleString()}
+                    </span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between">
+                    <span className="font-semibold">Total Amount</span>
+                    <span className="font-bold text-lg text-primary">
+                      ₱{selectedBilling.gross_due.toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Due Date:{" "}
+                    {new Date(selectedBilling.due_date).toLocaleDateString(
+                      "en-US",
+                      {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      }
+                    )}
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Digital Payment Methods */}
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <Wallet className="h-4 w-4" />
+                  Digital Payment Methods
+                </h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="outline"
+                    className="h-auto flex-col gap-2 py-3"
+                    onClick={() => handleDigitalPayment("GCash")}
+                  >
+                    <Wallet className="h-5 w-5 text-blue-600" />
+                    <span className="text-xs">GCash</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-auto flex-col gap-2 py-3"
+                    onClick={() => handleDigitalPayment("PayMaya")}
+                  >
+                    <Wallet className="h-5 w-5 text-green-600" />
+                    <span className="text-xs">PayMaya</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-auto flex-col gap-2 py-3"
+                    onClick={() => handleDigitalPayment("Credit Card")}
+                  >
+                    <CreditCard className="h-5 w-5 text-purple-600" />
+                    <span className="text-xs">Credit Card</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-auto flex-col gap-2 py-3"
+                    onClick={() => handleDigitalPayment("Online Banking")}
+                  >
+                    <Banknote className="h-5 w-5 text-amber-600" />
+                    <span className="text-xs">Bank Transfer</span>
+                  </Button>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Traditional Payment Option */}
+              <div className="space-y-2">
+                <h4 className="text-sm font-semibold flex items-center gap-2">
+                  <Banknote className="h-4 w-4" />
+                  Traditional Payment Methods
+                </h4>
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Prefer cash or cheque? Notify your landlord to arrange a
+                    payment schedule.
+                  </AlertDescription>
+                </Alert>
+                <Button
+                  variant="secondary"
+                  className="w-full"
+                  onClick={handleNotifyLandlordTraditional}
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  Notify Landlord for Cash/Cheque Payment
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Traditional Payment Notification Dialog */}
+      <Dialog
+        open={isTraditionalPaymentOpen}
+        onOpenChange={setIsTraditionalPaymentOpen}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Banknote className="h-5 w-5" />
+              Traditional Payment Notification
+            </DialogTitle>
+            <DialogDescription>
+              Notify landlord about your payment preference
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Your landlord will be notified that you prefer to pay via cash
+                or advanced cheque. They will contact you to arrange the payment
+                details.
+              </AlertDescription>
+            </Alert>
+
+            <Card className="bg-muted/30">
+              <CardContent className="pt-4 space-y-2 text-sm">
+                <p className="font-medium">Available traditional methods:</p>
+                <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                  <li>Cash payment (in-person)</li>
+                  <li>Post-dated cheques</li>
+                  <li>Bank deposit (with deposit slip)</li>
+                </ul>
+              </CardContent>
+            </Card>
+
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setIsTraditionalPaymentOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={handleSendTraditionalNotification}
+              >
+                <Mail className="h-4 w-4 mr-2" />
+                Send Notification
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
