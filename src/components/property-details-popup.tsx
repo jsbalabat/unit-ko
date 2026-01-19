@@ -18,7 +18,6 @@ import {
   User,
   MapPin,
   Calendar,
-  DollarSign,
   Clock,
   ArrowUpRight,
   Loader2,
@@ -74,6 +73,8 @@ interface Tenant {
   rent_start_date: string;
   due_day: string;
   is_active: boolean;
+  advance_payment?: number;
+  security_deposit?: number;
   created_at: string;
   updated_at: string;
   billing_entries?: BillingEntry[];
@@ -130,7 +131,7 @@ export function PropertyDetailsPopup({
             *,
             billing_entries(*)
           )
-        `
+        `,
         )
         .eq("id", propertyId)
         .single();
@@ -141,7 +142,7 @@ export function PropertyDetailsPopup({
     } catch (err) {
       console.error("Error fetching property details:", err);
       setError(
-        err instanceof Error ? err.message : "Failed to load property details"
+        err instanceof Error ? err.message : "Failed to load property details",
       );
       toast.error("Failed to load property details");
     } finally {
@@ -378,7 +379,7 @@ export function PropertyDetailsPopup({
       return isPaid && isPastOrCurrent;
     })
     .sort(
-      (a, b) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime()
+      (a, b) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime(),
     )
     .slice(0, 5);
 
@@ -392,7 +393,7 @@ export function PropertyDetailsPopup({
       return isUnpaid && isCurrentOrFuture;
     })
     .sort(
-      (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+      (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
     );
 
   // Calculate financial summaries
@@ -406,7 +407,7 @@ export function PropertyDetailsPopup({
     .filter(
       (entry) =>
         entry.status === "Needs Monitoring" ||
-        entry.status === "Neutral / Administrative"
+        entry.status === "Neutral / Administrative",
     )
     .reduce((sum, entry) => sum + entry.gross_due, 0);
 
@@ -479,12 +480,15 @@ export function PropertyDetailsPopup({
           onValueChange={setActiveTab}
           className="flex-1 flex flex-col overflow-hidden"
         >
-          <TabsList className="mx-4 md:mx-6 mt-4 grid grid-cols-2 w-auto">
+          <TabsList className="mx-4 md:mx-6 mt-4 grid grid-cols-3 w-auto">
             <TabsTrigger value="details" className="text-xs sm:text-sm">
               Property Details
             </TabsTrigger>
             <TabsTrigger value="finances" className="text-xs sm:text-sm">
-              Financial Records
+              Statement of Account
+            </TabsTrigger>
+            <TabsTrigger value="history" className="text-xs sm:text-sm">
+              Activity Log
             </TabsTrigger>
           </TabsList>
 
@@ -597,6 +601,38 @@ export function PropertyDetailsPopup({
                             {activeTenant.due_day}
                           </span>
                         </div>
+                        {(activeTenant.advance_payment ||
+                          activeTenant.security_deposit) && (
+                          <>
+                            <div className="col-span-2 border-t my-2"></div>
+                            {activeTenant.advance_payment !== undefined &&
+                              activeTenant.advance_payment > 0 && (
+                                <div className="grid grid-cols-2 items-center">
+                                  <span className="text-muted-foreground text-xs md:text-sm">
+                                    Advance Payment
+                                  </span>
+                                  <span className="font-medium text-green-600 dark:text-green-400 text-xs md:text-sm">
+                                    {formatCurrency(
+                                      activeTenant.advance_payment,
+                                    )}
+                                  </span>
+                                </div>
+                              )}
+                            {activeTenant.security_deposit !== undefined &&
+                              activeTenant.security_deposit > 0 && (
+                                <div className="grid grid-cols-2 items-center">
+                                  <span className="text-muted-foreground text-xs md:text-sm">
+                                    Security Deposit
+                                  </span>
+                                  <span className="font-medium text-green-600 dark:text-green-400 text-xs md:text-sm">
+                                    {formatCurrency(
+                                      activeTenant.security_deposit,
+                                    )}
+                                  </span>
+                                </div>
+                              )}
+                          </>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -633,7 +669,7 @@ export function PropertyDetailsPopup({
                         <div className="space-y-2 md:space-y-3">
                           {upcomingPayments.slice(0, 3).map((payment) => {
                             const displayStatus = getPaymentDisplayStatus(
-                              payment.status
+                              payment.status,
                             );
                             return (
                               <div
@@ -660,7 +696,7 @@ export function PropertyDetailsPopup({
                                   <Badge
                                     variant="outline"
                                     className={`text-[10px] md:text-xs mt-1 ${getPaymentStatusColorClass(
-                                      displayStatus
+                                      displayStatus,
                                     )}`}
                                   >
                                     {displayStatus}
@@ -683,7 +719,6 @@ export function PropertyDetailsPopup({
                   <Card className="shadow-sm">
                     <CardContent className="p-4 md:p-6">
                       <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center">
-                        <DollarSign className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
                         Recent Transactions
                       </h3>
                       {recentPayments.length > 0 ? (
@@ -724,7 +759,7 @@ export function PropertyDetailsPopup({
                                   <Badge
                                     variant="outline"
                                     className={`block mt-1 text-[10px] md:text-xs ${getPaymentStatusColorClass(
-                                      getPaymentDisplayStatus(payment.status)
+                                      getPaymentDisplayStatus(payment.status),
                                     )}`}
                                   >
                                     {getPaymentDisplayStatus(payment.status)}
@@ -806,7 +841,7 @@ export function PropertyDetailsPopup({
                       {JSON.parse(property.amenities).map(
                         (amenityId: string) => {
                           const amenity = AVAILABLE_AMENITIES.find(
-                            (a) => a.id === amenityId
+                            (a) => a.id === amenityId,
                           );
                           if (!amenity) return null;
                           return (
@@ -820,7 +855,7 @@ export function PropertyDetailsPopup({
                               <span className="text-sm">{amenity.name}</span>
                             </div>
                           );
-                        }
+                        },
                       )}
                     </div>
                   ) : (
@@ -845,53 +880,81 @@ export function PropertyDetailsPopup({
               {/* Finances tab content... */}
               {property.occupancy_status === "occupied" && activeTenant ? (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <Card className="shadow-sm border">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="text-xs text-muted-foreground font-medium">
-                            Total Revenue
-                          </h3>
+                  {/* Financial Overview - Unified Card */}
+                  <Card className="shadow-sm border">
+                    <CardContent className="p-4 md:p-6">
+                      <h3 className="text-base md:text-lg font-semibold mb-4 flex items-center">
+                        Financial Overview
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                        <div className="p-4 rounded-lg border bg-green-50/50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="text-xs font-medium text-muted-foreground">
+                              Total Revenue
+                            </h4>
+                          </div>
+                          <p className="text-lg md:text-xl font-bold text-green-600 dark:text-green-400">
+                            {formatCurrency(totalRevenue)}
+                          </p>
                         </div>
-                        <p className="text-lg sm:text-xl md:text-2xl font-bold text-green-600 dark:text-green-400">
-                          {formatCurrency(totalRevenue)}
-                        </p>
-                      </CardContent>
-                    </Card>
-                    <Card className="shadow-sm border">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="text-xs text-muted-foreground font-medium">
-                            Pending Payments
-                          </h3>
-                          <Clock className="h-4 w-4 text-blue-500 opacity-70" />
+                        <div className="p-4 rounded-lg border bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Clock className="h-3.5 w-3.5 text-blue-500" />
+                            <h4 className="text-xs font-medium text-muted-foreground">
+                              Pending Payments
+                            </h4>
+                          </div>
+                          <p className="text-lg md:text-xl font-bold text-blue-600 dark:text-blue-400">
+                            {formatCurrency(pendingPayments)}
+                          </p>
                         </div>
-                        <p className="text-lg sm:text-xl md:text-2xl font-bold text-blue-600 dark:text-blue-400">
-                          {formatCurrency(pendingPayments)}
-                        </p>
-                      </CardContent>
-                    </Card>
-                    <Card className="shadow-sm border">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="text-xs text-muted-foreground font-medium">
-                            Overdue Amount
-                          </h3>
-                          <AlertCircle className="h-4 w-4 text-red-500 opacity-70" />
+                        <div className="p-4 rounded-lg border bg-red-50/50 dark:bg-red-950/20 border-red-200 dark:border-red-800">
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+                            <h4 className="text-xs font-medium text-muted-foreground">
+                              Overdue Amount
+                            </h4>
+                          </div>
+                          <p className="text-lg md:text-xl font-bold text-red-600 dark:text-red-400">
+                            {formatCurrency(overdueAmount)}
+                          </p>
                         </div>
-                        <p className="text-lg sm:text-xl md:text-2xl font-bold text-red-600 dark:text-red-400">
-                          {formatCurrency(overdueAmount)}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </div>
+                        <div className="p-4 rounded-lg border bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="text-xs font-medium text-muted-foreground">
+                              Advance Payment
+                            </h4>
+                          </div>
+                          <p className="text-lg md:text-xl font-bold text-emerald-600 dark:text-emerald-400">
+                            {activeTenant.advance_payment !== undefined &&
+                            activeTenant.advance_payment > 0
+                              ? formatCurrency(activeTenant.advance_payment)
+                              : formatCurrency(0)}
+                          </p>
+                        </div>
+                        <div className="p-4 rounded-lg border bg-cyan-50/50 dark:bg-cyan-950/20 border-cyan-200 dark:border-cyan-800">
+                          <div className="flex items-center gap-2 mb-2">
+                            <h4 className="text-xs font-medium text-muted-foreground">
+                              Security Deposit
+                            </h4>
+                          </div>
+                          <p className="text-lg md:text-xl font-bold text-cyan-600 dark:text-cyan-400">
+                            {activeTenant.security_deposit !== undefined &&
+                            activeTenant.security_deposit > 0
+                              ? formatCurrency(activeTenant.security_deposit)
+                              : formatCurrency(0)}
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
 
                   <Card className="shadow-sm">
                     <CardContent className="p-4 md:p-6">
                       <div className="flex justify-between items-center mb-4 md:mb-6">
                         <h3 className="text-base md:text-lg font-semibold flex items-center">
                           <FileText className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
-                          Complete Payment History
+                          Billing Table
                         </h3>
                         <Button
                           size="sm"
@@ -951,7 +1014,7 @@ export function PropertyDetailsPopup({
                                 {billingEntries
                                   .sort(
                                     (a, b) =>
-                                      a.billing_period - b.billing_period
+                                      a.billing_period - b.billing_period,
                                   )
                                   .map((entry) => {
                                     // Parse expense items from JSON string
@@ -990,7 +1053,7 @@ export function PropertyDetailsPopup({
                                             <div className="flex items-center cursor-help gap-1">
                                               <span>
                                                 {formatCurrency(
-                                                  entry.other_charges
+                                                  entry.other_charges,
                                                 )}
                                               </span>
                                               <span className="text-[10px] bg-muted rounded-full px-1 flex items-center justify-center w-4 h-4">
@@ -1014,7 +1077,7 @@ export function PropertyDetailsPopup({
                                                   </span>
                                                   <span className="text-right font-medium">
                                                     {formatCurrency(
-                                                      item.amount
+                                                      item.amount,
                                                     )}
                                                   </span>
                                                 </div>
@@ -1024,7 +1087,7 @@ export function PropertyDetailsPopup({
                                                   <span>Total Expenses</span>
                                                   <span>
                                                     {formatCurrency(
-                                                      entry.other_charges
+                                                      entry.other_charges,
                                                     )}
                                                   </span>
                                                 </div>
@@ -1039,7 +1102,7 @@ export function PropertyDetailsPopup({
                                           <Badge
                                             variant="outline"
                                             className={`text-[10px] px-1.5 py-0.5 ${getStatusColorClass(
-                                              entry.status
+                                              entry.status,
                                             )}`}
                                           >
                                             {entry.status}
@@ -1128,7 +1191,7 @@ export function PropertyDetailsPopup({
           } catch (err) {
             console.error("Error updating amenities:", err);
             toast.error(
-              "Failed to update amenities. The amenities column may not exist in the database yet."
+              "Failed to update amenities. The amenities column may not exist in the database yet.",
             );
           }
         }}

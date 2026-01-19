@@ -80,6 +80,10 @@ interface PropertyFormData {
   dueDay: string;
   rentAmount: number;
 
+  // Accounting & Monitoring fields
+  advancePayment: number;
+  securityDeposit: number;
+
   // Update the billing schedule to include expense items
   billingSchedule: Array<{
     dueDate: string;
@@ -140,6 +144,8 @@ export function MultiStepPopup({
     rentStartDate: "",
     dueDay: "15",
     rentAmount: 0,
+    advancePayment: 0,
+    securityDeposit: 0,
     billingSchedule: [],
   });
   const [isOtherChargesPopupOpen, setIsOtherChargesPopupOpen] = useState(false);
@@ -199,7 +205,7 @@ export function MultiStepPopup({
       if (formData.maxTenants > 1) {
         // At least one tenant must be filled
         const hasAnyTenant = formData.tenants.some(
-          (t) => t.tenantName || t.tenantEmail || t.contactNumber
+          (t) => t.tenantName || t.tenantEmail || t.contactNumber,
         );
 
         if (!hasAnyTenant) {
@@ -283,7 +289,7 @@ export function MultiStepPopup({
           tenantName: "",
           tenantEmail: "",
           contactNumber: "",
-        }
+        },
       );
     }
 
@@ -299,7 +305,7 @@ export function MultiStepPopup({
   const updateTenantData = (
     index: number,
     field: keyof TenantInfo,
-    value: string | number
+    value: string | number,
   ) => {
     const newTenants = [...formData.tenants];
     newTenants[index] = {
@@ -342,9 +348,8 @@ export function MultiStepPopup({
           } email is required`;
           isValid = false;
         } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tenant.tenantEmail)) {
-          newErrors[
-            `tenant${index}_email`
-          ] = `Please enter a valid email for tenant ${index + 1}`;
+          newErrors[`tenant${index}_email`] =
+            `Please enter a valid email for tenant ${index + 1}`;
           isValid = false;
         }
 
@@ -356,9 +361,8 @@ export function MultiStepPopup({
         } else if (
           !/^(\+63|0)?9\d{9}$/.test(tenant.contactNumber.replace(/\s|-/g, ""))
         ) {
-          newErrors[
-            `tenant${index}_contact`
-          ] = `Invalid Philippine mobile number for tenant ${index + 1}`;
+          newErrors[`tenant${index}_contact`] =
+            `Invalid Philippine mobile number for tenant ${index + 1}`;
           isValid = false;
         }
       }
@@ -376,7 +380,7 @@ export function MultiStepPopup({
   // Function to save updated other charges
   const handleSaveOtherCharges = (
     totalAmount: number,
-    items: Array<{ id: string; name: string; amount: number }>
+    items: Array<{ id: string; name: string; amount: number }>,
   ) => {
     if (selectedBillingIndex === null) return;
 
@@ -481,6 +485,8 @@ export function MultiStepPopup({
       rentStartDate: "",
       dueDay: "30th/31st - Last Day",
       rentAmount: 0,
+      advancePayment: 0,
+      securityDeposit: 0,
       billingSchedule: [],
     });
     onClose();
@@ -522,7 +528,7 @@ export function MultiStepPopup({
         const lastDayOfMonth = new Date(
           dueDate.getFullYear(),
           dueDate.getMonth() + 1,
-          0
+          0,
         ).getDate();
 
         dueDate.setDate(Math.min(dueDay, lastDayOfMonth));
@@ -590,6 +596,8 @@ export function MultiStepPopup({
           rentStartDate: "",
           dueDay: "30th/31st - Last Day",
           rentAmount: 0,
+          advancePayment: 0,
+          securityDeposit: 0,
           billingSchedule: [],
         });
       } else {
@@ -727,7 +735,7 @@ export function MultiStepPopup({
                 <div className="w-full bg-background/30 rounded-full h-1.5 md:h-2 shadow-inner">
                   <div
                     className={`${getProgressBarColor(
-                      currentStep
+                      currentStep,
                     )} h-1.5 md:h-2 rounded-full transition-all duration-700 ease-out shadow`}
                     style={{ width: `${(currentStep / totalSteps) * 100}%` }}
                   />
@@ -918,7 +926,7 @@ export function MultiStepPopup({
                           value={formData.maxTenants}
                           onChange={(e) =>
                             handleMaxTenantsChange(
-                              parseInt(e.target.value) || 1
+                              parseInt(e.target.value) || 1,
                             )
                           }
                           placeholder="1"
@@ -1035,7 +1043,7 @@ export function MultiStepPopup({
                                   onChange={(e) =>
                                     updateFormData(
                                       "tenantEmail",
-                                      e.target.value
+                                      e.target.value,
                                     )
                                   }
                                   placeholder="tenant@example.com"
@@ -1065,7 +1073,7 @@ export function MultiStepPopup({
                                   onChange={(e) =>
                                     updateFormData(
                                       "contactNumber",
-                                      e.target.value
+                                      e.target.value,
                                     )
                                   }
                                   placeholder="e.g., 09123456789"
@@ -1080,41 +1088,6 @@ export function MultiStepPopup({
                                     {errors.contactNumber}
                                   </p>
                                 )}
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label
-                                  htmlFor="pax"
-                                  className="text-sm font-medium flex items-center gap-1.5"
-                                >
-                                  <User className="h-3.5 w-3.5" />
-                                  Number of Pax *
-                                </Label>
-                                <Input
-                                  id="pax"
-                                  type="number"
-                                  min="1"
-                                  max="20"
-                                  value={formData.pax}
-                                  onChange={(e) =>
-                                    updateFormData(
-                                      "pax",
-                                      parseInt(e.target.value) || 1
-                                    )
-                                  }
-                                  placeholder="1"
-                                  className={`h-9 text-sm ${
-                                    errors.pax ? "border-destructive" : ""
-                                  }`}
-                                />
-                                {errors.pax && (
-                                  <p className="text-xs text-destructive">
-                                    {errors.pax}
-                                  </p>
-                                )}
-                                <p className="text-xs text-muted-foreground">
-                                  Number of persons
-                                </p>
                               </div>
                             </div>
                           ) : (
@@ -1153,7 +1126,7 @@ export function MultiStepPopup({
                                             updateTenantData(
                                               index,
                                               "tenantName",
-                                              e.target.value
+                                              e.target.value,
                                             )
                                           }
                                           placeholder="Full name"
@@ -1185,7 +1158,7 @@ export function MultiStepPopup({
                                             updateTenantData(
                                               index,
                                               "tenantEmail",
-                                              e.target.value
+                                              e.target.value,
                                             )
                                           }
                                           placeholder="email@example.com"
@@ -1216,7 +1189,7 @@ export function MultiStepPopup({
                                             updateTenantData(
                                               index,
                                               "contactNumber",
-                                              e.target.value
+                                              e.target.value,
                                             )
                                           }
                                           placeholder="09XXXXXXXXX"
@@ -1259,7 +1232,7 @@ export function MultiStepPopup({
                               onChange={(e) =>
                                 updateFormData(
                                   "rentAmount",
-                                  parseInt(e.target.value) || 0
+                                  parseInt(e.target.value) || 0,
                                 )
                               }
                               placeholder="25000"
@@ -1314,7 +1287,7 @@ export function MultiStepPopup({
                           onChange={(e) =>
                             updateFormData(
                               "contractMonths",
-                              parseInt(e.target.value) || 0
+                              parseInt(e.target.value) || 0,
                             )
                           }
                           min="1"
@@ -1456,7 +1429,7 @@ export function MultiStepPopup({
                           onChange={(e) =>
                             updateFormData(
                               "rentAmount",
-                              parseInt(e.target.value) || 0
+                              parseInt(e.target.value) || 0,
                             )
                           }
                           placeholder="25000"
@@ -1486,7 +1459,7 @@ export function MultiStepPopup({
                         {formData.contractMonths} months from{" "}
                         {formData.rentStartDate
                           ? new Date(
-                              formData.rentStartDate
+                              formData.rentStartDate,
                             ).toLocaleDateString()
                           : "start date"}
                       </div>
@@ -1509,7 +1482,7 @@ export function MultiStepPopup({
                             const lastDayOfMonth = new Date(
                               date.getFullYear(),
                               date.getMonth() + 1,
-                              0
+                              0,
                             ).getDate();
                             date.setDate(Math.min(dueDay, lastDayOfMonth));
                           }
@@ -1527,7 +1500,7 @@ export function MultiStepPopup({
                               })}
                             </div>
                           );
-                        }
+                        },
                       )}
                       {formData.contractMonths > 12 && (
                         <div className="px-2 py-1 bg-background text-xs rounded border">
@@ -1557,7 +1530,127 @@ export function MultiStepPopup({
                   </div>
                 </div>
 
+                {/* Accounting & Monitoring Section */}
+                <Card className="shadow-sm border">
+                  <CardContent className="p-3 md:p-5">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div>
+                        <h3 className="text-base md:text-lg font-semibold text-foreground">
+                          Accounting & Deposits
+                        </h3>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label
+                          htmlFor="advancePayment"
+                          className="text-sm font-medium flex items-center gap-1.5"
+                        >
+                          Advance Payment (₱)
+                        </Label>
+                        <Input
+                          id="advancePayment"
+                          type="number"
+                          value={formData.advancePayment}
+                          onChange={(e) =>
+                            updateFormData(
+                              "advancePayment",
+                              parseInt(e.target.value) || 0,
+                            )
+                          }
+                          placeholder="0"
+                          className="h-9 text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Advance rent payment (affects billing status)
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label
+                          htmlFor="securityDeposit"
+                          className="text-sm font-medium flex items-center gap-1.5"
+                        >
+                          Security Deposit (₱)
+                        </Label>
+                        <Input
+                          id="securityDeposit"
+                          type="number"
+                          value={formData.securityDeposit}
+                          onChange={(e) =>
+                            updateFormData(
+                              "securityDeposit",
+                              parseInt(e.target.value) || 0,
+                            )
+                          }
+                          placeholder="0"
+                          className="h-9 text-sm"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Refundable security deposit amount
+                        </p>
+                      </div>
+
+                      {/* Summary Display */}
+                      {(formData.advancePayment > 0 ||
+                        formData.securityDeposit > 0) && (
+                        <div className="md:col-span-2 mt-2">
+                          <div className="bg-green-50/50 dark:bg-green-950/20 p-3 rounded-lg border border-green-200 dark:border-green-900">
+                            <h4 className="text-xs font-semibold text-green-800 dark:text-green-300 mb-2">
+                              Financial Summary
+                            </h4>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <span className="text-muted-foreground">
+                                  Advance Payment:
+                                </span>
+                                <span className="font-medium ml-2 text-green-600">
+                                  ₱{formData.advancePayment.toLocaleString()}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground">
+                                  Security Deposit:
+                                </span>
+                                <span className="font-medium ml-2 text-green-600">
+                                  ₱{formData.securityDeposit.toLocaleString()}
+                                </span>
+                              </div>
+                              <div className="col-span-2 pt-2 border-t border-green-200 dark:border-green-800">
+                                <span className="text-muted-foreground">
+                                  Total Collected:
+                                </span>
+                                <span className="font-semibold ml-2 text-green-700 dark:text-green-400">
+                                  ₱
+                                  {(
+                                    formData.advancePayment +
+                                    formData.securityDeposit
+                                  ).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
                 <Card className="shadow-sm border overflow-hidden">
+                  <CardContent className="p-3 md:p-5 pb-0">
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="p-1.5 rounded-full bg-orange-100 dark:bg-orange-950/50">
+                        <CreditCard className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                      </div>
+                      <div>
+                        <h3 className="text-base md:text-lg font-semibold text-foreground">
+                          Billing Schedule
+                        </h3>
+                      </div>
+                    </div>
+                  </CardContent>
+
                   {/* Mobile: Stack layout, Desktop: Table layout */}
                   <div className="block sm:hidden">
                     {/* Mobile Card Layout */}
@@ -1818,8 +1911,8 @@ export function MultiStepPopup({
                     currentStep > i
                       ? "bg-primary"
                       : currentStep === i + 1
-                      ? "bg-primary/70 scale-110"
-                      : "bg-muted-foreground/20"
+                        ? "bg-primary/70 scale-110"
+                        : "bg-muted-foreground/20",
                   )}
                 />
               ))}
@@ -1836,11 +1929,11 @@ export function MultiStepPopup({
                 {currentStep === 2 && formData.occupancyStatus === "occupied"
                   ? "Generate →"
                   : (currentStep === 1 &&
-                      formData.occupancyStatus === "vacant") ||
-                    (currentStep === 3 &&
-                      formData.occupancyStatus === "occupied")
-                  ? "Review →"
-                  : "Next →"}
+                        formData.occupancyStatus === "vacant") ||
+                      (currentStep === 3 &&
+                        formData.occupancyStatus === "occupied")
+                    ? "Review →"
+                    : "Next →"}
               </Button>
             ) : (
               <Button

@@ -25,6 +25,9 @@ interface PropertyFormData {
   rentStartDate: string
   dueDay: string
   rentAmount: number
+  // Accounting & Monitoring fields
+  advancePayment: number
+  securityDeposit: number
   billingSchedule: Array<{
     dueDate: string
     rentDue: number
@@ -99,6 +102,8 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
         due_day: string
         is_active: boolean
         tenant_slot: number
+        advance_payment: number
+        security_deposit: number
         created_at: string
         updated_at: string
       }> = []
@@ -118,6 +123,8 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
               due_day: formData.dueDay,
               is_active: true,
               tenant_slot: index + 1,
+              advance_payment: formData.advancePayment || 0,
+              security_deposit: formData.securityDeposit || 0,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString()
             })
@@ -135,6 +142,8 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
           due_day: formData.dueDay,
           is_active: true,
           tenant_slot: 1,
+          advance_payment: formData.advancePayment || 0,
+          security_deposit: formData.securityDeposit || 0,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })

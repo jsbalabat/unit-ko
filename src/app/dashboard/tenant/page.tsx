@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
+import { LandlordPaymentInfo } from "@/components/landlord-payment-info";
 
 export default function TenantDashboard() {
   const router = useRouter();
@@ -312,13 +313,47 @@ export default function TenantDashboard() {
           </Card>
         </div>
 
+        {/* Landlord Payment Information */}
+        <LandlordPaymentInfo propertyId={property.id} />
+
         {/* Billing Summary Card */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Billing Summary
-            </CardTitle>
-            <CardDescription>Overview of your rental payments</CardDescription>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  Billing Summary
+                </CardTitle>
+                <CardDescription>
+                  Overview of your rental payments
+                </CardDescription>
+              </div>
+              {billingEntries.length > 0 && (
+                <Button
+                  size="default"
+                  onClick={() => {
+                    const nextPendingBill = billingEntries.find(
+                      (entry) => entry.status === "pending"
+                    );
+                    if (nextPendingBill) {
+                      handlePayNow(nextPendingBill);
+                    } else {
+                      // If no pending bills, show the first bill
+                      handlePayNow(billingEntries[0]);
+                    }
+                  }}
+                  className="flex items-center gap-2 w-full sm:w-auto"
+                >
+                  <CreditCard className="h-4 w-4" />
+                  Pay Now
+                  {pendingBills > 0 && (
+                    <Badge variant="secondary" className="ml-1">
+                      {pendingBills}
+                    </Badge>
+                  )}
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 md:grid-cols-3 mb-6">
@@ -387,7 +422,7 @@ export default function TenantDashboard() {
                           )}
                         </p>
                       </div>
-                      <div className="text-right space-y-2">
+                      <div className="text-right">
                         <div>
                           <p className="font-semibold text-lg">
                             ₱{entry.gross_due.toLocaleString()}
@@ -397,16 +432,6 @@ export default function TenantDashboard() {
                             ₱{entry.other_charges.toLocaleString()}
                           </p>
                         </div>
-                        {entry.status !== "paid" && (
-                          <Button
-                            size="sm"
-                            onClick={() => handlePayNow(entry)}
-                            className="w-full"
-                          >
-                            <CreditCard className="h-4 w-4 mr-2" />
-                            Pay Now
-                          </Button>
-                        )}
                       </div>
                     </div>
                   ))}

@@ -152,7 +152,7 @@ export function SiteHeader() {
       <div className="flex w-full items-center gap-1 px-3 sm:px-4 lg:gap-2 lg:px-6">
         {/* App Logo and Brand */}
         <Link
-          href="/"
+          href="/dashboard/landlord"
           className="flex items-center cursor-pointer hover:opacity-80 transition-opacity"
         >
           <div className="flex items-center justify-center w-7 h-7 rounded-md bg-primary/10 text-primary mr-2">

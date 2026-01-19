@@ -11,6 +11,8 @@ export interface TenantDashboardData {
     due_day: string
   }
   property: {
+    id: string
+    landlord_id: string
     unit_name: string
     property_type: string
     property_location: string
@@ -110,7 +112,7 @@ export async function fetchTenantDashboardData(tenantId: string): Promise<Tenant
     // 2. Fetch property details
     const { data: property, error: propertyError } = await supabase
       .from('properties')
-      .select('unit_name, property_type, property_location, rent_amount')
+      .select('id, landlord_id, unit_name, property_type, property_location, rent_amount')
       .eq('id', tenant.property_id)
       .single()
 
@@ -142,6 +144,8 @@ export async function fetchTenantDashboardData(tenantId: string): Promise<Tenant
         due_day: tenant.due_day,
       },
       property: {
+        id: property.id,
+        landlord_id: property.landlord_id,
         unit_name: property.unit_name,
         property_type: property.property_type,
         property_location: property.property_location,

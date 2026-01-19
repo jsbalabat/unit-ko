@@ -35,6 +35,7 @@ import {
   Unlock,
   Trash2,
   AlertTriangle,
+  DollarSign,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
@@ -152,6 +153,8 @@ export function EditPropertyPopup({
   >({});
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState(0);
+  const [paymentType, setPaymentType] = useState<string>("rent");
 
   // Fetch property data when the popup opens
   useEffect(() => {
@@ -171,7 +174,7 @@ export function EditPropertyPopup({
               *,
               billing_entries(*)
             )
-          `
+          `,
           )
           .eq("id", propertyId)
           .single();
@@ -215,7 +218,7 @@ export function EditPropertyPopup({
               otherCharges: entry.other_charges,
               grossDue: entry.gross_due,
               status: entry.status,
-            })
+            }),
           );
 
           // Initialize expense items for each billing entry
@@ -232,7 +235,7 @@ export function EditPropertyPopup({
               } catch (e) {
                 console.error(
                   `Error parsing expense items for entry ${entry.id}:`,
-                  e
+                  e,
                 );
               }
             }
@@ -261,7 +264,7 @@ export function EditPropertyPopup({
                 rentDue: updatedRentDue,
                 grossDue: updatedGrossDue,
               };
-            }
+            },
           );
 
           initialFormData.billingSchedule = updatedSchedule;
@@ -286,14 +289,14 @@ export function EditPropertyPopup({
               // Apply the due day rule
               const dueDate = calculateDueDate(
                 entryMonth,
-                initialFormData.dueDay
+                initialFormData.dueDay,
               );
 
               return {
                 ...entry,
                 dueDate: formatDueDate(dueDate),
               };
-            }
+            },
           );
 
           initialFormData.billingSchedule = updatedSchedule;
@@ -303,7 +306,9 @@ export function EditPropertyPopup({
       } catch (err) {
         console.error("Error fetching property details:", err);
         setError(
-          err instanceof Error ? err.message : "Failed to load property details"
+          err instanceof Error
+            ? err.message
+            : "Failed to load property details",
         );
         toast.error("Failed to load property details");
       } finally {
@@ -331,7 +336,7 @@ export function EditPropertyPopup({
     const billingEntryId = formData.billingSchedule[index].id;
 
     console.log(
-      `Opening expenses for month ${index + 1}, billing ID: ${billingEntryId}`
+      `Opening expenses for month ${index + 1}, billing ID: ${billingEntryId}`,
     );
 
     // Open the popup
@@ -340,7 +345,7 @@ export function EditPropertyPopup({
 
   const handleSaveOtherCharges = (
     totalAmount: number,
-    items: ExpenseItem[]
+    items: ExpenseItem[],
   ) => {
     if (selectedBillingIndex === null || !formData) return;
 
@@ -350,7 +355,7 @@ export function EditPropertyPopup({
     console.log(
       `Saving expenses for month ${
         selectedBillingIndex + 1
-      }, billing ID: ${billingEntryId}, items count: ${items.length}`
+      }, billing ID: ${billingEntryId}, items count: ${items.length}`,
     );
 
     // Create updated billing schedule
@@ -361,25 +366,18 @@ export function EditPropertyPopup({
       grossDue: updatedSchedule[selectedBillingIndex].rentDue + totalAmount,
     };
 
-    // Save expense items for this specific billing entry ID
+    // Save expense items for this specific billing entry ID ONLY
+    // No redundancy - single source of truth by billing entry ID
     setExpenseItemsByBillingId((prev) => {
-      // Make sure we're setting by index AND by ID for temporary entries
       const updatedItems = { ...prev };
 
-      // Save by ID
-      updatedItems[billingEntryId] = items.map((item) => ({
-        ...item,
-        // Add month index to ensure proper tracking
-        monthIndex: selectedBillingIndex,
-      }));
+      // Store ONLY by the billing entry ID
+      updatedItems[billingEntryId] = items;
 
-      // Also save by month index for redundancy
-      updatedItems[`month-${selectedBillingIndex}`] = items.map((item) => ({
-        ...item,
-        monthIndex: selectedBillingIndex,
-      }));
-
-      console.log("Updated expense items mapping:", updatedItems);
+      console.log(
+        `Saved expense items to billing ID: ${billingEntryId}`,
+        items,
+      );
       return updatedItems;
     });
 
@@ -421,7 +419,7 @@ export function EditPropertyPopup({
         const lastDayOfMonth = new Date(
           result.getFullYear(),
           month + 1,
-          0
+          0,
         ).getDate();
         // Set to the specified day, or last day if the month doesn't have that many days
         result.setDate(Math.min(dayNumber, lastDayOfMonth));
@@ -444,7 +442,7 @@ export function EditPropertyPopup({
 
   const handleChange = (
     field: keyof PropertyFormData,
-    value: string | number | boolean | Date
+    value: string | number | boolean | Date,
   ) => {
     if (!formData) return;
 
@@ -480,7 +478,7 @@ export function EditPropertyPopup({
       updatedFormData.billingSchedule = updatedSchedule;
 
       const updatedCount = updatedSchedule.filter(
-        (entry) => new Date(entry.dueDate) >= currentDate
+        (entry) => new Date(entry.dueDate) >= currentDate,
       ).length;
 
       toast.success("Rent amount updated", {
@@ -544,16 +542,13 @@ export function EditPropertyPopup({
     // Format the new due date
     const formattedDueDate = formatDueDate(newDueDate);
 
-    // Generate random other charges
-    const otherCharges = Math.floor(Math.random() * 1500) + 500;
-
     // Create a new billing entry - use current property rent amount
     const newEntry = {
       id: `temp-${Date.now()}`, // Temporary ID until saved to database
       dueDate: formattedDueDate,
       rentDue: formData.rentAmount, // Use current property rent amount
-      otherCharges: otherCharges,
-      grossDue: formData.rentAmount + otherCharges, // Calculate based on current rent
+      otherCharges: 0,
+      grossDue: formData.rentAmount, // Calculate based on current rent
       status: "Neutral / Administrative",
     };
 
@@ -566,6 +561,97 @@ export function EditPropertyPopup({
     toast.success("New billing month added", {
       description: "Don't forget to save your changes",
     });
+  };
+
+  const applyUniversalPayment = async () => {
+    if (!formData || !property) return;
+    if (paymentAmount <= 0) {
+      toast.error("Please enter a valid payment amount");
+      return;
+    }
+
+    let remainingPayment = paymentAmount;
+    const updatedSchedule = [...formData.billingSchedule];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Sort billing entries by due date (earliest first) for priority payment
+    const sortedIndices = updatedSchedule
+      .map((_, index) => index)
+      .sort((a, b) => {
+        const dateA = new Date(updatedSchedule[a].dueDate);
+        const dateB = new Date(updatedSchedule[b].dueDate);
+        return dateA.getTime() - dateB.getTime();
+      });
+
+    // Apply payment according to priority (earliest/farthest date first)
+    for (const index of sortedIndices) {
+      const bill = updatedSchedule[index];
+      const dueDate = new Date(bill.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+
+      // Skip if already paid
+      if (bill.status === "Paid") continue;
+
+      if (remainingPayment <= 0) {
+        // No more payment to distribute - update status based on date
+        if (dueDate < today) {
+          // Previous dates - keep as manual status or mark overdue
+          if (bill.status !== "Paid" && !bill.status.startsWith("Partial")) {
+            bill.status = "Overdue";
+          }
+        } else {
+          // On and after dates - automated status
+          bill.status = "Not Yet Due";
+        }
+      } else if (remainingPayment >= bill.grossDue) {
+        // Full payment for this entry
+        remainingPayment -= bill.grossDue;
+        bill.status = "Paid";
+      } else {
+        // Partial payment
+        bill.status = `Partial (₱${remainingPayment.toLocaleString()} paid)`;
+        remainingPayment = 0;
+      }
+    }
+
+    setFormData({ ...formData, billingSchedule: updatedSchedule });
+
+    // Update database
+    try {
+      const activeTenant = property.tenants?.find((t) => t.is_active);
+      if (!activeTenant) {
+        toast.error("No active tenant found");
+        return;
+      }
+
+      // Update each billing entry in the database
+      for (const bill of updatedSchedule) {
+        if (bill.id && !bill.id.startsWith("temp-")) {
+          const { error } = await supabase
+            .from("billing_entries")
+            .update({ status: bill.status })
+            .eq("id", bill.id);
+
+          if (error) throw error;
+        }
+      }
+
+      if (remainingPayment > 0) {
+        toast.success("Payment Applied with Overpayment", {
+          description: `Overpayment of ₱${remainingPayment.toLocaleString()} recorded. All entries marked as paid.`,
+        });
+      } else {
+        toast.success("Payment Applied Successfully", {
+          description: `₱${paymentAmount.toLocaleString()} distributed across billing entries.`,
+        });
+      }
+
+      setPaymentAmount(0);
+    } catch (error) {
+      console.error("Error updating billing statuses:", error);
+      toast.error("Failed to update payment status");
+    }
   };
 
   // Submit the form
@@ -660,7 +746,7 @@ export function EditPropertyPopup({
 
       // Find entries that exist in original data but not in current form data (they were deleted)
       const deletedEntryIds = originalEntryIds.filter(
-        (id) => !currentEntryIds.includes(id)
+        (id) => !currentEntryIds.includes(id),
       );
 
       // Handle deleted entries if any
@@ -687,7 +773,7 @@ export function EditPropertyPopup({
     } catch (err) {
       console.error("Error updating property:", err);
       setError(
-        err instanceof Error ? err.message : "Failed to update property"
+        err instanceof Error ? err.message : "Failed to update property",
       );
       toast.error("Failed to update property");
     } finally {
@@ -701,13 +787,13 @@ export function EditPropertyPopup({
 
     // Confirm deletion
     const confirmDelete = window.confirm(
-      "Are you sure you want to delete this billing entry?"
+      "Are you sure you want to delete this billing entry?",
     );
     if (!confirmDelete) return;
 
     // Remove the entry from the form data
     const updatedSchedule = formData.billingSchedule.filter(
-      (entry, i) => i !== index
+      (entry, i) => i !== index,
     );
     setFormData({ ...formData, billingSchedule: updatedSchedule });
 
@@ -762,7 +848,7 @@ export function EditPropertyPopup({
     } catch (err) {
       console.error("Error deleting property:", err);
       setError(
-        err instanceof Error ? err.message : "Failed to delete property"
+        err instanceof Error ? err.message : "Failed to delete property",
       );
       toast.error("Failed to delete property");
     } finally {
@@ -922,7 +1008,7 @@ export function EditPropertyPopup({
                         onChange={(e) =>
                           handleChange(
                             "rentAmount",
-                            parseFloat(e.target.value) || 0
+                            parseFloat(e.target.value) || 0,
                           )
                         }
                         disabled={isLocked}
@@ -1140,6 +1226,69 @@ export function EditPropertyPopup({
                 </h2>
                 <Card>
                   <CardContent className="p-6">
+                    {/* Universal Payment Field */}
+                    <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
+                        <div className="flex-1 space-y-2">
+                          <Label
+                            htmlFor="paymentAmount"
+                            className="text-sm font-medium flex items-center gap-1.5"
+                          >
+                            <DollarSign className="h-4 w-4 text-blue-600" />
+                            Apply Payment
+                          </Label>
+                          <div className="flex gap-2">
+                            <Input
+                              id="paymentAmount"
+                              type="number"
+                              value={paymentAmount || ""}
+                              onChange={(e) =>
+                                setPaymentAmount(parseInt(e.target.value) || 0)
+                              }
+                              placeholder="Enter amount"
+                              className="h-9 text-sm"
+                              disabled={isLocked}
+                            />
+                            <Select
+                              value={paymentType}
+                              onValueChange={setPaymentType}
+                              disabled={isLocked}
+                            >
+                              <SelectTrigger className="h-9 w-40 text-sm">
+                                <SelectValue placeholder="Payment type" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="rent">Rent</SelectItem>
+                                <SelectItem value="deposit">Deposit</SelectItem>
+                                <SelectItem value="other">
+                                  Other Charges
+                                </SelectItem>
+                                <SelectItem value="advance">
+                                  Advance Payment
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Payment will be applied to billing entries starting
+                            from the earliest due date. Handles under/over
+                            payments automatically.
+                          </p>
+                        </div>
+                        <Button
+                          onClick={applyUniversalPayment}
+                          size="sm"
+                          className="h-9 whitespace-nowrap"
+                          disabled={
+                            isLocked || !paymentAmount || paymentAmount <= 0
+                          }
+                        >
+                          <DollarSign className="h-4 w-4 mr-1" />
+                          Apply Payment
+                        </Button>
+                      </div>
+                    </div>
+
                     <div className="overflow-x-auto -mx-4 sm:mx-0">
                       <div className="inline-block min-w-full align-middle px-4 sm:px-0">
                         <table className="min-w-full border-collapse">
