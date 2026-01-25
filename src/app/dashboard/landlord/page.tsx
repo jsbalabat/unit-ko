@@ -19,7 +19,6 @@ import {
   Plus,
   Home,
   Eye,
-  Edit,
 } from "lucide-react";
 import { MultiStepPopup } from "@/components/form-add-property";
 import { PropertyDetailsPopup } from "@/components/property-details-popup";
@@ -35,17 +34,17 @@ export default function LandlordDashboard() {
   const [isDetailsPopupOpen, setIsDetailsPopupOpen] = useState(false);
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
-    null
+    null,
   );
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(
-    null
+    null,
   );
   const { properties, stats, loading, error, refetch } = useProperties();
 
   // Filter states
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPropertyTypes, setSelectedPropertyTypes] = useState<string[]>(
-    []
+    [],
   );
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState("name-asc");
@@ -100,7 +99,7 @@ export default function LandlordDashboard() {
 
     const currentDate = new Date();
     const sortedEntries = [...activeTenant.billing_entries].sort(
-      (a, b) => (a.billing_period || 0) - (b.billing_period || 0)
+      (a, b) => (a.billing_period || 0) - (b.billing_period || 0),
     );
 
     const relevantEntries = sortedEntries.filter((entry) => {
@@ -120,7 +119,7 @@ export default function LandlordDashboard() {
       (entry) =>
         entry.status.toLowerCase().includes("problem") ||
         entry.status.toLowerCase().includes("urgent") ||
-        entry.status.toLowerCase().includes("overdue")
+        entry.status.toLowerCase().includes("overdue"),
     );
 
     if (hasUrgentIssues) {
@@ -131,7 +130,7 @@ export default function LandlordDashboard() {
       (entry) =>
         entry.status.toLowerCase().includes("monitoring") ||
         entry.status.toLowerCase().includes("delayed") ||
-        entry.status.toLowerCase().includes("needs")
+        entry.status.toLowerCase().includes("needs"),
     );
 
     if (needsMonitoring) {
@@ -152,14 +151,14 @@ export default function LandlordDashboard() {
         (p) =>
           p.unit_name.toLowerCase().includes(search) ||
           p.property_location.toLowerCase().includes(search) ||
-          p.property_type.toLowerCase().includes(search)
+          p.property_type.toLowerCase().includes(search),
       );
     }
 
     // Apply property type filter
     if (selectedPropertyTypes.length > 0) {
       filtered = filtered.filter((p) =>
-        selectedPropertyTypes.includes(p.property_type)
+        selectedPropertyTypes.includes(p.property_type),
       );
     }
 
@@ -359,7 +358,7 @@ export default function LandlordDashboard() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
               {filteredAndSortedProperties.map((property) => {
                 const activeTenant = property.tenants.find(
-                  (t) => t.is_active
+                  (t) => t.is_active,
                 ) as (typeof property.tenants)[0] & {
                   billing_entries?: BillingEntry[];
                 };
@@ -392,7 +391,7 @@ export default function LandlordDashboard() {
 
                   // Sort billing entries by billing period (month number)
                   const sortedEntries = [...activeTenant.billing_entries].sort(
-                    (a, b) => (a.billing_period || 0) - (b.billing_period || 0)
+                    (a, b) => (a.billing_period || 0) - (b.billing_period || 0),
                   );
 
                   // Find entries up to the current month
@@ -419,7 +418,7 @@ export default function LandlordDashboard() {
                     (entry) =>
                       entry.status.toLowerCase().includes("problem") ||
                       entry.status.toLowerCase().includes("urgent") ||
-                      entry.status.toLowerCase().includes("overdue")
+                      entry.status.toLowerCase().includes("overdue"),
                   );
 
                   if (hasUrgentIssues) {
@@ -434,7 +433,7 @@ export default function LandlordDashboard() {
                     (entry) =>
                       entry.status.toLowerCase().includes("monitoring") ||
                       entry.status.toLowerCase().includes("delayed") ||
-                      entry.status.toLowerCase().includes("needs")
+                      entry.status.toLowerCase().includes("needs"),
                   );
 
                   if (needsMonitoring) {
@@ -464,7 +463,7 @@ export default function LandlordDashboard() {
                     <div
                       className={cn(
                         "h-1.5",
-                        getStatusStyles(property.occupancy_status).indicator
+                        getStatusStyles(property.occupancy_status).indicator,
                       )}
                     />
                     <CardHeader className="pb-2">
@@ -474,7 +473,7 @@ export default function LandlordDashboard() {
                         </CardTitle>
                         <Building
                           className={`h-5 w-5 flex-shrink-0 ${getPropertyIcon(
-                            property.property_type
+                            property.property_type,
                           )}`}
                         />
                       </div>
@@ -533,20 +532,11 @@ export default function LandlordDashboard() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="flex-1 h-9"
+                        className="w-full h-9"
                         onClick={() => handleViewDetails(property.id)}
                       >
                         <Eye className="h-4 w-4 mr-1.5" />
                         Details
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="flex-1 h-9"
-                        onClick={() => handleEditProperty(property.id)}
-                      >
-                        <Edit className="h-4 w-4 mr-1.5" />
-                        Edit
                       </Button>
                     </CardFooter>
                   </Card>
