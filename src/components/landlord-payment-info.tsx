@@ -47,6 +47,7 @@ export function LandlordPaymentInfo({
   const fetchLandlordPaymentDetails = async () => {
     try {
       let landlordIdToUse = landlordId;
+      let propertyIdToUse = propertyId;
 
       // If no landlordId provided, fetch from property
       if (!landlordIdToUse && propertyId) {
@@ -57,53 +58,62 @@ export function LandlordPaymentInfo({
           .single();
 
         if (propertyError) {
-          console.error("Error fetching property:", propertyError);
-          throw propertyError;
+          // Silently handle error
+          setPaymentDetails({});
+          return;
         }
         landlordIdToUse = property?.landlord_id;
       }
 
-      if (!landlordIdToUse) {
-        console.error(
-          "Landlord ID not found - landlordId:",
-          landlordId,
-          "propertyId:",
-          propertyId
+      // Use database function to fetch payment info (bypasses RLS)
+      if (propertyIdToUse) {
+        const { data, error } = await supabase.rpc(
+          "get_landlord_payment_info",
+          {
+            property_id_param: propertyIdToUse,
+          },
         );
-        throw new Error("Landlord ID not found");
-      }
 
-      // Fetch landlord payment details from profiles
-      const { data, error: profileError } = await supabase
-        .from("profiles")
-        .select(
-          "payment_bank_name, payment_account_name, payment_account_number, payment_gcash_number, payment_paymaya_number, payment_other_details, full_name"
-        )
-        .eq("id", landlordIdToUse)
-        .single();
-
-      if (profileError) {
-        console.error("Error fetching profile from table:", profileError);
-        console.error("Attempted landlord_id:", landlordIdToUse);
-
-        // If profile doesn't exist (PGRST116), set empty details
-        // Tenants cannot create profiles for landlords
-        if (profileError.code === "PGRST116") {
-          console.log(
-            "Profile not found for landlord. Landlord needs to set up their profile."
-          );
+        if (error) {
+          // Silently handle error - function might not exist yet or other DB issue
           setPaymentDetails({});
           return;
         }
 
-        // For other errors, set empty details
-        setPaymentDetails({});
+        // The function returns an array, get the first result
+        if (data && data.length > 0) {
+          setPaymentDetails(data[0]);
+        } else {
+          setPaymentDetails({});
+        }
         return;
       }
 
-      setPaymentDetails(data);
+      // Fallback: if we have landlordId but no propertyId, try direct query
+      if (landlordIdToUse) {
+        const { data, error: profileError } = await supabase
+          .from("profiles")
+          .select(
+            "payment_bank_name, payment_account_name, payment_account_number, payment_gcash_number, payment_paymaya_number, payment_other_details, full_name",
+          )
+          .eq("id", landlordIdToUse)
+          .single();
+
+        if (profileError) {
+          // Silently handle errors - tenants without auth can't access profiles due to RLS
+          setPaymentDetails({});
+          return;
+        }
+
+        setPaymentDetails(data);
+        return;
+      }
+
+      // No landlordId or propertyId available
+      setPaymentDetails({});
     } catch (error) {
-      console.error("Error fetching landlord payment details:", error);
+      // Silently handle any unexpected errors
+      setPaymentDetails({});
     } finally {
       setLoading(false);
     }
@@ -225,7 +235,7 @@ export function LandlordPaymentInfo({
                     onClick={() =>
                       handleCopy(
                         paymentDetails.payment_account_name!,
-                        "Account Name"
+                        "Account Name",
                       )
                     }
                   >
@@ -254,7 +264,7 @@ export function LandlordPaymentInfo({
                     onClick={() =>
                       handleCopy(
                         paymentDetails.payment_account_number!,
-                        "Account Number"
+                        "Account Number",
                       )
                     }
                   >
@@ -299,7 +309,7 @@ export function LandlordPaymentInfo({
                     onClick={() =>
                       handleCopy(
                         paymentDetails.payment_gcash_number!,
-                        "GCash Number"
+                        "GCash Number",
                       )
                     }
                   >
@@ -331,7 +341,7 @@ export function LandlordPaymentInfo({
                     onClick={() =>
                       handleCopy(
                         paymentDetails.payment_paymaya_number!,
-                        "PayMaya Number"
+                        "PayMaya Number",
                       )
                     }
                   >
