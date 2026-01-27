@@ -222,7 +222,7 @@ function TenantDashboard() {
                 <div className="flex items-start gap-3">
                   <Calendar className="h-4 w-4 mt-1 text-muted-foreground" />
                   <div>
-                    <p className="text-sm font-medium">Rent Start Date</p>
+                    <p className="text-sm font-medium">Rent Agreement Date</p>
                     <p className="text-sm text-muted-foreground">
                       {new Date(tenant.rent_start_date).toLocaleDateString(
                         "en-US",
