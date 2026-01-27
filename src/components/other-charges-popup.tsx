@@ -161,8 +161,8 @@ export function OtherChargesPopup({
   const updateExpenseAmount = (id: string, amount: number) => {
     setExpenseItems(
       expenseItems.map((item) =>
-        item.id === id ? { ...item, amount: Math.max(0, amount) } : item
-      )
+        item.id === id ? { ...item, amount: Math.max(0, amount) } : item,
+      ),
     );
   };
 
@@ -191,17 +191,20 @@ export function OtherChargesPopup({
 
   // Filter out already added expenses from suggestions
   const availableSuggestions = suggestedExpenses.filter(
-    (suggestion) => !expenseItems.some((item) => item.name === suggestion.name)
+    (suggestion) => !expenseItems.some((item) => item.name === suggestion.name),
   );
 
   // Group suggestions by category
-  const groupedSuggestions = availableSuggestions.reduce((acc, suggestion) => {
-    if (!acc[suggestion.category]) {
-      acc[suggestion.category] = [];
-    }
-    acc[suggestion.category].push(suggestion);
-    return acc;
-  }, {} as Record<string, SuggestedExpense[]>);
+  const groupedSuggestions = availableSuggestions.reduce(
+    (acc, suggestion) => {
+      if (!acc[suggestion.category]) {
+        acc[suggestion.category] = [];
+      }
+      acc[suggestion.category].push(suggestion);
+      return acc;
+    },
+    {} as Record<string, SuggestedExpense[]>,
+  );
 
   return (
     <Dialog open={isOpen} onOpenChange={handleCancel}>
@@ -251,7 +254,7 @@ export function OtherChargesPopup({
                         ))}
                       </div>
                     </div>
-                  )
+                  ),
                 )}
               </div>
             </div>
@@ -375,7 +378,7 @@ export function OtherChargesPopup({
                               onChange={(e) =>
                                 updateExpenseAmount(
                                   item.id,
-                                  parseFloat(e.target.value) || 0
+                                  parseFloat(e.target.value) || 0,
                                 )
                               }
                               className="h-8 text-sm pl-6 pr-2"

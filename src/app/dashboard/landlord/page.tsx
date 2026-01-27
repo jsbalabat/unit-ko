@@ -629,18 +629,18 @@ function StatCard({ title, value, icon, trend = "neutral" }: StatCardProps) {
 
   return (
     <Card>
-      <CardContent className="p-4 flex flex-col">
+      <CardContent className="py-1 px-3 flex flex-col">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground font-medium">
+          <span className="text-xs text-muted-foreground font-medium">
             {title}
           </span>
           {icon && (
-            <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center">
+            <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center">
               {icon}
             </div>
           )}
         </div>
-        <div className={cn("text-2xl font-bold mt-2", trendColors[trend])}>
+        <div className={cn("text-xl font-bold mt-1.5", trendColors[trend])}>
           {value}
         </div>
       </CardContent>

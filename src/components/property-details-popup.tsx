@@ -94,6 +94,17 @@ interface Property {
   tenants?: Tenant[];
 }
 
+interface ActivityLog {
+  id: string;
+  property_id: string;
+  tenant_id: string | null;
+  user_id: string | null;
+  action_type: string;
+  description: string;
+  metadata: any;
+  created_at: string;
+}
+
 interface PropertyDetailsPopupProps {
   propertyId: string;
   isOpen: boolean;
@@ -116,6 +127,7 @@ export function PropertyDetailsPopup({
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
   const [isAmenitiesPopupOpen, setIsAmenitiesPopupOpen] = useState(false);
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
   // Wrap fetchPropertyDetails in useCallback to prevent recreation on every render
   const fetchPropertyDetails = useCallback(async () => {
@@ -142,6 +154,18 @@ export function PropertyDetailsPopup({
       if (error) throw error;
 
       setProperty(data as Property);
+
+      // Fetch activity logs for this property
+      const { data: logs, error: logsError } = await supabase
+        .from("activity_logs")
+        .select("*")
+        .eq("property_id", propertyId)
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (!logsError && logs) {
+        setActivityLogs(logs);
+      }
     } catch (err) {
       console.error("Error fetching property details:", err);
       setError(
@@ -590,7 +614,7 @@ export function PropertyDetailsPopup({
                         </div>
                         <div className="grid grid-cols-2 items-center">
                           <span className="text-muted-foreground text-xs md:text-sm">
-                            Start Date
+                            Rent Agreement Date
                           </span>
                           <span className="font-medium text-xs md:text-sm">
                             {formatDate(activeTenant.rent_start_date)}
@@ -1165,6 +1189,72 @@ export function PropertyDetailsPopup({
                   </p>
                 </div>
               )}
+            </div>
+          </TabsContent>
+
+          <TabsContent
+            value="history"
+            className="flex-1 overflow-auto px-4 md:px-6 pt-4 pb-16"
+          >
+            <div className="space-y-4">
+              <Card className="shadow-sm">
+                <CardContent className="p-4 md:p-6">
+                  <h3 className="text-base md:text-lg font-semibold mb-4 flex items-center">
+                    <Clock className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
+                    Activity Timeline
+                  </h3>
+
+                  {activityLogs.length > 0 ? (
+                    <div className="space-y-3">
+                      {activityLogs.map((log, index) => (
+                        <div
+                          key={log.id}
+                          className="flex gap-3 pb-3 border-b last:border-b-0 last:pb-0"
+                        >
+                          <div className="flex-shrink-0 mt-1">
+                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                              {log.action_type.includes("payment") ? (
+                                <CreditCard className="h-4 w-4 text-green-600" />
+                              ) : log.action_type.includes("tenant") ? (
+                                <User className="h-4 w-4 text-blue-600" />
+                              ) : log.action_type.includes("property") ? (
+                                <Building className="h-4 w-4 text-purple-600" />
+                              ) : (
+                                <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium">
+                              {log.description}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {new Date(log.created_at).toLocaleString(
+                                "en-US",
+                                {
+                                  year: "numeric",
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                },
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
+                      <Clock className="h-12 w-12 mb-3 opacity-40" />
+                      <p className="text-sm font-medium">No activity yet</p>
+                      <p className="text-xs mt-1">
+                        Activity history will appear here as changes are made
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
         </Tabs>
