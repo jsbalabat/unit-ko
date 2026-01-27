@@ -28,7 +28,7 @@ export default async function RootLayout({
         className={cn(
           "bg-background overscroll-none font-sans antialiased",
           activeThemeValue ? `theme-${activeThemeValue}` : "",
-          isScaled ? "theme-scaled" : ""
+          isScaled ? "theme-scaled" : "",
         )}
       >
         <ThemeProvider
@@ -40,7 +40,7 @@ export default async function RootLayout({
         >
           <ActiveThemeProvider initialTheme={activeThemeValue}>
             {children}
-            <Toaster />
+            <Toaster position="top-right" />
           </ActiveThemeProvider>
         </ThemeProvider>
       </body>
