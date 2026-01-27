@@ -53,6 +53,7 @@ interface BillingEntry {
   gross_due: number;
   status: string;
   billing_period: number;
+  paid_amount?: number;
   created_at: string;
   updated_at: string;
   expense_items?: string; // Add this field for the JSON string of expense items
@@ -98,6 +99,7 @@ interface PropertyDetailsPopupProps {
   isOpen: boolean;
   onClose: () => void;
   onEdit?: (propertyId: string) => void;
+  onSuccess?: () => void;
 }
 
 export function PropertyDetailsPopup({
@@ -105,6 +107,7 @@ export function PropertyDetailsPopup({
   isOpen,
   onClose,
   onEdit,
+  onSuccess,
 }: PropertyDetailsPopupProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1006,111 +1009,142 @@ export function PropertyDetailsPopup({
                                     scope="col"
                                     className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                   >
+                                    Paid
+                                  </th>
+                                  <th
+                                    scope="col"
+                                    className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
+                                  >
                                     Status
                                   </th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-muted/40 bg-background">
-                                {billingEntries
-                                  .sort(
-                                    (a, b) =>
-                                      a.billing_period - b.billing_period,
-                                  )
-                                  .map((entry) => {
-                                    // Parse expense items from JSON string
-                                    const expenseItems: ExpenseItem[] =
-                                      entry.expense_items
-                                        ? JSON.parse(entry.expense_items)
-                                        : [
-                                            {
-                                              id: `default-${entry.id}`,
-                                              name: "Miscellaneous",
-                                              amount: entry.other_charges,
-                                            },
-                                          ];
+                                {billingEntries.length > 0 ? (
+                                  billingEntries
+                                    .sort(
+                                      (a, b) =>
+                                        a.billing_period - b.billing_period,
+                                    )
+                                    .map((entry) => {
+                                      // Parse expense items from JSON string
+                                      const expenseItems: ExpenseItem[] =
+                                        entry.expense_items
+                                          ? JSON.parse(entry.expense_items)
+                                          : [
+                                              {
+                                                id: `default-${entry.id}`,
+                                                name: "Miscellaneous",
+                                                amount: entry.other_charges,
+                                              },
+                                            ];
 
-                                    return (
-                                      <tr
-                                        key={entry.id}
-                                        className="hover:bg-muted/30 transition-colors"
-                                      >
-                                        <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                          <div className="flex items-center">
-                                            <ClipboardCheck className="h-3 w-3 text-muted-foreground mr-1.5 flex-shrink-0" />
-                                            <span>
-                                              Month {entry.billing_period}
-                                            </span>
-                                          </div>
-                                        </td>
-                                        <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                          {formatDueDate(entry.due_date)}
-                                        </td>
-                                        <td className="px-3 py-2 text-xs font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
-                                          {formatCurrency(entry.rent_due)}
-                                        </td>
-                                        <td className="px-3 py-2 text-xs">
-                                          <div className="relative group inline-block">
-                                            <div className="flex items-center cursor-help gap-1">
+                                      return (
+                                        <tr
+                                          key={entry.id}
+                                          className="hover:bg-muted/30 transition-colors"
+                                        >
+                                          <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                            <div className="flex items-center">
+                                              <ClipboardCheck className="h-3 w-3 text-muted-foreground mr-1.5 flex-shrink-0" />
                                               <span>
-                                                {formatCurrency(
-                                                  entry.other_charges,
-                                                )}
-                                              </span>
-                                              <span className="text-[10px] bg-muted rounded-full px-1 flex items-center justify-center w-4 h-4">
-                                                {expenseItems.length}
+                                                Month {entry.billing_period}
                                               </span>
                                             </div>
-
-                                            {/* Hover tooltip for expenses */}
-                                            <div className="hidden group-hover:block absolute left-0 top-full mt-2 bg-popover shadow-lg rounded-md p-2 z-20 min-w-[200px] border">
-                                              <div className="text-xs font-medium mb-1.5">
-                                                Expenses for Month{" "}
-                                                {entry.billing_period}:
+                                          </td>
+                                          <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                            {formatDueDate(entry.due_date)}
+                                          </td>
+                                          <td className="px-3 py-2 text-xs font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
+                                            {formatCurrency(entry.rent_due)}
+                                          </td>
+                                          <td className="px-3 py-2 text-xs">
+                                            <div className="relative group inline-block">
+                                              <div className="flex items-center cursor-help gap-1">
+                                                <span>
+                                                  {formatCurrency(
+                                                    entry.other_charges,
+                                                  )}
+                                                </span>
+                                                <span className="text-[10px] bg-muted rounded-full px-1 flex items-center justify-center w-4 h-4">
+                                                  {expenseItems.length}
+                                                </span>
                                               </div>
-                                              {expenseItems.map((item) => (
-                                                <div
-                                                  key={item.id}
-                                                  className="flex justify-between text-xs mb-1.5"
-                                                >
-                                                  <span className="truncate max-w-[150px] pr-4">
-                                                    {item.name}
-                                                  </span>
-                                                  <span className="text-right font-medium">
-                                                    {formatCurrency(
-                                                      item.amount,
-                                                    )}
-                                                  </span>
+
+                                              {/* Hover tooltip for expenses */}
+                                              <div className="hidden group-hover:block absolute left-0 top-full mt-2 bg-popover shadow-lg rounded-md p-2 z-20 min-w-[200px] border">
+                                                <div className="text-xs font-medium mb-1.5">
+                                                  Expenses for Month{" "}
+                                                  {entry.billing_period}:
                                                 </div>
-                                              ))}
-                                              {expenseItems.length > 1 && (
-                                                <div className="border-t border-border pt-1.5 mt-1.5 flex justify-between text-xs font-medium">
-                                                  <span>Total Expenses</span>
-                                                  <span>
-                                                    {formatCurrency(
-                                                      entry.other_charges,
-                                                    )}
-                                                  </span>
-                                                </div>
-                                              )}
+                                                {expenseItems.map((item) => (
+                                                  <div
+                                                    key={item.id}
+                                                    className="flex justify-between text-xs mb-1.5"
+                                                  >
+                                                    <span className="truncate max-w-[150px] pr-4">
+                                                      {item.name}
+                                                    </span>
+                                                    <span className="text-right font-medium">
+                                                      {formatCurrency(
+                                                        item.amount,
+                                                      )}
+                                                    </span>
+                                                  </div>
+                                                ))}
+                                                {expenseItems.length > 1 && (
+                                                  <div className="border-t border-border pt-1.5 mt-1.5 flex justify-between text-xs font-medium">
+                                                    <span>Total Expenses</span>
+                                                    <span>
+                                                      {formatCurrency(
+                                                        entry.other_charges,
+                                                      )}
+                                                    </span>
+                                                  </div>
+                                                )}
+                                              </div>
                                             </div>
-                                          </div>
-                                        </td>
-                                        <td className="px-3 py-2 text-xs font-semibold whitespace-nowrap">
-                                          {formatCurrency(entry.gross_due)}
-                                        </td>
-                                        <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                          <Badge
-                                            variant="outline"
-                                            className={`text-[10px] px-1.5 py-0.5 ${getStatusColorClass(
-                                              entry.status,
-                                            )}`}
-                                          >
-                                            {entry.status}
-                                          </Badge>
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
+                                          </td>
+                                          <td className="px-3 py-2 text-xs font-semibold whitespace-nowrap">
+                                            {formatCurrency(entry.gross_due)}
+                                          </td>
+                                          <td className="px-3 py-2 text-xs font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">
+                                            {formatCurrency(
+                                              entry.paid_amount || 0,
+                                            )}
+                                          </td>
+                                          <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                            <Badge
+                                              variant="outline"
+                                              className={`text-[10px] px-1.5 py-0.5 ${getStatusColorClass(
+                                                entry.status,
+                                              )}`}
+                                            >
+                                              {entry.status}
+                                            </Badge>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })
+                                ) : (
+                                  <tr>
+                                    <td
+                                      colSpan={7}
+                                      className="px-3 py-8 text-center"
+                                    >
+                                      <div className="flex flex-col items-center justify-center text-muted-foreground">
+                                        <FileText className="h-8 w-8 mb-2 opacity-40" />
+                                        <p className="text-sm font-medium">
+                                          No billing entries yet
+                                        </p>
+                                        <p className="text-xs mt-1">
+                                          Click "Edit Property" to add billing
+                                          entries
+                                        </p>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
                               </tbody>
                             </table>
                           </div>
@@ -1230,10 +1264,11 @@ export function PropertyDetailsPopup({
 
           if (result.success) {
             toast.success("Property reset successfully");
+            setIsResetDialogOpen(false);
             onClose(); // Close the details popup
-            // Optionally refresh the parent component
-            if (onEdit) {
-              onEdit(propertyId);
+            // Refresh the parent component data
+            if (onSuccess) {
+              onSuccess();
             }
           } else {
             toast.error(result.error || "Failed to reset property");

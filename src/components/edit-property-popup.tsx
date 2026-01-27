@@ -62,6 +62,7 @@ interface BillingEntry {
   gross_due: number;
   status: string;
   billing_period: number;
+  paid_amount?: number;
   expense_items?: string; // Add this field for the JSON string
   created_at: string;
   updated_at: string;
@@ -116,6 +117,7 @@ interface PropertyFormData {
     otherCharges: number;
     grossDue: number;
     status: string;
+    paidAmount?: number;
   }>;
 }
 
@@ -218,6 +220,7 @@ export function EditPropertyPopup({
               otherCharges: entry.other_charges,
               grossDue: entry.gross_due,
               status: entry.status,
+              paidAmount: entry.paid_amount || 0,
             }),
           );
 
@@ -527,17 +530,28 @@ export function EditPropertyPopup({
 
     const lastEntry =
       formData.billingSchedule[formData.billingSchedule.length - 1];
+
+    let newDueDate: Date;
+
     if (!lastEntry) {
-      toast.error("Cannot add new month without existing entries");
-      return;
+      // No existing entries - create the first billing entry based on rent start date
+      if (!formData.rentStartDate) {
+        toast.error("Please set a rent start date first");
+        return;
+      }
+
+      // Use the rent start date as the base for the first billing entry
+      const startDate = new Date(formData.rentStartDate);
+      newDueDate = calculateDueDate(startDate, formData.dueDay);
+    } else {
+      // There are existing entries - add the next month
+      const lastDueDate = new Date(lastEntry.dueDate);
+      const newMonth = new Date(lastDueDate);
+      newMonth.setMonth(lastDueDate.getMonth() + 1);
+
+      // Apply the due day setting
+      newDueDate = calculateDueDate(newMonth, formData.dueDay);
     }
-
-    const lastDueDate = new Date(lastEntry.dueDate);
-    const newMonth = new Date(lastDueDate);
-    newMonth.setMonth(lastDueDate.getMonth() + 1);
-
-    // Apply the due day setting
-    const newDueDate = calculateDueDate(newMonth, formData.dueDay);
 
     // Format the new due date
     const formattedDueDate = formatDueDate(newDueDate);
@@ -550,6 +564,7 @@ export function EditPropertyPopup({
       otherCharges: 0,
       grossDue: formData.rentAmount, // Calculate based on current rent
       status: "Neutral / Administrative",
+      paidAmount: 0,
     };
 
     // Update form data with the new entry
@@ -606,11 +621,14 @@ export function EditPropertyPopup({
         }
       } else if (remainingPayment >= bill.grossDue) {
         // Full payment for this entry
-        remainingPayment -= bill.grossDue;
+        const paymentForThisBill = bill.grossDue;
+        remainingPayment -= paymentForThisBill;
+        bill.paidAmount = (bill.paidAmount || 0) + paymentForThisBill;
         bill.status = "Paid";
       } else {
         // Partial payment
-        bill.status = `Partial (₱${remainingPayment.toLocaleString()} paid)`;
+        bill.paidAmount = (bill.paidAmount || 0) + remainingPayment;
+        bill.status = `Partial (₱${bill.paidAmount.toLocaleString()} paid)`;
         remainingPayment = 0;
       }
     }
@@ -630,7 +648,10 @@ export function EditPropertyPopup({
         if (bill.id && !bill.id.startsWith("temp-")) {
           const { error } = await supabase
             .from("billing_entries")
-            .update({ status: bill.status })
+            .update({
+              status: bill.status,
+              paid_amount: bill.paidAmount || 0,
+            })
             .eq("id", bill.id);
 
           if (error) throw error;
@@ -705,6 +726,7 @@ export function EditPropertyPopup({
                 other_charges: entry.otherCharges,
                 rent_due: entry.rentDue,
                 gross_due: entry.grossDue,
+                paid_amount: entry.paidAmount || 0,
                 expense_items:
                   expenseItems.length > 0 ? JSON.stringify(expenseItems) : null,
                 updated_at: new Date().toISOString(),
@@ -725,6 +747,7 @@ export function EditPropertyPopup({
                 other_charges: entry.otherCharges,
                 gross_due: entry.grossDue,
                 status: entry.status,
+                paid_amount: entry.paidAmount || 0,
                 expense_items:
                   expenseItems.length > 0 ? JSON.stringify(expenseItems) : null,
                 billing_period: formData.billingSchedule.indexOf(entry) + 1,
@@ -1220,16 +1243,16 @@ export function EditPropertyPopup({
           )}
 
           {/* Payment Status Section */}
-          {formData.occupancyStatus === "occupied" &&
-            formData.billingSchedule.length > 0 && (
-              <section>
-                <h2 className="text-lg font-semibold mb-4 flex items-center">
-                  <Calendar className="mr-2 h-4 w-4" />
-                  Payment Status
-                </h2>
-                <Card>
-                  <CardContent className="p-6">
-                    {/* Universal Payment Field */}
+          {formData.occupancyStatus === "occupied" && (
+            <section>
+              <h2 className="text-lg font-semibold mb-4 flex items-center">
+                <Calendar className="mr-2 h-4 w-4" />
+                Payment Status
+              </h2>
+              <Card>
+                <CardContent className="p-6">
+                  {/* Universal Payment Field - Only show when there are billing entries */}
+                  {formData.billingSchedule.length > 0 && (
                     <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg">
                       <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
                         <div className="flex-1 space-y-2">
@@ -1291,37 +1314,42 @@ export function EditPropertyPopup({
                         </Button>
                       </div>
                     </div>
+                  )}
 
-                    <div className="overflow-x-auto -mx-4 sm:mx-0">
-                      <div className="inline-block min-w-full align-middle px-4 sm:px-0">
-                        <table className="min-w-full border-collapse">
-                          <thead className="bg-muted/50">
-                            <tr className="text-left border-b">
-                              <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                                Period
-                              </th>
-                              <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                                Due Date
-                              </th>
-                              <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                                Rent
-                              </th>
-                              <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                                Other
-                              </th>
-                              <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                                Total
-                              </th>
-                              <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                                Status
-                              </th>
-                              <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                                Actions
-                              </th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {formData.billingSchedule
+                  <div className="overflow-x-auto -mx-4 sm:mx-0">
+                    <div className="inline-block min-w-full align-middle px-4 sm:px-0">
+                      <table className="min-w-full border-collapse">
+                        <thead className="bg-muted/50">
+                          <tr className="text-left border-b">
+                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
+                              Period
+                            </th>
+                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
+                              Due Date
+                            </th>
+                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
+                              Rent
+                            </th>
+                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
+                              Other
+                            </th>
+                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
+                              Total
+                            </th>
+                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
+                              Paid
+                            </th>
+                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
+                              Status
+                            </th>
+                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
+                              Actions
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {formData.billingSchedule.length > 0 ? (
+                            formData.billingSchedule
                               .filter((entry) => entry)
                               .map((entry, index) => {
                                 const isLastRow =
@@ -1376,6 +1404,10 @@ export function EditPropertyPopup({
                                     <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm font-medium">
                                       ₱{(entry.grossDue || 0).toLocaleString()}
                                     </td>
+                                    <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm font-medium text-green-600 dark:text-green-400">
+                                      ₱
+                                      {(entry.paidAmount || 0).toLocaleString()}
+                                    </td>
                                     <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm">
                                       <span className="inline-block px-2 py-1 rounded bg-muted text-xs font-medium">
                                         {entry.status}
@@ -1399,42 +1431,58 @@ export function EditPropertyPopup({
                                     </td>
                                   </tr>
                                 );
-                              })}
-                          </tbody>
-                        </table>
-                      </div>
+                              })
+                          ) : (
+                            <tr>
+                              <td colSpan={8} className="py-8 px-3 text-center">
+                                <div className="flex flex-col items-center justify-center text-muted-foreground">
+                                  <Calendar className="h-8 w-8 mb-2 opacity-40" />
+                                  <p className="text-sm font-medium">
+                                    No billing entries yet
+                                  </p>
+                                  <p className="text-xs mt-1">
+                                    Click "Add New Billing Month" below to
+                                    create billing entries
+                                  </p>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
                     </div>
-                    <div className="mt-4 flex justify-end">
-                      <Button
-                        size="sm"
-                        onClick={addNewBillingMonth}
-                        disabled={isLocked}
-                        className={`text-xs sm:text-sm flex items-center gap-1.5 ${
-                          isLocked ? "opacity-70" : ""
-                        }`}
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={addNewBillingMonth}
+                      disabled={isLocked}
+                      className={`text-xs sm:text-sm flex items-center gap-1.5 ${
+                        isLocked ? "opacity-70" : ""
+                      }`}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="h-3.5 w-3.5"
                       >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="h-3.5 w-3.5"
-                        >
-                          <path d="M5 12h14"></path>
-                          <path d="M12 5v14"></path>
-                        </svg>
-                        Add New Billing Month
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </section>
-            )}
+                        <path d="M5 12h14"></path>
+                        <path d="M12 5v14"></path>
+                      </svg>
+                      Add New Billing Month
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+          )}
 
           {formData.occupancyStatus === "vacant" && (
             <Alert className="bg-blue-50 text-blue-800 border-blue-200">

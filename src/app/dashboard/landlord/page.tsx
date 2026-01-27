@@ -584,6 +584,10 @@ function LandlordDashboard() {
           isOpen={isDetailsPopupOpen}
           onClose={() => setIsDetailsPopupOpen(false)}
           onEdit={handleEditProperty}
+          onSuccess={() => {
+            refetch();
+            setSelectedPropertyId(null);
+          }}
         />
       )}
 
