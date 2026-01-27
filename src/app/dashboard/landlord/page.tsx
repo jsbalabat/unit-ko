@@ -472,11 +472,22 @@ function LandlordDashboard() {
                         <CardTitle className="text-lg line-clamp-1">
                           {property.unit_name}
                         </CardTitle>
-                        <Building
-                          className={`h-5 w-5 flex-shrink-0 ${getPropertyIcon(
-                            property.property_type,
-                          )}`}
-                        />
+                        <div className="flex items-center gap-2">
+                          <Building
+                            className={`h-5 w-5 flex-shrink-0 ${getPropertyIcon(
+                              property.property_type,
+                            )}`}
+                          />
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 px-3"
+                            onClick={() => handleViewDetails(property.id)}
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
+                            Details
+                          </Button>
+                        </div>
                       </div>
                       <CardDescription className="flex items-center text-xs">
                         <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
@@ -529,17 +540,6 @@ function LandlordDashboard() {
                         </span>
                       </div>
                     </CardContent>
-                    <CardFooter className="flex gap-2 pt-2 border-t bg-muted/10">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="w-full h-9"
-                        onClick={() => handleViewDetails(property.id)}
-                      >
-                        <Eye className="h-4 w-4 mr-1.5" />
-                        Details
-                      </Button>
-                    </CardFooter>
                   </Card>
                 );
               })}
