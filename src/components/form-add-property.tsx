@@ -1312,7 +1312,7 @@ export function MultiStepPopup({
                           className="text-sm font-medium flex items-center gap-1.5"
                         >
                           <Calendar className="h-3.5 w-3.5 text-purple-600" />
-                          Rent Start Date *
+                          Rent Agreement Date *
                         </Label>
                         <Input
                           id="rentStartDate"
@@ -1461,7 +1461,7 @@ export function MultiStepPopup({
                           ? new Date(
                               formData.rentStartDate,
                             ).toLocaleDateString()
-                          : "start date"}
+                          : "agreement date"}
                       </div>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
@@ -1559,7 +1559,7 @@ export function MultiStepPopup({
                               parseInt(e.target.value) || 0,
                             )
                           }
-                          placeholder="0"
+                          placeholder="Enter advance payment amount"
                           className="h-9 text-sm"
                         />
                         <p className="text-xs text-muted-foreground">
@@ -1584,7 +1584,7 @@ export function MultiStepPopup({
                               parseInt(e.target.value) || 0,
                             )
                           }
-                          placeholder="0"
+                          placeholder="Enter security deposit amount"
                           className="h-9 text-sm"
                         />
                         <p className="text-xs text-muted-foreground">

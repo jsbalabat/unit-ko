@@ -1106,7 +1106,10 @@ export function EditPropertyPopup({
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="rentStartDate">Rent Start Date</Label>
+                      <Label htmlFor="rentStartDate">
+                        {" "}
+                        Rent Agreement Date
+                      </Label>
                       <Input
                         id="rentStartDate"
                         type="date"
