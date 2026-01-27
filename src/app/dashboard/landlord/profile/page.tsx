@@ -1,9 +1,10 @@
 "use client";
 
+import { withLandlordAuth } from "@/components/auth/withLandlordAuth";
 import { SiteHeader } from "@/components/site-header";
 import { UserProfile } from "@/components/user-profile";
 
-export default function ProfilePage() {
+function ProfilePage() {
   return (
     <>
       <SiteHeader />
@@ -13,3 +14,5 @@ export default function ProfilePage() {
     </>
   );
 }
+
+export default withLandlordAuth(ProfilePage);

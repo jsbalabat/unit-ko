@@ -18,7 +18,8 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { ModeToggle } from "@/components/mode-toggle";
 import { supabase } from "@/lib/supabase";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { checkLandlordAuth } from "@/lib/auth";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,11 +50,11 @@ const registerLandlordSchema = z
         (val) =>
           !val ||
           /^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/.test(
-            val
+            val,
           ),
         {
           message: "Invalid phone number format",
-        }
+        },
       ),
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -81,6 +82,17 @@ export default function LandlordRegister() {
     mode: "onSubmit",
   });
 
+  // Check if already authenticated, redirect to dashboard
+  useEffect(() => {
+    const checkAuth = async () => {
+      const isAuthenticated = await checkLandlordAuth();
+      if (isAuthenticated) {
+        router.replace("/dashboard/landlord");
+      }
+    };
+    checkAuth();
+  }, [router]);
+
   const onSubmit = async (data: RegisterFormData) => {
     setIsLoading(true);
     setError(null);
@@ -96,7 +108,7 @@ export default function LandlordRegister() {
       // Only show error if email exists, ignore "not found" errors
       if (existingUser) {
         setError(
-          "This email is already registered. Please use a different email or login."
+          "This email is already registered. Please use a different email or login.",
         );
         return;
       }
@@ -123,7 +135,7 @@ export default function LandlordRegister() {
           authError.message.includes("invalid")
         ) {
           setError(
-            "This email is already registered. Please use a different email or try logging in."
+            "This email is already registered. Please use a different email or try logging in.",
           );
         } else if (authError.message.includes("weak")) {
           setError("Password is too weak. Please use a stronger password.");

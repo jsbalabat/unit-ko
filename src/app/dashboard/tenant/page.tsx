@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { withTenantAuth } from "@/components/auth/withTenantAuth";
 import {
   Card,
   CardContent,
@@ -41,7 +42,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { LandlordPaymentInfo } from "@/components/landlord-payment-info";
 
-export default function TenantDashboard() {
+function TenantDashboard() {
   const router = useRouter();
   const [dashboardData, setDashboardData] =
     useState<TenantDashboardData | null>(null);
@@ -106,7 +107,7 @@ export default function TenantDashboard() {
 
   const handleSendTraditionalNotification = () => {
     toast.success(
-      "Landlord notified! They will contact you to arrange payment."
+      "Landlord notified! They will contact you to arrange payment.",
     );
     setIsTraditionalPaymentOpen(false);
   };
@@ -134,10 +135,10 @@ export default function TenantDashboard() {
 
   // Calculate billing summary
   const paidBills = billingEntries.filter(
-    (entry) => entry.status === "paid"
+    (entry) => entry.status === "paid",
   ).length;
   const pendingBills = billingEntries.filter(
-    (entry) => entry.status === "pending"
+    (entry) => entry.status === "pending",
   ).length;
 
   return (
@@ -229,7 +230,7 @@ export default function TenantDashboard() {
                           year: "numeric",
                           month: "long",
                           day: "numeric",
-                        }
+                        },
                       )}
                     </p>
                   </div>
@@ -333,7 +334,7 @@ export default function TenantDashboard() {
                   size="default"
                   onClick={() => {
                     const nextPendingBill = billingEntries.find(
-                      (entry) => entry.status === "pending"
+                      (entry) => entry.status === "pending",
                     );
                     if (nextPendingBill) {
                       handlePayNow(nextPendingBill);
@@ -418,7 +419,7 @@ export default function TenantDashboard() {
                               year: "numeric",
                               month: "long",
                               day: "numeric",
-                            }
+                            },
                           )}
                         </p>
                       </div>
@@ -496,7 +497,7 @@ export default function TenantDashboard() {
                         year: "numeric",
                         month: "long",
                         day: "numeric",
-                      }
+                      },
                     )}
                   </p>
                 </CardContent>
@@ -632,3 +633,5 @@ export default function TenantDashboard() {
     </div>
   );
 }
+
+export default withTenantAuth(TenantDashboard);

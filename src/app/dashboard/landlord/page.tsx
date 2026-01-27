@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
+import { withLandlordAuth } from "@/components/auth/withLandlordAuth";
 import { SiteHeader } from "@/components/site-header";
 import {
   Card,
@@ -29,7 +30,7 @@ import { PropertyFilterBar } from "@/components/property-filter-bar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
-export default function LandlordDashboard() {
+function LandlordDashboard() {
   const [isAddPopupOpen, setIsAddPopupOpen] = useState(false);
   const [isDetailsPopupOpen, setIsDetailsPopupOpen] = useState(false);
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
@@ -650,3 +651,5 @@ interface BillingEntry {
   due_date: string;
   billing_period?: number;
 }
+
+export default withLandlordAuth(LandlordDashboard);

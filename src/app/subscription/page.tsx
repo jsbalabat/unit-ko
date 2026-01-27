@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { withLandlordAuth } from "@/components/auth/withLandlordAuth";
 import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/button";
 import {
@@ -102,7 +103,7 @@ const PLAN_DETAILS = {
   },
 };
 
-export default function SubscriptionPage() {
+function SubscriptionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<UserSubscription>({
@@ -203,7 +204,7 @@ export default function SubscriptionPage() {
     } catch (err) {
       console.error("Error fetching subscription data:", err);
       setError(
-        err instanceof Error ? err.message : "Failed to load subscription data"
+        err instanceof Error ? err.message : "Failed to load subscription data",
       );
     } finally {
       setLoading(false);
@@ -359,7 +360,7 @@ export default function SubscriptionPage() {
                             (subscription.propertiesUsed /
                               subscription.propertyLimit) *
                               100,
-                            100
+                            100,
                           )}%`,
                         }}
                       />
@@ -563,7 +564,7 @@ export default function SubscriptionPage() {
                           {subscription.plan === "free" ||
                           ["basic", "premium", "enterprise"].indexOf(key) >
                             ["basic", "premium", "enterprise"].indexOf(
-                              subscription.plan
+                              subscription.plan,
                             )
                             ? "Upgrade"
                             : "Downgrade"}
@@ -580,3 +581,5 @@ export default function SubscriptionPage() {
     </>
   );
 }
+
+export default withLandlordAuth(SubscriptionPage);

@@ -55,17 +55,20 @@ export default function LandlordLogin() {
   const validateAndNavigate = useCallback(
     async (session: Session | null): Promise<boolean> => {
       if (isNavigating || navigationAttempted.current) {
+        console.log("Already navigating or attempted, skipping");
         return false;
       }
 
       try {
         // Validate session exists and has required properties
         if (!session) {
+          console.log("No session provided");
           return false;
         }
 
         // Validate user exists
         if (!session.user) {
+          console.log("No user in session");
           return false;
         }
 
@@ -74,23 +77,29 @@ export default function LandlordLogin() {
           session.expires_at &&
           new Date(session.expires_at * 1000) < new Date()
         ) {
+          console.log("Session expired");
           setError("Your session has expired. Please log in again.");
           await clearInvalidSession();
           return false;
         }
 
         // All validations passed - proceed with navigation
+        console.log("Session valid, navigating to dashboard");
         setIsNavigating(true);
         navigationAttempted.current = true;
-        router.push("/dashboard/landlord");
+
+        // Use window.location for a hard navigation to ensure clean state
+        window.location.href = "/dashboard/landlord";
         return true;
-      } catch {
+      } catch (err) {
+        console.error("Validation error:", err);
         setError("Authentication validation failed. Please try again.");
-        await clearInvalidSession();
+        setIsNavigating(false);
+        navigationAttempted.current = false;
         return false;
       }
     },
-    [router, isNavigating, clearInvalidSession]
+    [isNavigating, clearInvalidSession],
   );
 
   const form = useForm<LoginFormData>({
@@ -103,11 +112,16 @@ export default function LandlordLogin() {
   });
 
   useEffect(() => {
+    // If already navigating or navigation attempted, don't do anything
     if (isNavigating || navigationAttempted.current) {
       return;
     }
 
+    let mounted = true;
+
     const checkUser = async () => {
+      if (!mounted) return;
+
       try {
         const {
           data: { session },
@@ -125,27 +139,32 @@ export default function LandlordLogin() {
             setError("Your session has expired. Please log in again.");
             return;
           }
-          setError("Failed to check authentication status.");
+          // Don't show error for other cases, just log
+          console.log("Session check error:", error);
           return;
         }
 
-        // Only navigate if session is valid
-        if (session) {
+        // Only navigate if session is valid and component is still mounted
+        if (session && mounted && !navigationAttempted.current) {
           await validateAndNavigate(session);
         }
-      } catch {
+      } catch (error) {
         // Handle any other authentication errors
-        await clearInvalidSession();
-        setError("Authentication check failed. Please try logging in again.");
+        console.error("Session check failed:", error);
       }
     };
 
+    // Only check user once on mount
     checkUser();
 
+    // Listen for auth state changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === "SIGNED_IN" && session) {
+      if (!mounted) return;
+
+      // Only handle SIGNED_IN event to avoid multiple redirects
+      if (event === "SIGNED_IN" && session && !navigationAttempted.current) {
         await validateAndNavigate(session);
       }
 
@@ -154,22 +173,13 @@ export default function LandlordLogin() {
         navigationAttempted.current = false;
         setError(null);
       }
-
-      if (event === "TOKEN_REFRESHED" && session) {
-        await validateAndNavigate(session);
-      }
-
-      // Handle token refresh errors
-      if (event === "TOKEN_REFRESHED" && !session) {
-        await clearInvalidSession();
-        setError("Session expired. Please log in again.");
-      }
     });
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
-  }, [validateAndNavigate, isNavigating, clearInvalidSession]);
+  }, []); // Empty dependency array - only run once on mount
 
   const onSubmit = async (data: LoginFormData) => {
     if (isNavigating) {
@@ -180,10 +190,7 @@ export default function LandlordLogin() {
     setError(null);
 
     try {
-      // Clear any existing invalid session first
-      await clearInvalidSession();
-
-      // Proceed with fresh login
+      // Proceed with login without clearing session first
       const { data: authData, error } = await supabase.auth.signInWithPassword({
         email: data.email,
         password: data.password,
@@ -203,6 +210,8 @@ export default function LandlordLogin() {
 
       // Validate the new session before navigating
       if (authData.session) {
+        // Small delay to ensure cookies are set properly
+        await new Promise((resolve) => setTimeout(resolve, 100));
         await validateAndNavigate(authData.session);
       } else {
         setError("Login failed. No session data received.");

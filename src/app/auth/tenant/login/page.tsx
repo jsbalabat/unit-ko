@@ -16,9 +16,10 @@ import { Input } from "@/components/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Mail, User } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { authenticateTenant } from "@/services/tenantService";
 import { toast } from "sonner";
+import { checkTenantAuth } from "@/lib/auth";
 
 const formSchema = z.object({
   identifier: z
@@ -42,6 +43,13 @@ export default function TenantLogin() {
     },
   });
 
+  // Check if already authenticated, redirect to dashboard
+  useEffect(() => {
+    if (checkTenantAuth()) {
+      router.replace("/dashboard/tenant");
+    }
+  }, [router]);
+
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
     setIsLoading(true);
 
@@ -57,7 +65,7 @@ export default function TenantLogin() {
         router.push("/dashboard/tenant");
       } else {
         toast.error(
-          "No tenant account found with this contact number or email address"
+          "No tenant account found with this contact number or email address",
         );
       }
     } catch (error) {

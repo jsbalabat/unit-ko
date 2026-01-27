@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { withLandlordAuth } from "@/components/auth/withLandlordAuth";
 import { SiteHeader } from "@/components/site-header";
 import {
   Card,
@@ -47,12 +48,12 @@ interface BillingEntry {
   billing_period: number;
 }
 
-export default function ArchivesPage() {
+function ArchivesPage() {
   const [archivedTenants, setArchivedTenants] = useState<ArchivedTenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedArchive, setSelectedArchive] = useState<ArchivedTenant | null>(
-    null
+    null,
   );
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
@@ -159,8 +160,8 @@ export default function ArchivesPage() {
                       {formatCurrency(
                         archivedTenants.reduce(
                           (sum, t) => sum + t.total_paid,
-                          0
-                        )
+                          0,
+                        ),
                       )}
                     </p>
                   </div>
@@ -396,7 +397,7 @@ export default function ArchivesPage() {
                         <p className="text-lg font-bold text-red-600">
                           {formatCurrency(
                             selectedArchive.total_due -
-                              selectedArchive.total_paid
+                              selectedArchive.total_paid,
                           )}
                         </p>
                       </CardContent>
@@ -451,7 +452,7 @@ export default function ArchivesPage() {
                             </Badge>
                           </div>
                         </div>
-                      )
+                      ),
                     )}
                   </div>
                 </div>
@@ -463,3 +464,5 @@ export default function ArchivesPage() {
     </>
   );
 }
+
+export default withLandlordAuth(ArchivesPage);
