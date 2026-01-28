@@ -1028,12 +1028,10 @@ export function EditPropertyPopup({
                         type="number"
                         className={`pl-7 ${isLocked ? "opacity-70" : ""}`}
                         value={formData.rentAmount}
-                        onChange={(e) =>
-                          handleChange(
-                            "rentAmount",
-                            parseFloat(e.target.value) || 0,
-                          )
-                        }
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/^0+(?=\d)/, "");
+                          handleChange("rentAmount", parseFloat(value) || 0);
+                        }}
                         disabled={isLocked}
                       />
                     </div>
@@ -1117,9 +1115,10 @@ export function EditPropertyPopup({
                         min="1"
                         max="20"
                         value={formData.pax}
-                        onChange={(e) =>
-                          handleChange("pax", parseInt(e.target.value) || 1)
-                        }
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/^0+(?=\d)/, "");
+                          handleChange("pax", parseInt(value) || 1);
+                        }}
                         disabled={isLocked}
                         className={isLocked ? "opacity-70" : ""}
                       />
@@ -1203,7 +1202,7 @@ export function EditPropertyPopup({
                             formData.dueDay === "last" ? "" : formData.dueDay
                           }
                           onChange={(e) => {
-                            const value = e.target.value;
+                            let value = e.target.value.replace(/^0+(?=\d)/, "");
                             if (
                               value === "" ||
                               (parseInt(value) >= 1 && parseInt(value) <= 31)
@@ -1268,9 +1267,13 @@ export function EditPropertyPopup({
                               id="paymentAmount"
                               type="number"
                               value={paymentAmount || ""}
-                              onChange={(e) =>
-                                setPaymentAmount(parseInt(e.target.value) || 0)
-                              }
+                              onChange={(e) => {
+                                const value = e.target.value.replace(
+                                  /^0+(?=\d)/,
+                                  "",
+                                );
+                                setPaymentAmount(parseInt(value) || 0);
+                              }}
                               placeholder="Enter amount"
                               className="h-9 text-sm"
                               disabled={isLocked}

@@ -177,6 +177,13 @@ export function OtherChargesPopup({
       return;
     }
 
+    // Check for expenses with zero or empty amounts
+    const emptyAmounts = expenseItems.filter((item) => item.amount <= 0);
+    if (emptyAmounts.length > 0) {
+      toast.error("Please enter amounts for all expenses");
+      return;
+    }
+
     const total = calculateTotal();
     onSave(total, expenseItems);
   };
@@ -304,8 +311,13 @@ export function OtherChargesPopup({
                       <Input
                         id="customAmount"
                         type="number"
+                        min="0"
                         value={newItemAmount}
-                        onChange={(e) => setNewItemAmount(e.target.value)}
+                        onChange={(e) =>
+                          setNewItemAmount(
+                            e.target.value === "" ? "" : e.target.value,
+                          )
+                        }
                         placeholder="0.00"
                         className="h-8 text-sm"
                         disabled={disabled}
@@ -374,13 +386,17 @@ export function OtherChargesPopup({
                             </span>
                             <Input
                               type="number"
-                              value={item.amount}
+                              min="0"
+                              value={item.amount === 0 ? "" : item.amount}
                               onChange={(e) =>
                                 updateExpenseAmount(
                                   item.id,
-                                  parseFloat(e.target.value) || 0,
+                                  e.target.value === ""
+                                    ? 0
+                                    : parseFloat(e.target.value) || 0,
                                 )
                               }
+                              placeholder="0.00"
                               className="h-8 text-sm pl-6 pr-2"
                               disabled={disabled}
                             />

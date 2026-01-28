@@ -1228,11 +1228,14 @@ export function MultiStepPopup({
                             <Input
                               id="vacantRentAmount"
                               type="number"
+                              min="0"
                               value={formData.rentAmount}
                               onChange={(e) =>
                                 updateFormData(
                                   "rentAmount",
-                                  parseInt(e.target.value) || 0,
+                                  e.target.value === ""
+                                    ? ""
+                                    : parseInt(e.target.value) || "",
                                 )
                               }
                               placeholder="25000"
@@ -1283,15 +1286,16 @@ export function MultiStepPopup({
                         <Input
                           id="contractMonths"
                           type="number"
+                          min="0"
                           value={formData.contractMonths}
                           onChange={(e) =>
                             updateFormData(
                               "contractMonths",
-                              parseInt(e.target.value) || 0,
+                              e.target.value === ""
+                                ? ""
+                                : parseInt(e.target.value) || "",
                             )
                           }
-                          min="1"
-                          max="24"
                           className={`h-9 text-sm ${
                             errors.contractMonths ? "border-destructive" : ""
                           }`}
@@ -1386,6 +1390,7 @@ export function MultiStepPopup({
                           <Input
                             id="dueDay"
                             type="number"
+                            min="0"
                             value={
                               formData.dueDay === "last" ? "" : formData.dueDay
                             }
@@ -1395,12 +1400,13 @@ export function MultiStepPopup({
                                 value === "" ||
                                 (parseInt(value) >= 1 && parseInt(value) <= 31)
                               ) {
-                                updateFormData("dueDay", value);
+                                updateFormData(
+                                  "dueDay",
+                                  value === "" ? "" : parseInt(value) || "",
+                                );
                               }
                             }}
                             placeholder="Or enter custom day (1-31)"
-                            min="1"
-                            max="31"
                             className="h-9 text-sm flex-1"
                             disabled={formData.dueDay === "last"}
                           />
@@ -1425,11 +1431,14 @@ export function MultiStepPopup({
                         <Input
                           id="rentAmount"
                           type="number"
+                          min="0"
                           value={formData.rentAmount}
                           onChange={(e) =>
                             updateFormData(
                               "rentAmount",
-                              parseInt(e.target.value) || 0,
+                              e.target.value === ""
+                                ? ""
+                                : parseInt(e.target.value) || "",
                             )
                           }
                           placeholder="25000"
@@ -1552,11 +1561,14 @@ export function MultiStepPopup({
                         <Input
                           id="advancePayment"
                           type="number"
+                          min="0"
                           value={formData.advancePayment}
                           onChange={(e) =>
                             updateFormData(
                               "advancePayment",
-                              parseInt(e.target.value) || 0,
+                              e.target.value === ""
+                                ? ""
+                                : parseInt(e.target.value) || "",
                             )
                           }
                           placeholder="Enter advance payment amount"
@@ -1577,11 +1589,14 @@ export function MultiStepPopup({
                         <Input
                           id="securityDeposit"
                           type="number"
+                          min="0"
                           value={formData.securityDeposit}
                           onChange={(e) =>
                             updateFormData(
                               "securityDeposit",
-                              parseInt(e.target.value) || 0,
+                              e.target.value === ""
+                                ? ""
+                                : parseInt(e.target.value) || "",
                             )
                           }
                           placeholder="Enter security deposit amount"
