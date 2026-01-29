@@ -1315,12 +1315,12 @@ export function EditPropertyPopup({
             </section>
           )}
 
-          {/* Payment Status Section */}
+          {/* Billing Table Section */}
           {formData.occupancyStatus === "occupied" && (
             <section>
               <h2 className="text-lg font-semibold mb-4 flex items-center">
                 <Calendar className="mr-2 h-4 w-4" />
-                Payment Status
+                Billing Table
               </h2>
               <Card>
                 <CardContent className="p-6">
