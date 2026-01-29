@@ -363,20 +363,93 @@ export function EditPropertyPopup({
 
     // Create updated billing schedule
     const updatedSchedule = [...formData.billingSchedule];
+    const currentEntry = updatedSchedule[selectedBillingIndex];
+    const newGrossDue = currentEntry.rentDue + totalAmount;
+    const currentPaidAmount = currentEntry.paidAmount || 0;
+
+    // Update the current entry first
     updatedSchedule[selectedBillingIndex] = {
-      ...updatedSchedule[selectedBillingIndex],
+      ...currentEntry,
       otherCharges: totalAmount,
-      grossDue: updatedSchedule[selectedBillingIndex].rentDue + totalAmount,
+      grossDue: newGrossDue,
     };
 
+    // Check for overpayment that needs to be redistributed
+    const overpayment = currentPaidAmount - newGrossDue;
+
+    if (overpayment > 0) {
+      // There's overpayment - redistribute to subsequent months
+      let excessPayment = overpayment;
+
+      // Mark current entry as paid with exact amount needed
+      updatedSchedule[selectedBillingIndex].paidAmount = newGrossDue;
+      updatedSchedule[selectedBillingIndex].status = "Paid";
+
+      // Redistribute excess to subsequent months in order
+      for (
+        let i = selectedBillingIndex + 1;
+        i < updatedSchedule.length && excessPayment > 0;
+        i++
+      ) {
+        const nextEntry = updatedSchedule[i];
+        const nextCurrentPaid = nextEntry.paidAmount || 0;
+        const nextGrossDue = nextEntry.grossDue;
+        const nextUnpaid = nextGrossDue - nextCurrentPaid;
+
+        if (nextUnpaid > 0) {
+          // This entry has unpaid balance
+          if (excessPayment >= nextUnpaid) {
+            // Can fully pay this entry
+            updatedSchedule[i] = {
+              ...nextEntry,
+              paidAmount: nextGrossDue,
+              status: "Paid",
+            };
+            excessPayment -= nextUnpaid;
+          } else {
+            // Partial payment for this entry
+            updatedSchedule[i] = {
+              ...nextEntry,
+              paidAmount: nextCurrentPaid + excessPayment,
+              status: "Partial",
+            };
+            excessPayment = 0;
+          }
+        }
+      }
+
+      if (excessPayment > 0) {
+        // Still have excess after all entries - add to the last entry as overpayment
+        const lastIndex = updatedSchedule.length - 1;
+        updatedSchedule[lastIndex].paidAmount =
+          updatedSchedule[lastIndex].paidAmount || 0;
+      }
+    } else {
+      // No overpayment - just recalculate status for current entry
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const dueDate = new Date(currentEntry.dueDate);
+      dueDate.setHours(0, 0, 0, 0);
+
+      let newStatus = currentEntry.status;
+      if (currentPaidAmount >= newGrossDue) {
+        newStatus = "Paid";
+      } else if (currentPaidAmount > 0 && currentPaidAmount < newGrossDue) {
+        newStatus = "Partial";
+      } else if (currentPaidAmount === 0) {
+        if (dueDate < today) {
+          newStatus = "Overdue";
+        } else {
+          newStatus = "Not Yet Due";
+        }
+      }
+      updatedSchedule[selectedBillingIndex].status = newStatus;
+    }
+
     // Save expense items for this specific billing entry ID ONLY
-    // No redundancy - single source of truth by billing entry ID
     setExpenseItemsByBillingId((prev) => {
       const updatedItems = { ...prev };
-
-      // Store ONLY by the billing entry ID
       updatedItems[billingEntryId] = items;
-
       console.log(
         `Saved expense items to billing ID: ${billingEntryId}`,
         items,
@@ -396,9 +469,10 @@ export function EditPropertyPopup({
 
     // Show success message
     toast.success("Expense items updated", {
-      description: `Successfully updated ${
-        items.length
-      } expense items for month ${selectedBillingIndex + 1}`,
+      description:
+        overpayment > 0
+          ? `Updated ${items.length} expense items. Overpayment of ₱${overpayment.toLocaleString()} redistributed to subsequent months.`
+          : `Successfully updated ${items.length} expense items for month ${selectedBillingIndex + 1}`,
     });
   };
 
@@ -628,7 +702,7 @@ export function EditPropertyPopup({
       } else {
         // Partial payment
         bill.paidAmount = (bill.paidAmount || 0) + remainingPayment;
-        bill.status = `Partial (₱${bill.paidAmount.toLocaleString()} paid)`;
+        bill.status = `Partial`;
         remainingPayment = 0;
       }
     }

@@ -628,8 +628,10 @@ export function PropertyDetailsPopup({
                             {activeTenant.due_day}
                           </span>
                         </div>
-                        {(activeTenant.advance_payment ||
-                          activeTenant.security_deposit) && (
+                        {((activeTenant.advance_payment !== undefined &&
+                          activeTenant.advance_payment > 0) ||
+                          (activeTenant.security_deposit !== undefined &&
+                            activeTenant.security_deposit > 0)) && (
                           <>
                             <div className="col-span-2 border-t my-2"></div>
                             {activeTenant.advance_payment !== undefined &&
