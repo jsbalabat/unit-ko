@@ -469,15 +469,15 @@ function LandlordDashboard() {
                     />
                     <CardHeader className="pb-2">
                       <div className="flex items-center justify-between">
-                        <CardTitle className="text-lg line-clamp-1">
-                          {property.unit_name}
-                        </CardTitle>
-                        <div className="flex items-center gap-2">
+                        <CardTitle className="text-lg line-clamp-1 flex items-center gap-2">
                           <Building
                             className={`h-5 w-5 flex-shrink-0 ${getPropertyIcon(
                               property.property_type,
                             )}`}
                           />
+                          {property.unit_name}
+                        </CardTitle>
+                        <div className="flex items-center gap-2">
                           <Button
                             size="sm"
                             variant="outline"
