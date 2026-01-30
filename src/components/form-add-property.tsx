@@ -729,6 +729,9 @@ export function MultiStepPopup({
               <DialogDescription className="text-xs md:text-sm opacity-90">
                 {stepInfo.description}
               </DialogDescription>
+              <p className="text-xs text-muted-foreground italic">
+                *Please fill out required information.
+              </p>
 
               {/* Progress Bar - preserved colors from original */}
               <div className="relative mt-1">
