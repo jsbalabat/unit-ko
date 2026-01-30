@@ -310,32 +310,94 @@ function LandlordDashboard() {
             </div>
           )}
 
-          {/* Quick Stats Section */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 md:gap-4 mb-6">
-            <StatCard
-              title="Properties"
-              value={stats.totalProperties}
-              icon={<Home className="h-4 w-4" />}
-              trend="neutral"
-            />
-            <StatCard
-              title="Occupied"
-              value={stats.activeRentals}
-              icon={<Building className="h-4 w-4" />}
-              trend="positive"
-            />
-            <StatCard
-              title="Vacant"
-              value={stats.vacantProperties}
-              icon={<Building className="h-4 w-4" />}
-              trend={stats.vacantProperties > 0 ? "warning" : "neutral"}
-            />
-            <StatCard
-              title="Revenue"
-              value={`₱${stats.totalRevenue.toLocaleString()}`}
-              icon={<Building className="h-4 w-4" />}
-              trend="positive"
-            />
+          {/* Quick Stats Section - Ticker Strip */}
+          <div className="mb-6 overflow-hidden bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 rounded-lg border shadow-sm">
+            <div className="overflow-x-auto scrollbar-hide">
+              <div className="flex items-center justify-between sm:justify-around py-3 px-4 gap-4 sm:gap-6 min-w-max sm:min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <Home className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                      Properties
+                    </div>
+                    <div className="text-lg font-bold text-primary">
+                      {stats.totalProperties}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-10 w-px bg-border shrink-0" />
+
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="h-8 w-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+                    <Building className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                      Occupied
+                    </div>
+                    <div className="text-lg font-bold text-green-600 dark:text-green-400">
+                      {stats.activeRentals}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-10 w-px bg-border shrink-0" />
+
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className={cn(
+                      "h-8 w-8 rounded-full flex items-center justify-center shrink-0",
+                      stats.vacantProperties > 0
+                        ? "bg-amber-100 dark:bg-amber-900/30"
+                        : "bg-muted",
+                    )}
+                  >
+                    <Building
+                      className={cn(
+                        "h-4 w-4",
+                        stats.vacantProperties > 0
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-muted-foreground",
+                      )}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                      Vacant
+                    </div>
+                    <div
+                      className={cn(
+                        "text-lg font-bold",
+                        stats.vacantProperties > 0
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {stats.vacantProperties}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="h-10 w-px bg-border shrink-0" />
+
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="h-8 w-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+                    <Building className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                      Revenue
+                    </div>
+                    <div className="text-lg font-bold text-green-600 dark:text-green-400 whitespace-nowrap">
+                      ₱{stats.totalRevenue.toLocaleString()}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Empty State */}
