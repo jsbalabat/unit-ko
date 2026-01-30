@@ -186,6 +186,8 @@ export function OtherChargesPopup({
 
     const total = calculateTotal();
     onSave(total, expenseItems);
+    toast.success("Other charges saved");
+    onClose();
   };
 
   const handleCancel = () => {
