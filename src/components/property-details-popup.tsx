@@ -29,8 +29,20 @@ import {
   CreditCard,
   Home,
   Archive,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
@@ -129,6 +141,8 @@ export function PropertyDetailsPopup({
   const [isEditBillingPopupOpen, setIsEditBillingPopupOpen] = useState(false);
   const [isAmenitiesPopupOpen, setIsAmenitiesPopupOpen] = useState(false);
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
   // Wrap fetchPropertyDetails in useCallback to prevent recreation on every render
@@ -337,6 +351,60 @@ export function PropertyDetailsPopup({
     today.setHours(0, 0, 0, 0);
 
     return Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  // Handle property deletion
+  const handleDeleteProperty = async () => {
+    if (!property) return;
+
+    setIsDeleting(true);
+
+    try {
+      const activeTenant = property.tenants?.find((t) => t.is_active);
+
+      // First, delete any billing entries associated with this property
+      if (activeTenant) {
+        const { error: billingDeleteError } = await supabase
+          .from("billing_entries")
+          .delete()
+          .eq("property_id", propertyId);
+
+        if (billingDeleteError) throw billingDeleteError;
+
+        // Then delete the tenant
+        const { error: tenantDeleteError } = await supabase
+          .from("tenants")
+          .delete()
+          .eq("id", activeTenant.id);
+
+        if (tenantDeleteError) throw tenantDeleteError;
+      }
+
+      // Finally delete the property
+      const { error: propertyDeleteError } = await supabase
+        .from("properties")
+        .delete()
+        .eq("id", propertyId);
+
+      if (propertyDeleteError) throw propertyDeleteError;
+
+      // Show success message
+      toast.success("Property deleted successfully", {
+        description: `${property.unit_name} and all associated data have been permanently removed.`,
+      });
+
+      // Call the success callback if provided
+      if (onSuccess) onSuccess();
+
+      // Close the dialog
+      onClose();
+    } catch (err) {
+      console.error("Error deleting property:", err);
+      toast.error("Failed to delete property");
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
+    }
   };
 
   if (loading) {
@@ -1294,6 +1362,15 @@ export function PropertyDetailsPopup({
                 Reset Property
               </Button>
             )}
+            <Button
+              variant="destructive"
+              onClick={() => setIsDeleteDialogOpen(true)}
+              className="gap-1.5 h-9 text-xs sm:text-sm"
+              size="sm"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete Property
+            </Button>
           </div>
 
           <Button
@@ -1392,6 +1469,64 @@ export function PropertyDetailsPopup({
         propertyName={property.unit_name}
         tenantName={activeTenant?.tenant_name || ""}
       />
+
+      <AlertDialog
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+      >
+        <AlertDialogContent className="max-w-[90%] sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-destructive text-base sm:text-lg">
+              <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />
+              Delete Property Permanently
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2 text-xs sm:text-sm">
+              <p>
+                Are you sure you want to delete{" "}
+                <strong>{property.unit_name}</strong>? This action cannot be
+                undone and will permanently remove:
+              </p>
+              <ul className="list-disc pl-6 space-y-1">
+                <li>The property record</li>
+                {property.occupancy_status === "occupied" && activeTenant && (
+                  <>
+                    <li>
+                      Tenant information for{" "}
+                      <strong>{activeTenant.tenant_name}</strong>
+                    </li>
+                    <li>All billing and payment records</li>
+                  </>
+                )}
+              </ul>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-0">
+            <AlertDialogCancel
+              disabled={isDeleting}
+              className="text-xs sm:text-sm h-8 sm:h-9"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                handleDeleteProperty();
+              }}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 text-xs sm:text-sm h-8 sm:h-9"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin mr-1.5 sm:mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete Permanently"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }
