@@ -34,6 +34,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
+import { EditBillingPopup } from "@/components/edit-billing-popup";
 import {
   AmenitiesPopup,
   AVAILABLE_AMENITIES,
@@ -125,6 +126,7 @@ export function PropertyDetailsPopup({
   const [property, setProperty] = useState<Property | null>(null);
   const [activeTab, setActiveTab] = useState("details");
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
+  const [isEditBillingPopupOpen, setIsEditBillingPopupOpen] = useState(false);
   const [isAmenitiesPopupOpen, setIsAmenitiesPopupOpen] = useState(false);
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
@@ -518,6 +520,21 @@ export function PropertyDetailsPopup({
               Activity Log
             </TabsTrigger>
           </TabsList>
+
+          {/* Edit button - shown only in details tab */}
+          {activeTab === "details" && (
+            <div className="mx-4 md:mx-6 mt-3 flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setIsEditPopupOpen(true)}
+                className="text-xs h-8 gap-1.5"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+                Edit Property
+              </Button>
+            </div>
+          )}
 
           <TabsContent
             value="details"
@@ -988,9 +1005,11 @@ export function PropertyDetailsPopup({
                         <Button
                           size="sm"
                           variant="outline"
-                          className="text-xs h-8"
+                          onClick={() => setIsEditBillingPopupOpen(true)}
+                          className="text-xs h-8 gap-1.5"
                         >
-                          Export <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
+                          <Pencil className="h-3.5 w-3.5" />
+                          Edit Billing
                         </Button>
                       </div>
 
@@ -1264,15 +1283,6 @@ export function PropertyDetailsPopup({
         {/* Footer Actions - Fixed at bottom */}
         <div className="border-t mt-auto p-4 md:p-6 bg-background/95 backdrop-blur-sm flex justify-between items-center flex-wrap gap-2">
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => setIsEditPopupOpen(true)}
-              className="gap-1.5 h-9 text-xs sm:text-sm"
-              size="sm"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit Property
-            </Button>
             {property.occupancy_status === "occupied" && activeTenant && (
               <Button
                 variant="outline"
@@ -1334,6 +1344,19 @@ export function PropertyDetailsPopup({
               onEdit(propertyId);
             }
             // Now this call will work properly
+            fetchPropertyDetails();
+          }}
+        />
+      )}
+
+      {isEditBillingPopupOpen && activeTenant && (
+        <EditBillingPopup
+          propertyId={propertyId}
+          tenantId={activeTenant.id}
+          isOpen={isEditBillingPopupOpen}
+          onClose={() => setIsEditBillingPopupOpen(false)}
+          onSuccess={() => {
+            // Refresh data when edit is successful
             fetchPropertyDetails();
           }}
         />
