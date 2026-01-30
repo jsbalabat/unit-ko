@@ -33,23 +33,10 @@ import {
   Save,
   Lock,
   Unlock,
-  Trash2,
-  AlertTriangle,
   DollarSign,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Switch } from "@/components/ui/switch";
-import { OtherChargesPopup } from "@/components/other-charges-popup";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 
 // Define types
 interface BillingEntry {
@@ -146,17 +133,6 @@ export function EditPropertyPopup({
   const [property, setProperty] = useState<Property | null>(null);
   const [formData, setFormData] = useState<PropertyFormData | null>(null);
   const [isLocked, setIsLocked] = useState(true);
-  const [isOtherChargesPopupOpen, setIsOtherChargesPopupOpen] = useState(false);
-  const [selectedBillingIndex, setSelectedBillingIndex] = useState<
-    number | null
-  >(null);
-  const [expenseItemsByBillingId, setExpenseItemsByBillingId] = useState<
-    Record<string, ExpenseItem[]>
-  >({});
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [paymentAmount, setPaymentAmount] = useState(0);
-  const [paymentType, setPaymentType] = useState<string>("rent");
 
   // Fetch property data when the popup opens
   useEffect(() => {
@@ -226,26 +202,6 @@ export function EditPropertyPopup({
 
           // Initialize expense items for each billing entry
           const initialExpenseItems: Record<string, ExpenseItem[]> = {};
-
-          activeTenant.billing_entries.forEach((entry) => {
-            if (entry.expense_items) {
-              try {
-                // Parse expense items from JSON string
-                const items = JSON.parse(entry.expense_items) as ExpenseItem[];
-                if (Array.isArray(items) && items.length > 0) {
-                  initialExpenseItems[entry.id] = items;
-                }
-              } catch (e) {
-                console.error(
-                  `Error parsing expense items for entry ${entry.id}:`,
-                  e,
-                );
-              }
-            }
-          });
-
-          // Set the expense items state
-          setExpenseItemsByBillingId(initialExpenseItems);
         }
 
         // After preparing the initial form data
@@ -321,160 +277,6 @@ export function EditPropertyPopup({
 
     fetchPropertyDetails();
   }, [propertyId, isOpen]);
-
-  const handleOtherChargesClick = (index: number) => {
-    if (isLocked || !formData) return;
-
-    // Add validation
-    if (!formData.billingSchedule || !formData.billingSchedule[index]) {
-      console.error(`No billing data found for index ${index}`);
-      toast.error("Error: Could not find billing data");
-      return;
-    }
-
-    // Set the selected billing index
-    setSelectedBillingIndex(index);
-
-    // Get the billing entry ID to ensure we're working with the correct one
-    const billingEntryId = formData.billingSchedule[index].id;
-
-    console.log(
-      `Opening expenses for month ${index + 1}, billing ID: ${billingEntryId}`,
-    );
-
-    // Open the popup
-    setIsOtherChargesPopupOpen(true);
-  };
-
-  const handleSaveOtherCharges = (
-    totalAmount: number,
-    items: ExpenseItem[],
-  ) => {
-    if (selectedBillingIndex === null || !formData) return;
-
-    // Get the current billing entry ID to ensure we're updating the correct one
-    const billingEntryId = formData.billingSchedule[selectedBillingIndex].id;
-
-    console.log(
-      `Saving expenses for month ${
-        selectedBillingIndex + 1
-      }, billing ID: ${billingEntryId}, items count: ${items.length}`,
-    );
-
-    // Create updated billing schedule
-    const updatedSchedule = [...formData.billingSchedule];
-    const currentEntry = updatedSchedule[selectedBillingIndex];
-    const newGrossDue = currentEntry.rentDue + totalAmount;
-    const currentPaidAmount = currentEntry.paidAmount || 0;
-
-    // Update the current entry first
-    updatedSchedule[selectedBillingIndex] = {
-      ...currentEntry,
-      otherCharges: totalAmount,
-      grossDue: newGrossDue,
-    };
-
-    // Check for overpayment that needs to be redistributed
-    const overpayment = currentPaidAmount - newGrossDue;
-
-    if (overpayment > 0) {
-      // There's overpayment - redistribute to subsequent months
-      let excessPayment = overpayment;
-
-      // Mark current entry as paid with exact amount needed
-      updatedSchedule[selectedBillingIndex].paidAmount = newGrossDue;
-      updatedSchedule[selectedBillingIndex].status = "Paid";
-
-      // Redistribute excess to subsequent months in order
-      for (
-        let i = selectedBillingIndex + 1;
-        i < updatedSchedule.length && excessPayment > 0;
-        i++
-      ) {
-        const nextEntry = updatedSchedule[i];
-        const nextCurrentPaid = nextEntry.paidAmount || 0;
-        const nextGrossDue = nextEntry.grossDue;
-        const nextUnpaid = nextGrossDue - nextCurrentPaid;
-
-        if (nextUnpaid > 0) {
-          // This entry has unpaid balance
-          if (excessPayment >= nextUnpaid) {
-            // Can fully pay this entry
-            updatedSchedule[i] = {
-              ...nextEntry,
-              paidAmount: nextGrossDue,
-              status: "Paid",
-            };
-            excessPayment -= nextUnpaid;
-          } else {
-            // Partial payment for this entry
-            updatedSchedule[i] = {
-              ...nextEntry,
-              paidAmount: nextCurrentPaid + excessPayment,
-              status: "Partial",
-            };
-            excessPayment = 0;
-          }
-        }
-      }
-
-      if (excessPayment > 0) {
-        // Still have excess after all entries - add to the last entry as overpayment
-        const lastIndex = updatedSchedule.length - 1;
-        updatedSchedule[lastIndex].paidAmount =
-          updatedSchedule[lastIndex].paidAmount || 0;
-      }
-    } else {
-      // No overpayment - just recalculate status for current entry
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const dueDate = new Date(currentEntry.dueDate);
-      dueDate.setHours(0, 0, 0, 0);
-
-      let newStatus = currentEntry.status;
-      if (currentPaidAmount >= newGrossDue) {
-        newStatus = "Paid";
-      } else if (currentPaidAmount > 0 && currentPaidAmount < newGrossDue) {
-        newStatus = "Partial";
-      } else if (currentPaidAmount === 0) {
-        if (dueDate < today) {
-          newStatus = "Overdue";
-        } else {
-          newStatus = "Not Yet Due";
-        }
-      }
-      updatedSchedule[selectedBillingIndex].status = newStatus;
-    }
-
-    // Save expense items for this specific billing entry ID ONLY
-    setExpenseItemsByBillingId((prev) => {
-      const updatedItems = { ...prev };
-      updatedItems[billingEntryId] = items;
-      console.log(
-        `Saved expense items to billing ID: ${billingEntryId}`,
-        items,
-      );
-      return updatedItems;
-    });
-
-    // Update form data
-    setFormData({
-      ...formData,
-      billingSchedule: updatedSchedule,
-    });
-
-    // Close popup
-    setIsOtherChargesPopupOpen(false);
-    setSelectedBillingIndex(null);
-
-    // Show success message
-    toast.success("Expense items updated", {
-      description:
-        overpayment > 0
-          ? `Updated ${items.length} expense items. Overpayment of ₱${overpayment.toLocaleString()} redistributed to subsequent months.`
-          : `Successfully updated ${items.length} expense items for month ${selectedBillingIndex + 1}`,
-    });
-  };
 
   // Add this helper function to calculate the proper due date based on dueDay setting
   const calculateDueDate = (baseDate: Date, dueDay: string): Date => {
@@ -599,156 +401,6 @@ export function EditPropertyPopup({
     setFormData(updatedFormData);
   };
 
-  const addNewBillingMonth = () => {
-    if (!formData || isLocked) return;
-
-    const lastEntry =
-      formData.billingSchedule[formData.billingSchedule.length - 1];
-
-    let newDueDate: Date;
-
-    if (!lastEntry) {
-      // No existing entries - create the first billing entry based on rent start date
-      if (!formData.rentStartDate) {
-        toast.error("Please set a rent start date first");
-        return;
-      }
-
-      // Use the rent start date as the base for the first billing entry
-      const startDate = new Date(formData.rentStartDate);
-      newDueDate = calculateDueDate(startDate, formData.dueDay);
-    } else {
-      // There are existing entries - add the next month
-      const lastDueDate = new Date(lastEntry.dueDate);
-      const newMonth = new Date(lastDueDate);
-      newMonth.setMonth(lastDueDate.getMonth() + 1);
-
-      // Apply the due day setting
-      newDueDate = calculateDueDate(newMonth, formData.dueDay);
-    }
-
-    // Format the new due date
-    const formattedDueDate = formatDueDate(newDueDate);
-
-    // Create a new billing entry - use current property rent amount
-    const newEntry = {
-      id: `temp-${Date.now()}`, // Temporary ID until saved to database
-      dueDate: formattedDueDate,
-      rentDue: formData.rentAmount, // Use current property rent amount
-      otherCharges: 0,
-      grossDue: formData.rentAmount, // Calculate based on current rent
-      status: "Neutral / Administrative",
-      paidAmount: 0,
-    };
-
-    // Update form data with the new entry
-    setFormData({
-      ...formData,
-      billingSchedule: [...formData.billingSchedule, newEntry],
-    });
-
-    toast.success("New billing month added", {
-      description: "Don't forget to save your changes",
-    });
-  };
-
-  const applyUniversalPayment = async () => {
-    if (!formData || !property) return;
-    if (paymentAmount <= 0) {
-      toast.error("Please enter a valid payment amount");
-      return;
-    }
-
-    let remainingPayment = paymentAmount;
-    const updatedSchedule = [...formData.billingSchedule];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Sort billing entries by due date (earliest first) for priority payment
-    const sortedIndices = updatedSchedule
-      .map((_, index) => index)
-      .sort((a, b) => {
-        const dateA = new Date(updatedSchedule[a].dueDate);
-        const dateB = new Date(updatedSchedule[b].dueDate);
-        return dateA.getTime() - dateB.getTime();
-      });
-
-    // Apply payment according to priority (earliest/farthest date first)
-    for (const index of sortedIndices) {
-      const bill = updatedSchedule[index];
-      const dueDate = new Date(bill.dueDate);
-      dueDate.setHours(0, 0, 0, 0);
-
-      // Skip if already paid
-      if (bill.status === "Paid") continue;
-
-      if (remainingPayment <= 0) {
-        // No more payment to distribute - update status based on date
-        if (dueDate < today) {
-          // Previous dates - keep as manual status or mark overdue
-          if (bill.status !== "Paid" && !bill.status.startsWith("Partial")) {
-            bill.status = "Overdue";
-          }
-        } else {
-          // On and after dates - automated status
-          bill.status = "Not Yet Due";
-        }
-      } else if (remainingPayment >= bill.grossDue) {
-        // Full payment for this entry
-        const paymentForThisBill = bill.grossDue;
-        remainingPayment -= paymentForThisBill;
-        bill.paidAmount = (bill.paidAmount || 0) + paymentForThisBill;
-        bill.status = "Paid";
-      } else {
-        // Partial payment
-        bill.paidAmount = (bill.paidAmount || 0) + remainingPayment;
-        bill.status = `Partial`;
-        remainingPayment = 0;
-      }
-    }
-
-    setFormData({ ...formData, billingSchedule: updatedSchedule });
-
-    // Update database
-    try {
-      const activeTenant = property.tenants?.find((t) => t.is_active);
-      if (!activeTenant) {
-        toast.error("No active tenant found");
-        return;
-      }
-
-      // Update each billing entry in the database
-      for (const bill of updatedSchedule) {
-        if (bill.id && !bill.id.startsWith("temp-")) {
-          const { error } = await supabase
-            .from("billing_entries")
-            .update({
-              status: bill.status,
-              paid_amount: bill.paidAmount || 0,
-            })
-            .eq("id", bill.id);
-
-          if (error) throw error;
-        }
-      }
-
-      if (remainingPayment > 0) {
-        toast.success("Payment Applied with Overpayment", {
-          description: `Overpayment of ₱${remainingPayment.toLocaleString()} recorded. All entries marked as paid.`,
-        });
-      } else {
-        toast.success("Payment Applied Successfully", {
-          description: `₱${paymentAmount.toLocaleString()} distributed across billing entries.`,
-        });
-      }
-
-      setPaymentAmount(0);
-    } catch (error) {
-      console.error("Error updating billing statuses:", error);
-      toast.error("Failed to update payment status");
-    }
-  };
-
   // Submit the form
   const handleSubmit = async () => {
     if (!formData) return;
@@ -787,9 +439,6 @@ export function EditPropertyPopup({
 
         // Handle billing entries
         for (const entry of formData.billingSchedule) {
-          // Get expense items for this entry
-          const expenseItems = expenseItemsByBillingId[entry.id] || [];
-
           // For existing entries, update them
           if (!entry.id.startsWith("temp-")) {
             const { error: billingError } = await supabase
@@ -801,8 +450,6 @@ export function EditPropertyPopup({
                 rent_due: entry.rentDue,
                 gross_due: entry.grossDue,
                 paid_amount: entry.paidAmount || 0,
-                expense_items:
-                  expenseItems.length > 0 ? JSON.stringify(expenseItems) : null,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", entry.id);
@@ -822,8 +469,6 @@ export function EditPropertyPopup({
                 gross_due: entry.grossDue,
                 status: entry.status,
                 paid_amount: entry.paidAmount || 0,
-                expense_items:
-                  expenseItems.length > 0 ? JSON.stringify(expenseItems) : null,
                 billing_period: formData.billingSchedule.indexOf(entry) + 1,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
@@ -875,82 +520,6 @@ export function EditPropertyPopup({
       toast.error("Failed to update property");
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  // Delete billing row
-  const deleteBillingRow = (index: number) => {
-    if (!formData || isLocked) return;
-
-    // Confirm deletion
-    const confirmDelete = window.confirm(
-      "Are you sure you want to delete this billing entry?",
-    );
-    if (!confirmDelete) return;
-
-    // Remove the entry from the form data
-    const updatedSchedule = formData.billingSchedule.filter(
-      (entry, i) => i !== index,
-    );
-    setFormData({ ...formData, billingSchedule: updatedSchedule });
-
-    toast.success("Billing entry deleted", {
-      description: "The billing entry has been removed.",
-    });
-  };
-
-  // Add this function to handle the actual deletion
-  const handleDeleteProperty = async () => {
-    if (!formData) return;
-
-    setIsDeleting(true);
-
-    try {
-      // First, delete any billing entries associated with this property
-      if (formData.tenantId) {
-        const { error: billingDeleteError } = await supabase
-          .from("billing_entries")
-          .delete()
-          .eq("property_id", formData.id);
-
-        if (billingDeleteError) throw billingDeleteError;
-
-        // Then delete the tenant
-        const { error: tenantDeleteError } = await supabase
-          .from("tenants")
-          .delete()
-          .eq("id", formData.tenantId);
-
-        if (tenantDeleteError) throw tenantDeleteError;
-      }
-
-      // Finally delete the property
-      const { error: propertyDeleteError } = await supabase
-        .from("properties")
-        .delete()
-        .eq("id", formData.id);
-
-      if (propertyDeleteError) throw propertyDeleteError;
-
-      // Show success message
-      toast.success("Property deleted successfully", {
-        description: `${formData.unitName} and all associated data have been permanently removed.`,
-      });
-
-      // Call the success callback if provided
-      if (onSuccess) onSuccess();
-
-      // Close the dialog
-      onClose();
-    } catch (err) {
-      console.error("Error deleting property:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to delete property",
-      );
-      toast.error("Failed to delete property");
-    } finally {
-      setIsDeleting(false);
-      setIsDeleteDialogOpen(false);
     }
   };
 
@@ -1315,252 +884,6 @@ export function EditPropertyPopup({
             </section>
           )}
 
-          {/* Billing Table Section */}
-          {formData.occupancyStatus === "occupied" && (
-            <section>
-              <h2 className="text-lg font-semibold mb-4 flex items-center">
-                <Calendar className="mr-2 h-4 w-4" />
-                Billing Table
-              </h2>
-              <Card>
-                <CardContent className="p-6">
-                  {/* Universal Payment Field - Only show when there are billing entries */}
-                  {formData.billingSchedule.length > 0 && (
-                    <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg">
-                      <div className="flex flex-col sm:flex-row items-start sm:items-end gap-3">
-                        <div className="flex-1 space-y-2">
-                          <Label
-                            htmlFor="paymentAmount"
-                            className="text-sm font-medium flex items-center gap-1.5"
-                          >
-                            <DollarSign className="h-4 w-4 text-blue-600" />
-                            Apply Payment
-                          </Label>
-                          <div className="flex gap-2">
-                            <Input
-                              id="paymentAmount"
-                              type="number"
-                              value={paymentAmount || ""}
-                              onChange={(e) => {
-                                const value = e.target.value.replace(
-                                  /^0+(?=\d)/,
-                                  "",
-                                );
-                                setPaymentAmount(parseInt(value) || 0);
-                              }}
-                              placeholder="Enter amount"
-                              className="h-9 text-sm"
-                              disabled={isLocked}
-                            />
-                            <Select
-                              value={paymentType}
-                              onValueChange={setPaymentType}
-                              disabled={isLocked}
-                            >
-                              <SelectTrigger className="h-9 w-40 text-sm">
-                                <SelectValue placeholder="Payment type" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="rent">Rent</SelectItem>
-                                <SelectItem value="deposit">Deposit</SelectItem>
-                                <SelectItem value="other">
-                                  Other Charges
-                                </SelectItem>
-                                <SelectItem value="advance">
-                                  Advance Payment
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Payment will be applied to billing entries starting
-                            from the earliest due date. Handles under/over
-                            payments automatically.
-                          </p>
-                        </div>
-                        <Button
-                          onClick={applyUniversalPayment}
-                          size="sm"
-                          className="h-9 whitespace-nowrap"
-                          disabled={
-                            isLocked || !paymentAmount || paymentAmount <= 0
-                          }
-                        >
-                          <DollarSign className="h-4 w-4 mr-1" />
-                          Apply Payment
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="overflow-x-auto -mx-4 sm:mx-0">
-                    <div className="inline-block min-w-full align-middle px-4 sm:px-0">
-                      <table className="min-w-full border-collapse">
-                        <thead className="bg-muted/50">
-                          <tr className="text-left border-b">
-                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                              Period
-                            </th>
-                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                              Due Date
-                            </th>
-                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                              Rent
-                            </th>
-                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                              Other
-                            </th>
-                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                              Total
-                            </th>
-                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                              Paid
-                            </th>
-                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                              Status
-                            </th>
-                            <th className="py-2 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                              Actions
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {formData.billingSchedule.length > 0 ? (
-                            formData.billingSchedule
-                              .filter((entry) => entry)
-                              .map((entry, index) => {
-                                const isLastRow =
-                                  index === formData.billingSchedule.length - 1;
-                                return (
-                                  <tr
-                                    key={entry.id || `row-${index}`}
-                                    className="border-b border-muted hover:bg-muted/50"
-                                  >
-                                    <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm">
-                                      Month {index + 1}
-                                    </td>
-                                    <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm">
-                                      {entry.dueDate}
-                                    </td>
-                                    <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                                      ₱{(entry.rentDue || 0).toLocaleString()}
-                                    </td>
-                                    <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm">
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() =>
-                                          handleOtherChargesClick(index)
-                                        }
-                                        disabled={isLocked}
-                                        className={`px-1 sm:px-2 py-0 sm:py-1 h-6 sm:h-auto text-xs ${
-                                          isLocked ? "opacity-70" : ""
-                                        }`}
-                                      >
-                                        ₱
-                                        {(
-                                          entry.otherCharges || 0
-                                        ).toLocaleString()}
-                                        <svg
-                                          xmlns="http://www.w3.org/2000/svg"
-                                          width="16"
-                                          height="16"
-                                          viewBox="0 0 24 24"
-                                          fill="none"
-                                          stroke="currentColor"
-                                          strokeWidth="2"
-                                          strokeLinecap="round"
-                                          strokeLinejoin="round"
-                                          className="ml-1 h-3 w-3"
-                                        >
-                                          <path d="M5 12h14"></path>
-                                          <path d="M12 5v14"></path>
-                                        </svg>
-                                      </Button>
-                                    </td>
-                                    <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm font-medium">
-                                      ₱{(entry.grossDue || 0).toLocaleString()}
-                                    </td>
-                                    <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm font-medium text-green-600 dark:text-green-400">
-                                      ₱
-                                      {(entry.paidAmount || 0).toLocaleString()}
-                                    </td>
-                                    <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm">
-                                      <span className="inline-block px-2 py-1 rounded bg-muted text-xs font-medium">
-                                        {entry.status}
-                                      </span>
-                                    </td>
-                                    <td className="py-2 sm:py-3 px-1 sm:px-3 text-xs sm:text-sm text-right">
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => deleteBillingRow(index)}
-                                        disabled={isLocked || !isLastRow}
-                                        className={`h-7 w-7 p-0 ${
-                                          isLastRow && !isLocked
-                                            ? "text-red-500 hover:text-red-700 hover:bg-red-50"
-                                            : "opacity-30 cursor-not-allowed"
-                                        }`}
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                                        <span className="sr-only">Delete</span>
-                                      </Button>
-                                    </td>
-                                  </tr>
-                                );
-                              })
-                          ) : (
-                            <tr>
-                              <td colSpan={8} className="py-8 px-3 text-center">
-                                <div className="flex flex-col items-center justify-center text-muted-foreground">
-                                  <Calendar className="h-8 w-8 mb-2 opacity-40" />
-                                  <p className="text-sm font-medium">
-                                    No billing entries yet
-                                  </p>
-                                  <p className="text-xs mt-1">
-                                    Click "Add New Billing Month" below to
-                                    create billing entries
-                                  </p>
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex justify-end">
-                    <Button
-                      size="sm"
-                      onClick={addNewBillingMonth}
-                      disabled={isLocked}
-                      className={`text-xs sm:text-sm flex items-center gap-1.5 ${
-                        isLocked ? "opacity-70" : ""
-                      }`}
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="16"
-                        height="16"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        className="h-3.5 w-3.5"
-                      >
-                        <path d="M5 12h14"></path>
-                        <path d="M12 5v14"></path>
-                      </svg>
-                      Add New Billing Month
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </section>
-          )}
-
           {formData.occupancyStatus === "vacant" && (
             <Alert className="bg-blue-50 text-blue-800 border-blue-200">
               <User className="h-4 w-4 text-blue-600" />
@@ -1570,136 +893,40 @@ export function EditPropertyPopup({
               </AlertDescription>
             </Alert>
           )}
-          {selectedBillingIndex !== null && formData && (
-            <OtherChargesPopup
-              isOpen={isOtherChargesPopupOpen}
-              onClose={() => {
-                setIsOtherChargesPopupOpen(false);
-                setSelectedBillingIndex(null);
-              }}
-              onSave={handleSaveOtherCharges}
-              initialTotal={
-                formData.billingSchedule[selectedBillingIndex].otherCharges
-              }
-              month={selectedBillingIndex + 1}
-              dueDate={formData.billingSchedule[selectedBillingIndex].dueDate}
-              disabled={isLocked}
-              // Pass existing expense items for this specific billing entry
-              existingItems={
-                expenseItemsByBillingId[
-                  formData.billingSchedule[selectedBillingIndex].id
-                ] || []
-              }
-            />
-          )}
         </div>
 
         <Separator className="my-4 sm:my-6" />
 
-        <div className="flex flex-col-reverse sm:flex-row sm:justify-between gap-3 sm:gap-4">
-          {/* Delete button - moves to bottom on mobile, left on desktop */}
+        <div className="flex justify-end gap-1.5">
           <Button
-            variant="destructive"
-            onClick={() => setIsDeleteDialogOpen(true)}
-            disabled={submitting || isLocked}
-            className="gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-9"
+            variant="outline"
+            onClick={onClose}
+            className="text-xs sm:text-sm h-8 sm:h-9"
             size="sm"
           >
-            <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-            Delete Property
+            Cancel
           </Button>
-
-          {/* Save/Back buttons - top on mobile, right on desktop */}
-          <div className="flex gap-2 sm:gap-3">
-            <Button
-              variant="outline"
-              onClick={onClose}
-              className="text-xs sm:text-sm h-8 sm:h-9"
-              size="sm"
-            >
-              Back
-            </Button>
-            <Button
-              onClick={handleSubmit}
-              disabled={submitting || isLocked}
-              className={`gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-9 ${
-                isLocked ? "opacity-50 cursor-not-allowed" : ""
-              }`}
-              size="sm"
-            >
-              {submitting ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                  Save Changes
-                </>
-              )}
-            </Button>
-          </div>
+          <Button
+            onClick={handleSubmit}
+            disabled={submitting || isLocked}
+            className={`gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-9 ${
+              isLocked ? "opacity-50 cursor-not-allowed" : ""
+            }`}
+            size="sm"
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                Save Changes
+              </>
+            )}
+          </Button>
         </div>
-
-        {/* Confirmation dialog - also needs to be responsive */}
-        <AlertDialog
-          open={isDeleteDialogOpen}
-          onOpenChange={setIsDeleteDialogOpen}
-        >
-          <AlertDialogContent className="max-w-[90%] sm:max-w-md">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="flex items-center gap-2 text-destructive text-base sm:text-lg">
-                <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />
-                Delete Property Permanently
-              </AlertDialogTitle>
-              <AlertDialogDescription className="space-y-2 text-xs sm:text-sm">
-                <p>
-                  Are you sure you want to delete{" "}
-                  <strong>{formData?.unitName}</strong>? This action cannot be
-                  undone and will permanently remove:
-                </p>
-                <ul className="list-disc pl-6 space-y-1">
-                  <li>The property record</li>
-                  {formData?.occupancyStatus === "occupied" && (
-                    <>
-                      <li>Tenant information for {formData?.tenantName}</li>
-                      <li>
-                        All {formData?.billingSchedule.length} billing entries
-                      </li>
-                      <li>All associated expense items</li>
-                    </>
-                  )}
-                </ul>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter className="gap-2 sm:gap-0">
-              <AlertDialogCancel
-                disabled={isDeleting}
-                className="text-xs sm:text-sm h-8 sm:h-9"
-              >
-                Cancel
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleDeleteProperty();
-                }}
-                disabled={isDeleting}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90 text-xs sm:text-sm h-8 sm:h-9"
-              >
-                {isDeleting ? (
-                  <>
-                    <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin mr-1.5 sm:mr-2" />
-                    Deleting...
-                  </>
-                ) : (
-                  "Delete Permanently"
-                )}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </DialogContent>
     </Dialog>
   );
