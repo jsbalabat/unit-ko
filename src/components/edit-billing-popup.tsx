@@ -30,6 +30,7 @@ import {
   DollarSign,
   Trash2,
   Plus,
+  Minus,
 } from "lucide-react";
 import { OtherChargesPopup } from "@/components/other-charges-popup";
 
@@ -244,11 +245,16 @@ export function EditBillingPopup({
     for (const index of sortedIndices) {
       const billing = updatedSchedule[index];
       const currentPaid = billing.paidAmount || 0;
-      let status = billing.status;
 
-      if (currentPaid >= billing.grossDue) {
+      // Always recalculate status based on current paid vs gross due
+      let status: string;
+
+      // Use a small epsilon for floating point comparison
+      const epsilon = 0.01;
+
+      if (currentPaid >= billing.grossDue - epsilon) {
         status = "paid";
-      } else if (currentPaid > 0) {
+      } else if (currentPaid > epsilon) {
         status = "partial";
       } else {
         // No payment - check if overdue or not yet due based on current date
@@ -271,38 +277,110 @@ export function EditBillingPopup({
   };
 
   // Apply universal payment
-  const applyUniversalPayment = () => {
-    if (!formData || paymentAmount <= 0) return;
+  const applyUniversalPayment = async () => {
+    if (!formData || paymentAmount === 0) return;
 
+    // Handle Deposit and Advance Payment differently - update tenant fields immediately
+    if (paymentType === "deposit" || paymentType === "advance") {
+      try {
+        // Fetch current tenant data
+        const { data: tenantData, error: fetchError } = await supabase
+          .from("tenants")
+          .select("security_deposit, advance_payment")
+          .eq("id", tenantId)
+          .single();
+
+        if (fetchError) throw fetchError;
+
+        const fieldToUpdate =
+          paymentType === "deposit" ? "security_deposit" : "advance_payment";
+        const currentValue =
+          paymentType === "deposit"
+            ? tenantData.security_deposit || 0
+            : tenantData.advance_payment || 0;
+        const newValue = currentValue + paymentAmount;
+
+        const { error: updateError } = await supabase
+          .from("tenants")
+          .update({
+            [fieldToUpdate]: newValue,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", tenantId);
+
+        if (updateError) throw updateError;
+
+        toast.success(
+          `${paymentType === "deposit" ? "Security Deposit" : "Advance Payment"} updated successfully`,
+          {
+            description: `New ${paymentType === "deposit" ? "deposit" : "advance"} amount: ₱${newValue.toLocaleString()}`,
+          },
+        );
+
+        setPaymentAmount(0);
+        return;
+      } catch (err) {
+        console.error("Error updating tenant field:", err);
+        toast.error(
+          `Failed to update ${paymentType === "deposit" ? "Security Deposit" : "Advance Payment"}`,
+        );
+        return;
+      }
+    }
+
+    // Handle rent payment - preview mode, doesn't save until "Save Changes"
     let remainingPayment = paymentAmount;
     const updatedSchedule = [...formData.billingSchedule];
 
-    // Sort by due date to apply payment chronologically
+    // Sort by due date: chronologically for positive payments, reverse for negative
     const sortedIndices = updatedSchedule
       .map((_, index) => index)
       .sort((a, b) => {
         const dateA = new Date(updatedSchedule[a].dueDate);
         const dateB = new Date(updatedSchedule[b].dueDate);
-        return dateA.getTime() - dateB.getTime();
+        // For negative payments, sort in reverse (latest first)
+        return paymentAmount < 0
+          ? dateB.getTime() - dateA.getTime()
+          : dateA.getTime() - dateB.getTime();
       });
 
     for (const index of sortedIndices) {
-      if (remainingPayment <= 0) break;
+      // For negative payments, process all entries to allow deduction
+      if (paymentAmount > 0 && remainingPayment <= 0) break;
+      if (paymentAmount < 0 && remainingPayment >= 0) break;
 
       const billing = updatedSchedule[index];
       const currentPaid = billing.paidAmount || 0;
-      const amountDue = billing.grossDue - currentPaid;
 
-      if (amountDue > 0) {
-        const paymentToApply = Math.min(remainingPayment, amountDue);
-        const newPaidAmount = currentPaid + paymentToApply;
+      // For positive payments, only apply to entries with amounts due
+      // For negative payments, only deduct from entries with paid amounts
+      if (paymentAmount > 0) {
+        const amountDue = billing.grossDue - currentPaid;
+        if (amountDue > 0) {
+          const paymentToApply = Math.min(remainingPayment, amountDue);
+          const newPaidAmount = currentPaid + paymentToApply;
 
-        updatedSchedule[index] = {
-          ...billing,
-          paidAmount: newPaidAmount,
-        };
+          updatedSchedule[index] = {
+            ...billing,
+            paidAmount: newPaidAmount,
+          };
 
-        remainingPayment -= paymentToApply;
+          remainingPayment -= paymentToApply;
+        }
+      } else {
+        // Negative payment - deduct from paid amounts
+        if (currentPaid > 0) {
+          // Add negative value (which subtracts)
+          const deductionAmount = Math.max(remainingPayment, -currentPaid);
+          const newPaidAmount = currentPaid + deductionAmount;
+
+          updatedSchedule[index] = {
+            ...billing,
+            paidAmount: Math.max(0, newPaidAmount),
+          };
+
+          remainingPayment -= deductionAmount;
+        }
       }
     }
 
@@ -311,10 +389,23 @@ export function EditBillingPopup({
     setFormData({ ...formData, billingSchedule: finalSchedule });
     setPaymentAmount(0);
 
-    if (remainingPayment > 0) {
-      toast.info(`₱${remainingPayment.toFixed(2)} excess payment remaining`);
+    if (paymentAmount > 0 && remainingPayment > 0) {
+      toast.info(`₱${remainingPayment.toFixed(2)} excess payment remaining`, {
+        description: "Click 'Save Changes' to confirm this payment.",
+      });
+    } else if (paymentAmount < 0 && remainingPayment < 0) {
+      toast.info(
+        `₱${Math.abs(remainingPayment).toFixed(2)} could not be deducted`,
+        {
+          description: "No more paid amounts to deduct from.",
+        },
+      );
     } else {
-      toast.success("Payment applied successfully");
+      const action = paymentAmount > 0 ? "applied to" : "deducted from";
+      toast.success(`Payment ${action} billing entries`, {
+        description:
+          "Don't forget to click 'Save Changes' to save this payment.",
+      });
     }
   };
 
@@ -608,7 +699,7 @@ export function EditBillingPopup({
                         Apply Payment
                       </Label>
                       <div className="flex items-end gap-3">
-                        <div className="flex-1">
+                        <div className="flex-1 flex gap-2">
                           <Input
                             id="paymentAmount"
                             type="number"
@@ -621,9 +712,39 @@ export function EditBillingPopup({
                               setPaymentAmount(parseInt(value) || 0);
                             }}
                             placeholder="Enter amount"
-                            className="h-10 text-sm"
+                            className="h-10 text-sm flex-1"
                             disabled={isLocked}
                           />
+                          <div className="flex gap-1">
+                            <Button
+                              type="button"
+                              variant={
+                                paymentAmount >= 0 ? "default" : "outline"
+                              }
+                              size="icon"
+                              className="h-10 w-10"
+                              onClick={() =>
+                                setPaymentAmount(Math.abs(paymentAmount))
+                              }
+                              disabled={isLocked || paymentAmount >= 0}
+                            >
+                              <Plus className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={
+                                paymentAmount < 0 ? "default" : "outline"
+                              }
+                              size="icon"
+                              className="h-10 w-10"
+                              onClick={() =>
+                                setPaymentAmount(-Math.abs(paymentAmount))
+                              }
+                              disabled={isLocked || paymentAmount <= 0}
+                            >
+                              <Minus className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                         <div className="w-44">
                           <Select
@@ -636,9 +757,8 @@ export function EditBillingPopup({
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="rent">Rent</SelectItem>
-                              <SelectItem value="deposit">Deposit</SelectItem>
-                              <SelectItem value="other">
-                                Other Charges
+                              <SelectItem value="deposit">
+                                Security Deposit
                               </SelectItem>
                               <SelectItem value="advance">
                                 Advance Payment
@@ -649,17 +769,16 @@ export function EditBillingPopup({
                         <Button
                           onClick={applyUniversalPayment}
                           className="h-10 px-4 whitespace-nowrap"
-                          disabled={
-                            isLocked || !paymentAmount || paymentAmount <= 0
-                          }
+                          disabled={isLocked || paymentAmount === 0}
                         >
                           <DollarSign className="h-4 w-4 mr-2" />
                           Apply Payment
                         </Button>
                       </div>
                       <p className="text-xs text-muted-foreground mt-2">
-                        Payment will be applied to billing entries starting from
-                        the earliest due date.
+                        {paymentType === "deposit" || paymentType === "advance"
+                          ? `This will ${paymentAmount >= 0 ? "add to" : "deduct from"} the tenant's ${paymentType === "deposit" ? "Security Deposit" : "Advance Payment"} balance.`
+                          : `This will ${paymentAmount >= 0 ? "add" : "deduct"} ₱${Math.abs(paymentAmount).toLocaleString()} ${paymentAmount >= 0 ? "to" : "from"} billing entries, applied chronologically. Don't forget to click 'Save Changes' to save this payment.`}
                       </p>
                     </div>
                   )}
