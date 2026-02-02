@@ -12,6 +12,15 @@ import { Button } from "@/components/button";
 import { Card, CardContent } from "@/components/ui/card";
 // import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   Building,
@@ -31,6 +40,11 @@ import {
   Archive,
   Trash2,
   AlertTriangle,
+  DollarSign,
+  TrendingUp,
+  Shield,
+  Plus,
+  Minus,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -144,6 +158,10 @@ export function PropertyDetailsPopup({
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState(0);
+  const [paymentType, setPaymentType] = useState<string>("rent");
+  const [isApplyingPayment, setIsApplyingPayment] = useState(false);
 
   // Wrap fetchPropertyDetails in useCallback to prevent recreation on every render
   const fetchPropertyDetails = useCallback(async () => {
@@ -404,6 +422,182 @@ export function PropertyDetailsPopup({
     } finally {
       setIsDeleting(false);
       setIsDeleteDialogOpen(false);
+    }
+  };
+
+  // Handle universal payment application
+  const handleApplyPayment = async () => {
+    if (!property || !activeTenant || paymentAmount === 0) return;
+
+    setIsApplyingPayment(true);
+
+    try {
+      // Handle Deposit and Advance Payment differently
+      if (paymentType === "deposit" || paymentType === "advance") {
+        // Update tenant's deposit or advance payment field
+        const fieldToUpdate =
+          paymentType === "deposit" ? "security_deposit" : "advance_payment";
+        const currentValue =
+          paymentType === "deposit"
+            ? activeTenant.security_deposit || 0
+            : activeTenant.advance_payment || 0;
+        const newValue = currentValue + paymentAmount;
+
+        const { error } = await supabase
+          .from("tenants")
+          .update({
+            [fieldToUpdate]: newValue,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", activeTenant.id);
+
+        if (error) throw error;
+
+        // Refresh property details
+        await fetchPropertyDetails();
+
+        toast.success(
+          `${paymentType === "deposit" ? "Security Deposit" : "Advance Payment"} updated successfully`,
+          {
+            description: `New ${paymentType === "deposit" ? "deposit" : "advance"} amount: ₱${newValue.toLocaleString()}`,
+          },
+        );
+
+        // Reset and close dialog
+        setPaymentAmount(0);
+        setPaymentType("rent");
+        setIsPaymentDialogOpen(false);
+        return;
+      }
+
+      // Handle normal rent/other charges payment to billing entries
+      const entries = activeTenant.billing_entries || [];
+
+      // Sort entries: chronologically for positive payments, reverse for negative payments
+      const sortedEntries = [...entries].sort((a, b) => {
+        const dateA = new Date(a.due_date).getTime();
+        const dateB = new Date(b.due_date).getTime();
+        // For negative payments, sort in reverse (latest first)
+        return paymentAmount < 0 ? dateB - dateA : dateA - dateB;
+      });
+
+      let remainingPayment = paymentAmount;
+      const updates: Array<{ id: string; paidAmount: number; status: string }> =
+        [];
+
+      // Apply payment to each entry in chronological order
+      for (const entry of sortedEntries) {
+        // For negative payments, process all entries to allow deduction
+        if (paymentAmount > 0 && remainingPayment <= 0) break;
+        if (paymentAmount < 0 && remainingPayment >= 0) break;
+
+        const currentPaid = entry.paid_amount || 0;
+
+        // For positive payments, only apply to entries with amounts due
+        // For negative payments, only deduct from entries with paid amounts
+        if (paymentAmount > 0) {
+          const amountDue = entry.gross_due - currentPaid;
+          if (amountDue > 0) {
+            const paymentToApply = Math.min(remainingPayment, amountDue);
+            const newPaidAmount = currentPaid + paymentToApply;
+
+            // Determine new status
+            let newStatus = entry.status;
+            if (newPaidAmount >= entry.gross_due) {
+              newStatus = "paid";
+            } else if (newPaidAmount > 0) {
+              newStatus = "partial";
+            } else {
+              // Determine overdue vs not yet due
+              const dueDate = new Date(entry.due_date);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              dueDate.setHours(0, 0, 0, 0);
+              newStatus = dueDate < today ? "overdue" : "Not Yet Due";
+            }
+
+            updates.push({
+              id: entry.id,
+              paidAmount: newPaidAmount,
+              status: newStatus,
+            });
+
+            remainingPayment -= paymentToApply;
+          }
+        } else {
+          // Negative payment - deduct from paid amounts
+          if (currentPaid > 0) {
+            // Add negative value (which subtracts)
+            const deductionAmount = Math.max(remainingPayment, -currentPaid);
+            const newPaidAmount = currentPaid + deductionAmount;
+
+            // Determine new status
+            let newStatus = entry.status;
+            const epsilon = 0.01;
+            if (newPaidAmount >= entry.gross_due - epsilon) {
+              newStatus = "paid";
+            } else if (newPaidAmount > epsilon) {
+              newStatus = "partial";
+            } else {
+              // Determine overdue vs not yet due
+              const dueDate = new Date(entry.due_date);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              dueDate.setHours(0, 0, 0, 0);
+              newStatus = dueDate < today ? "overdue" : "Not Yet Due";
+            }
+
+            updates.push({
+              id: entry.id,
+              paidAmount: Math.max(0, newPaidAmount),
+              status: newStatus,
+            });
+
+            remainingPayment -= deductionAmount;
+          }
+        }
+      }
+
+      // Update all entries in the database
+      for (const update of updates) {
+        const { error } = await supabase
+          .from("billing_entries")
+          .update({
+            paid_amount: update.paidAmount,
+            status: update.status,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", update.id);
+
+        if (error) throw error;
+      }
+
+      // Refresh property details
+      await fetchPropertyDetails();
+
+      // Show success message
+      if (remainingPayment > 0) {
+        toast.info(
+          `Payment applied. ₱${remainingPayment.toFixed(2)} excess payment remaining`,
+          {
+            description: "All due amounts have been paid.",
+          },
+        );
+      } else {
+        toast.success("Payment applied successfully", {
+          description: `₱${paymentAmount.toLocaleString()} has been distributed across billing entries.`,
+        });
+      }
+
+      // Reset and close dialog
+      setPaymentAmount(0);
+      setPaymentType("rent");
+      setIsPaymentDialogOpen(false);
+    } catch (err) {
+      console.error("Error applying payment:", err);
+      toast.error("Failed to apply payment");
+    } finally {
+      setIsApplyingPayment(false);
     }
   };
 
@@ -994,91 +1188,122 @@ export function PropertyDetailsPopup({
               {/* Finances tab content... */}
               {property.occupancy_status === "occupied" && activeTenant ? (
                 <>
-                  {/* Financial Overview - Unified Card */}
-                  <Card className="shadow-sm border">
-                    <CardContent className="p-4 md:p-6">
-                      <h3 className="text-base md:text-lg font-semibold mb-4 flex items-center">
-                        Financial Overview
-                      </h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                        <div className="p-4 rounded-lg border bg-green-50/50 dark:bg-green-950/20 border-green-200 dark:border-green-800">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h4 className="text-xs font-medium text-muted-foreground">
+                  {/* Financial Overview - Ticker Strip */}
+                  <div className="overflow-hidden bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 rounded-lg border shadow-sm">
+                    <div className="overflow-x-auto scrollbar-hide">
+                      <div className="flex items-center justify-between sm:justify-around py-3 px-4 gap-4 sm:gap-6 min-w-max sm:min-w-0">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="h-8 w-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
+                            <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
                               Total Revenue
-                            </h4>
+                            </div>
+                            <div className="text-lg font-bold text-green-600 dark:text-green-400 whitespace-nowrap">
+                              {formatCurrency(totalRevenue)}
+                            </div>
                           </div>
-                          <p className="text-lg md:text-xl font-bold text-green-600 dark:text-green-400">
-                            {formatCurrency(totalRevenue)}
-                          </p>
                         </div>
-                        <div className="p-4 rounded-lg border bg-blue-50/50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Clock className="h-3.5 w-3.5 text-blue-500" />
-                            <h4 className="text-xs font-medium text-muted-foreground">
+
+                        <div className="h-10 w-px bg-border shrink-0" />
+
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                            <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
                               Pending Payments
-                            </h4>
+                            </div>
+                            <div className="text-lg font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                              {formatCurrency(pendingPayments)}
+                            </div>
                           </div>
-                          <p className="text-lg md:text-xl font-bold text-blue-600 dark:text-blue-400">
-                            {formatCurrency(pendingPayments)}
-                          </p>
                         </div>
-                        <div className="p-4 rounded-lg border bg-red-50/50 dark:bg-red-950/20 border-red-200 dark:border-red-800">
-                          <div className="flex items-center gap-2 mb-2">
-                            <AlertCircle className="h-3.5 w-3.5 text-red-500" />
-                            <h4 className="text-xs font-medium text-muted-foreground">
+
+                        <div className="h-10 w-px bg-border shrink-0" />
+
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="h-8 w-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
+                            <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
                               Overdue Amount
-                            </h4>
+                            </div>
+                            <div className="text-lg font-bold text-red-600 dark:text-red-400 whitespace-nowrap">
+                              {formatCurrency(overdueAmount)}
+                            </div>
                           </div>
-                          <p className="text-lg md:text-xl font-bold text-red-600 dark:text-red-400">
-                            {formatCurrency(overdueAmount)}
-                          </p>
                         </div>
-                        <div className="p-4 rounded-lg border bg-emerald-50/50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h4 className="text-xs font-medium text-muted-foreground">
+
+                        <div className="h-10 w-px bg-border shrink-0" />
+
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
+                            <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
                               Advance Payment
-                            </h4>
+                            </div>
+                            <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                              {activeTenant.advance_payment !== undefined &&
+                              activeTenant.advance_payment > 0
+                                ? formatCurrency(activeTenant.advance_payment)
+                                : formatCurrency(0)}
+                            </div>
                           </div>
-                          <p className="text-lg md:text-xl font-bold text-emerald-600 dark:text-emerald-400">
-                            {activeTenant.advance_payment !== undefined &&
-                            activeTenant.advance_payment > 0
-                              ? formatCurrency(activeTenant.advance_payment)
-                              : formatCurrency(0)}
-                          </p>
                         </div>
-                        <div className="p-4 rounded-lg border bg-cyan-50/50 dark:bg-cyan-950/20 border-cyan-200 dark:border-cyan-800">
-                          <div className="flex items-center gap-2 mb-2">
-                            <h4 className="text-xs font-medium text-muted-foreground">
-                              Security Deposit
-                            </h4>
+
+                        <div className="h-10 w-px bg-border shrink-0" />
+
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="h-8 w-8 rounded-full bg-cyan-100 dark:bg-cyan-900/30 flex items-center justify-center shrink-0">
+                            <Shield className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
                           </div>
-                          <p className="text-lg md:text-xl font-bold text-cyan-600 dark:text-cyan-400">
-                            {activeTenant.security_deposit !== undefined &&
-                            activeTenant.security_deposit > 0
-                              ? formatCurrency(activeTenant.security_deposit)
-                              : formatCurrency(0)}
-                          </p>
+                          <div className="min-w-0">
+                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                              Security Deposit
+                            </div>
+                            <div className="text-lg font-bold text-cyan-600 dark:text-cyan-400 whitespace-nowrap">
+                              {activeTenant.security_deposit !== undefined &&
+                              activeTenant.security_deposit > 0
+                                ? formatCurrency(activeTenant.security_deposit)
+                                : formatCurrency(0)}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </CardContent>
-                  </Card>
+                    </div>
+                  </div>
 
                   <Card className="shadow-sm">
                     <CardContent className="p-4 md:p-6">
-                      <div className="flex justify-between items-center mb-4 md:mb-6">
+                      <div className="flex justify-between items-center mb-4 md:mb-6 flex-wrap gap-2">
                         <h3 className="text-base md:text-lg font-semibold flex items-center">
                           <FileText className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
                           Billing Table
                         </h3>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setIsEditBillingPopupOpen(true)}
-                          className="text-xs h-8 gap-1.5"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                          Edit Billing
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => setIsPaymentDialogOpen(true)}
+                            className="text-xs h-8 gap-1.5"
+                          >
+                            Apply Payment
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setIsEditBillingPopupOpen(true)}
+                            className="text-xs h-8 gap-1.5"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                            Edit Billing
+                          </Button>
+                        </div>
                       </div>
 
                       {/* Responsive table with horizontal scrolling for small screens */}
@@ -1527,6 +1752,113 @@ export function PropertyDetailsPopup({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Universal Payment Dialog */}
+      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              Apply Payment
+            </DialogTitle>
+            <DialogDescription>
+              Enter the payment amount and type. Rent will be applied to billing
+              entries. Deposit and Advance Payment will update the tenant's
+              corresponding balances.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="payment-amount">Payment Amount</Label>
+              <div className="flex gap-2">
+                <Input
+                  id="payment-amount"
+                  type="number"
+                  value={paymentAmount || ""}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/^0+(?=\d)/, "");
+                    setPaymentAmount(parseInt(value) || 0);
+                  }}
+                  placeholder="Enter amount"
+                  className="h-10 flex-1"
+                />
+                <div className="flex gap-1">
+                  <Button
+                    type="button"
+                    variant={paymentAmount >= 0 ? "default" : "outline"}
+                    size="icon"
+                    className="h-10 w-10"
+                    onClick={() => setPaymentAmount(Math.abs(paymentAmount))}
+                    disabled={paymentAmount >= 0}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={paymentAmount < 0 ? "default" : "outline"}
+                    size="icon"
+                    className="h-10 w-10"
+                    onClick={() => setPaymentAmount(-Math.abs(paymentAmount))}
+                    disabled={paymentAmount <= 0}
+                  >
+                    <Minus className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="payment-type">Payment Type</Label>
+              <Select value={paymentType} onValueChange={setPaymentType}>
+                <SelectTrigger id="payment-type" className="h-10">
+                  <SelectValue placeholder="Select payment type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="rent">Rent</SelectItem>
+                  <SelectItem value="deposit">Security Deposit</SelectItem>
+                  <SelectItem value="advance">Advance Payment</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg p-3">
+              <p className="text-xs text-muted-foreground">
+                {paymentType === "deposit" || paymentType === "advance"
+                  ? `This will ${paymentAmount >= 0 ? "add to" : "deduct from"} the tenant's ${paymentType === "deposit" ? "Security Deposit" : "Advance Payment"} balance.`
+                  : `This will ${paymentAmount >= 0 ? "add" : "deduct"} ₱${Math.abs(paymentAmount).toLocaleString()} ${paymentAmount >= 0 ? "to" : "from"} billing entries, applied chronologically starting from the earliest unpaid or partially paid entry.`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsPaymentDialogOpen(false);
+                setPaymentAmount(0);
+                setPaymentType("rent");
+              }}
+              disabled={isApplyingPayment}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleApplyPayment}
+              disabled={isApplyingPayment || paymentAmount === 0}
+              className="gap-2"
+            >
+              {isApplyingPayment ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Applying...
+                </>
+              ) : (
+                <>Apply Payment</>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }
