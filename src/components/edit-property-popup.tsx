@@ -34,8 +34,19 @@ import {
   Lock,
   Unlock,
   DollarSign,
+  ArrowRightLeft,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 
 // Define types
@@ -119,6 +130,7 @@ interface EditPropertyPopupProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  onSwitchToBilling?: () => void;
 }
 
 export function EditPropertyPopup({
@@ -126,8 +138,10 @@ export function EditPropertyPopup({
   isOpen,
   onClose,
   onSuccess,
+  onSwitchToBilling,
 }: EditPropertyPopupProps) {
   const [loading, setLoading] = useState(true);
+  const [isSwitchConfirmOpen, setIsSwitchConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [property, setProperty] = useState<Property | null>(null);
@@ -586,8 +600,56 @@ export function EditPropertyPopup({
             </DialogDescription>
           </div>
 
-          {/* Lock toggle - responsive layout */}
-          <div className="flex items-center space-x-2 self-end sm:self-auto">
+          {/* Action buttons and Lock toggle - responsive layout */}
+          <div className="flex items-center gap-2 self-end sm:self-auto flex-wrap">
+            {/* Switch to Edit Billing Button */}
+            {formData.occupancyStatus === "occupied" &&
+              formData.tenantId &&
+              onSwitchToBilling && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsSwitchConfirmOpen(true)}
+                  className="text-xs h-8 gap-1.5"
+                >
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Edit Billing</span>
+                </Button>
+              )}
+
+            {/* Cancel Button */}
+            <Button
+              variant="outline"
+              onClick={onClose}
+              className="text-xs h-8"
+              size="sm"
+            >
+              Cancel
+            </Button>
+
+            {/* Save Changes Button */}
+            <Button
+              onClick={handleSubmit}
+              disabled={submitting || isLocked}
+              className={`gap-1.5 text-xs h-8 ${
+                isLocked ? "opacity-50 cursor-not-allowed" : ""
+              }`}
+              size="sm"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-3.5 w-3.5" />
+                  Save
+                </>
+              )}
+            </Button>
+
+            {/* Lock toggle */}
             <div className="flex items-center space-x-1 mr-1">
               {isLocked ? (
                 <Lock className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground" />
@@ -896,38 +958,35 @@ export function EditPropertyPopup({
         </div>
 
         <Separator className="my-4 sm:my-6" />
-
-        <div className="flex justify-end gap-1.5">
-          <Button
-            variant="outline"
-            onClick={onClose}
-            className="text-xs sm:text-sm h-8 sm:h-9"
-            size="sm"
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSubmit}
-            disabled={submitting || isLocked}
-            className={`gap-1 sm:gap-2 text-xs sm:text-sm h-8 sm:h-9 ${
-              isLocked ? "opacity-50 cursor-not-allowed" : ""
-            }`}
-            size="sm"
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                Save Changes
-              </>
-            )}
-          </Button>
-        </div>
       </DialogContent>
+
+      {/* Switch Confirmation Dialog */}
+      <AlertDialog
+        open={isSwitchConfirmOpen}
+        onOpenChange={setIsSwitchConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Switch to Edit Billing?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Any unsaved changes will be lost. Are you sure you want to switch
+              to Edit Billing?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setIsSwitchConfirmOpen(false);
+                onClose(); // Close current dialog without saving
+                onSwitchToBilling?.(); // Open billing dialog
+              }}
+            >
+              Switch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

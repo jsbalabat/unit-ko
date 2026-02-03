@@ -1648,6 +1648,10 @@ export function PropertyDetailsPopup({
             // Now this call will work properly
             fetchPropertyDetails();
           }}
+          onSwitchToBilling={() => {
+            setIsEditPopupOpen(false);
+            setIsEditBillingPopupOpen(true);
+          }}
         />
       )}
 
@@ -1660,6 +1664,10 @@ export function PropertyDetailsPopup({
           onSuccess={() => {
             // Refresh data when edit is successful
             fetchPropertyDetails();
+          }}
+          onSwitchToProperty={() => {
+            setIsEditBillingPopupOpen(false);
+            setIsEditPopupOpen(true);
           }}
         />
       )}

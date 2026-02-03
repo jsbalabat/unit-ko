@@ -9,6 +9,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -31,6 +41,7 @@ import {
   Trash2,
   Plus,
   Minus,
+  ArrowRightLeft,
 } from "lucide-react";
 import { OtherChargesPopup } from "@/components/other-charges-popup";
 
@@ -78,6 +89,7 @@ interface EditBillingPopupProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  onSwitchToProperty?: () => void;
 }
 
 export function EditBillingPopup({
@@ -86,8 +98,10 @@ export function EditBillingPopup({
   isOpen,
   onClose,
   onSuccess,
+  onSwitchToProperty,
 }: EditBillingPopupProps) {
   const [loading, setLoading] = useState(true);
+  const [isSwitchConfirmOpen, setIsSwitchConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<BillingFormData | null>(null);
@@ -656,7 +670,51 @@ export function EditBillingPopup({
         <DialogContent className="sm:max-w-[95%] md:max-w-[85%] lg:max-w-[900px] w-[95vw] max-h-[90vh] overflow-y-auto p-4 sm:p-6 [&>button]:hidden">
           <DialogHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
             <DialogTitle>Edit Billing</DialogTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Switch to Edit Property Button */}
+              {onSwitchToProperty && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsSwitchConfirmOpen(true)}
+                  className="text-xs h-8 gap-1.5"
+                >
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Edit Property</span>
+                </Button>
+              )}
+
+              {/* Cancel Button */}
+              <Button
+                variant="outline"
+                onClick={onClose}
+                className="text-xs h-8"
+                size="sm"
+              >
+                Cancel
+              </Button>
+
+              {/* Save Changes Button */}
+              <Button
+                onClick={handleSubmit}
+                disabled={submitting || isLocked}
+                className="gap-1.5 text-xs h-8"
+                size="sm"
+              >
+                {submitting ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-3.5 w-3.5" />
+                    Save
+                  </>
+                )}
+              </Button>
+
+              {/* Lock toggle */}
               <Label
                 htmlFor="edit-mode"
                 className="text-sm font-normal cursor-pointer"
@@ -902,36 +960,6 @@ export function EditBillingPopup({
                   </div>
                 </CardContent>
               </Card>
-
-              {/* Footer Actions */}
-              <div className="flex justify-end gap-1.5 pt-4 border-t">
-                <Button
-                  variant="outline"
-                  onClick={onClose}
-                  className="text-sm h-9"
-                  size="sm"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleSubmit}
-                  disabled={submitting || isLocked}
-                  className="gap-2 text-sm h-9"
-                  size="sm"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-4 w-4" />
-                      Save Changes
-                    </>
-                  )}
-                </Button>
-              </div>
             </div>
           ) : null}
         </DialogContent>
@@ -955,6 +983,34 @@ export function EditBillingPopup({
           dueDate={formData.billingSchedule[selectedBillingIndex].dueDate}
         />
       )}
+
+      {/* Switch Confirmation Dialog */}
+      <AlertDialog
+        open={isSwitchConfirmOpen}
+        onOpenChange={setIsSwitchConfirmOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Switch to Edit Property?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Any unsaved changes will be lost. Are you sure you want to switch
+              to Edit Property?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setIsSwitchConfirmOpen(false);
+                onClose(); // Close current dialog without saving
+                onSwitchToProperty?.(); // Open property dialog
+              }}
+            >
+              Switch
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
