@@ -35,6 +35,11 @@ import {
   Unlock,
   DollarSign,
   ArrowRightLeft,
+  Plus,
+  Minus,
+  Mail,
+  Phone,
+  X,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -66,12 +71,19 @@ interface BillingEntry {
   updated_at: string;
 }
 
+interface PersonDetail {
+  name: string;
+  email: string;
+  phone: string;
+}
+
 interface Tenant {
   id: string;
   property_id: string;
   tenant_name: string;
   contact_number: string;
   pax?: number;
+  pax_details?: PersonDetail[];
   contract_months: number;
   rent_start_date: string;
   due_day: string;
@@ -105,6 +117,7 @@ interface PropertyFormData {
   tenantName: string;
   contactNumber: string;
   pax: number;
+  paxDetails: PersonDetail[];
   contractMonths: number;
   rentStartDate: string;
   dueDay: string;
@@ -147,6 +160,9 @@ export function EditPropertyPopup({
   const [property, setProperty] = useState<Property | null>(null);
   const [formData, setFormData] = useState<PropertyFormData | null>(null);
   const [isLocked, setIsLocked] = useState(true);
+  const [editingPersonIndex, setEditingPersonIndex] = useState<number | null>(
+    null,
+  );
 
   // Fetch property data when the popup opens
   useEffect(() => {
@@ -191,11 +207,43 @@ export function EditPropertyPopup({
           tenantName: activeTenant?.tenant_name || "",
           contactNumber: activeTenant?.contact_number || "",
           pax: activeTenant?.pax || 1,
+          paxDetails: activeTenant?.pax_details || [],
           contractMonths: activeTenant?.contract_months || 0,
           rentStartDate: activeTenant?.rent_start_date || "",
           dueDay: activeTenant?.due_day || "30th/31st - Last Day",
           billingSchedule: [],
         };
+
+        // Ensure Person 1 is populated with the main tenant's info
+        if (activeTenant) {
+          const mainTenantAsPerson1 = {
+            name: activeTenant.tenant_name || "",
+            email: "",
+            phone: activeTenant.contact_number || "",
+          };
+
+          // If pax_details exists and has Person 1, merge with main tenant data
+          if (
+            initialFormData.paxDetails.length > 0 &&
+            initialFormData.paxDetails[0]
+          ) {
+            initialFormData.paxDetails[0] = {
+              ...mainTenantAsPerson1,
+              email: initialFormData.paxDetails[0].email || "",
+            };
+          } else {
+            // Ensure paxDetails array has at least Person 1
+            initialFormData.paxDetails = [
+              mainTenantAsPerson1,
+              ...initialFormData.paxDetails.slice(1),
+            ];
+          }
+
+          // Ensure paxDetails array matches pax count
+          while (initialFormData.paxDetails.length < initialFormData.pax) {
+            initialFormData.paxDetails.push({ name: "", email: "", phone: "" });
+          }
+        }
 
         // Add billing entries if tenant exists
         if (
@@ -411,13 +459,131 @@ export function EditPropertyPopup({
       });
     }
 
+    // Sync main tenant fields to Person 1 in paxDetails
+    if (field === "tenantName" && updatedFormData.paxDetails.length > 0) {
+      updatedFormData.paxDetails[0] = {
+        ...updatedFormData.paxDetails[0],
+        name: value as string,
+      };
+    } else if (
+      field === "contactNumber" &&
+      updatedFormData.paxDetails.length > 0
+    ) {
+      updatedFormData.paxDetails[0] = {
+        ...updatedFormData.paxDetails[0],
+        phone: value as string,
+      };
+    }
+
     // Set the updated form data
     setFormData(updatedFormData);
+  };
+
+  // Helper functions for managing person details
+  const handleAddPerson = () => {
+    if (!formData) return;
+    const newPax = formData.pax + 1;
+    if (newPax > 20) {
+      toast.error("Maximum 20 persons allowed");
+      return;
+    }
+
+    const updatedPaxDetails = [...formData.paxDetails];
+    updatedPaxDetails.push({ name: "", email: "", phone: "" });
+
+    setFormData({
+      ...formData,
+      pax: newPax,
+      paxDetails: updatedPaxDetails,
+    });
+    setEditingPersonIndex(updatedPaxDetails.length - 1);
+  };
+
+  const handleRemovePerson = (index: number) => {
+    if (!formData) return;
+    if (formData.pax <= 1) {
+      toast.error("At least 1 person required");
+      return;
+    }
+
+    if (index === 0) {
+      toast.error("Cannot remove the main tenant (Person 1)");
+      return;
+    }
+
+    const updatedPaxDetails = formData.paxDetails.filter((_, i) => i !== index);
+    setFormData({
+      ...formData,
+      pax: formData.pax - 1,
+      paxDetails: updatedPaxDetails,
+    });
+  };
+
+  const handleUpdatePersonDetail = (
+    index: number,
+    field: keyof PersonDetail,
+    value: string,
+  ) => {
+    if (!formData) return;
+
+    const updatedPaxDetails = [...formData.paxDetails];
+    updatedPaxDetails[index] = {
+      ...updatedPaxDetails[index],
+      [field]: value,
+    };
+
+    setFormData({
+      ...formData,
+      paxDetails: updatedPaxDetails,
+    });
+  };
+
+  const handlePaxNumberChange = (newPax: number) => {
+    if (!formData) return;
+
+    const updatedPaxDetails = [...formData.paxDetails];
+
+    // Ensure Person 1 (main tenant) always exists
+    if (updatedPaxDetails.length === 0) {
+      updatedPaxDetails.push({
+        name: formData.tenantName,
+        email: "",
+        phone: formData.contactNumber,
+      });
+    }
+
+    // Add empty person details if increasing pax
+    while (updatedPaxDetails.length < newPax) {
+      updatedPaxDetails.push({ name: "", email: "", phone: "" });
+    }
+
+    // Remove person details if decreasing pax (but never remove Person 1)
+    while (updatedPaxDetails.length > newPax && updatedPaxDetails.length > 1) {
+      updatedPaxDetails.pop();
+    }
+
+    setFormData({
+      ...formData,
+      pax: newPax,
+      paxDetails: updatedPaxDetails,
+    });
   };
 
   // Submit the form
   const handleSubmit = async () => {
     if (!formData) return;
+
+    // Validate Person 1 has required information
+    if (formData.occupancyStatus === "occupied") {
+      const person1 = formData.paxDetails[0];
+      if (!person1 || !person1.name || person1.name.trim() === "") {
+        toast.error("Person 1 (Main Tenant) name is required", {
+          description:
+            "Please fill in the name for Person 1 in the Individual Person Details section",
+        });
+        return;
+      }
+    }
 
     setSubmitting(true);
     setError(null);
@@ -439,18 +605,34 @@ export function EditPropertyPopup({
 
       // Update tenant info if applicable
       if (formData.occupancyStatus === "occupied" && formData.tenantId) {
+        // Get tenant name and contact from Person 1 (first person in paxDetails)
+        const person1 = formData.paxDetails[0] || {
+          name: "",
+          phone: "",
+          email: "",
+        };
+
+        const tenantUpdateData = {
+          tenant_name: person1.name || formData.tenantName,
+          contact_number: person1.phone || formData.contactNumber,
+          rent_start_date: formData.rentStartDate,
+          due_day: formData.dueDay,
+          pax: formData.pax,
+          pax_details: formData.paxDetails,
+          updated_at: new Date().toISOString(),
+        };
+
+        console.log("Updating tenant with data:", tenantUpdateData);
+
         const { error: tenantError } = await supabase
           .from("tenants")
-          .update({
-            contact_number: formData.contactNumber,
-            rent_start_date: formData.rentStartDate,
-            due_day: formData.dueDay,
-            pax: formData.pax,
-            updated_at: new Date().toISOString(),
-          })
+          .update(tenantUpdateData)
           .eq("id", formData.tenantId);
 
-        if (tenantError) throw tenantError;
+        if (tenantError) {
+          console.error("Tenant update error:", tenantError);
+          throw tenantError;
+        }
 
         // Handle billing entries
         for (const entry of formData.billingSchedule) {
@@ -519,7 +701,7 @@ export function EditPropertyPopup({
       }
 
       toast.success("Property updated successfully", {
-        description: `${formData.unitName} has been updated.`,
+        description: `${formData.unitName} and ${formData.pax} person detail${formData.pax > 1 ? "s" : ""} saved.`,
       });
 
       // Call the success callback if provided
@@ -529,10 +711,28 @@ export function EditPropertyPopup({
       onClose();
     } catch (err) {
       console.error("Error updating property:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to update property",
-      );
-      toast.error("Failed to update property");
+      console.error("Error details:", JSON.stringify(err, null, 2));
+
+      let errorMessage = "Failed to update property";
+
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === "object" && err !== null) {
+        // Handle Supabase error format
+        const supabaseError = err as any;
+        if (supabaseError.message) {
+          errorMessage = supabaseError.message;
+        } else if (supabaseError.error_description) {
+          errorMessage = supabaseError.error_description;
+        } else if (supabaseError.hint) {
+          errorMessage = `${supabaseError.message || "Database error"}: ${supabaseError.hint}`;
+        }
+      }
+
+      setError(errorMessage);
+      toast.error("Failed to update property", {
+        description: errorMessage,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -781,33 +981,6 @@ export function EditPropertyPopup({
                 <CardContent className="p-6 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="tenantName">
-                        Tenant Name (Read Only)
-                      </Label>
-                      <Input
-                        id="tenantName"
-                        value={formData.tenantName}
-                        disabled
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Tenant name cannot be changed in edit mode
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="contactNumber">Contact Number</Label>
-                      <Input
-                        id="contactNumber"
-                        value={formData.contactNumber}
-                        onChange={(e) =>
-                          handleChange("contactNumber", e.target.value)
-                        }
-                        disabled={isLocked}
-                        className={isLocked ? "opacity-70" : ""}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
                       <Label
                         htmlFor="pax"
                         className="flex items-center gap-1.5"
@@ -815,19 +988,49 @@ export function EditPropertyPopup({
                         <User className="h-3.5 w-3.5" />
                         Number of Pax (Bed Space)
                       </Label>
-                      <Input
-                        id="pax"
-                        type="number"
-                        min="1"
-                        max="20"
-                        value={formData.pax}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/^0+(?=\d)/, "");
-                          handleChange("pax", parseInt(value) || 1);
-                        }}
-                        disabled={isLocked}
-                        className={isLocked ? "opacity-70" : ""}
-                      />
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={() => {
+                            if (formData.pax > 1) {
+                              handleRemovePerson(formData.pax - 1);
+                            }
+                          }}
+                          disabled={isLocked || formData.pax <= 1}
+                          className={isLocked ? "opacity-70" : ""}
+                        >
+                          <Minus className="h-4 w-4" />
+                        </Button>
+                        <Input
+                          id="pax"
+                          type="number"
+                          min="1"
+                          max="20"
+                          value={formData.pax}
+                          onChange={(e) => {
+                            const value = e.target.value.replace(
+                              /^0+(?=\d)/,
+                              "",
+                            );
+                            const newPax = parseInt(value) || 1;
+                            handlePaxNumberChange(newPax);
+                          }}
+                          disabled={isLocked}
+                          className={`flex-1 ${isLocked ? "opacity-70" : ""}`}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          onClick={handleAddPerson}
+                          disabled={isLocked || formData.pax >= 20}
+                          className={isLocked ? "opacity-70" : ""}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
                       <p className="text-xs text-muted-foreground">
                         Number of persons sharing this unit
                       </p>
@@ -952,6 +1155,220 @@ export function EditPropertyPopup({
                       </p>
                     </div>
                   </div>
+
+                  {/* Person Details Section - Full Width */}
+                  {formData.pax > 0 && !isLocked && (
+                    <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          <h3 className="text-base font-semibold">
+                            Individual Person Details
+                          </h3>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground mb-4">
+                        Person 1 represents the main tenant. All information is
+                        saved to the database automatically when you save
+                        changes.
+                        <span className="text-red-500"> * Required field</span>
+                      </p>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {Array.from({ length: formData.pax }, (_, index) => {
+                          const person = formData.paxDetails[index] || {
+                            name: "",
+                            email: "",
+                            phone: "",
+                          };
+                          const isEditing = editingPersonIndex === index;
+
+                          return (
+                            <Card
+                              key={index}
+                              className={`border-blue-200 dark:border-blue-800 hover:shadow-md transition-shadow ${
+                                index === 0
+                                  ? "ring-2 ring-blue-400 dark:ring-blue-600"
+                                  : ""
+                              }`}
+                            >
+                              <CardContent className="p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                  <div className="flex items-center gap-2">
+                                    <div
+                                      className={`h-9 w-9 rounded-full flex items-center justify-center ${
+                                        index === 0
+                                          ? "bg-blue-600 dark:bg-blue-500"
+                                          : "bg-blue-100 dark:bg-blue-900/30"
+                                      }`}
+                                    >
+                                      <User
+                                        className={`h-4 w-4 ${
+                                          index === 0
+                                            ? "text-white"
+                                            : "text-blue-600 dark:text-blue-400"
+                                        }`}
+                                      />
+                                    </div>
+                                    <div>
+                                      <span className="text-sm font-semibold">
+                                        Person {index + 1}
+                                      </span>
+                                      {index === 0 && (
+                                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-medium">
+                                          Main Tenant
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      setEditingPersonIndex(
+                                        isEditing ? null : index,
+                                      )
+                                    }
+                                    className="h-7 text-xs"
+                                  >
+                                    {isEditing ? "Done" : "Edit"}
+                                  </Button>
+                                </div>
+
+                                {isEditing ? (
+                                  <div className="space-y-3">
+                                    <div>
+                                      <Label
+                                        htmlFor={`person-${index}-name`}
+                                        className="text-xs mb-1"
+                                      >
+                                        Name{" "}
+                                        {index === 0 && (
+                                          <span className="text-red-500">
+                                            *
+                                          </span>
+                                        )}
+                                      </Label>
+                                      <Input
+                                        id={`person-${index}-name`}
+                                        value={person.name}
+                                        onChange={(e) =>
+                                          handleUpdatePersonDetail(
+                                            index,
+                                            "name",
+                                            e.target.value,
+                                          )
+                                        }
+                                        placeholder={
+                                          index === 0
+                                            ? "Enter full name (required)"
+                                            : "Enter full name"
+                                        }
+                                        className="h-9"
+                                        required={index === 0}
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label
+                                        htmlFor={`person-${index}-email`}
+                                        className="text-xs flex items-center gap-1 mb-1"
+                                      >
+                                        <Mail className="h-3 w-3" />
+                                        Email
+                                      </Label>
+                                      <Input
+                                        id={`person-${index}-email`}
+                                        type="email"
+                                        value={person.email}
+                                        onChange={(e) =>
+                                          handleUpdatePersonDetail(
+                                            index,
+                                            "email",
+                                            e.target.value,
+                                          )
+                                        }
+                                        placeholder="Enter email address"
+                                        className="h-9"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label
+                                        htmlFor={`person-${index}-phone`}
+                                        className="text-xs flex items-center gap-1 mb-1"
+                                      >
+                                        <Phone className="h-3 w-3" />
+                                        Phone
+                                      </Label>
+                                      <Input
+                                        id={`person-${index}-phone`}
+                                        type="tel"
+                                        value={person.phone}
+                                        onChange={(e) =>
+                                          handleUpdatePersonDetail(
+                                            index,
+                                            "phone",
+                                            e.target.value,
+                                          )
+                                        }
+                                        placeholder="Enter phone number"
+                                        className="h-9"
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-2">
+                                    {person.name ? (
+                                      <>
+                                        <div>
+                                          <p className="text-xs text-muted-foreground mb-0.5">
+                                            Name
+                                          </p>
+                                          <p className="text-sm font-medium">
+                                            {person.name}
+                                          </p>
+                                        </div>
+                                        {person.email && (
+                                          <div>
+                                            <p className="text-xs text-muted-foreground mb-0.5">
+                                              Email
+                                            </p>
+                                            <p className="text-xs flex items-center gap-1.5">
+                                              <Mail className="h-3 w-3 text-muted-foreground" />
+                                              {person.email}
+                                            </p>
+                                          </div>
+                                        )}
+                                        {person.phone && (
+                                          <div>
+                                            <p className="text-xs text-muted-foreground mb-0.5">
+                                              Phone
+                                            </p>
+                                            <p className="text-xs flex items-center gap-1.5">
+                                              <Phone className="h-3 w-3 text-muted-foreground" />
+                                              {person.phone}
+                                            </p>
+                                          </div>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <div className="text-center py-4">
+                                        <p className="text-xs text-muted-foreground italic">
+                                          No details added yet
+                                        </p>
+                                        <p className="text-[10px] text-muted-foreground mt-1">
+                                          Click Edit to add information
+                                        </p>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </CardContent>
+                            </Card>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   <Alert className="bg-amber-50 text-amber-800 border-amber-200">
                     <AlertCircle className="h-4 w-4 text-amber-600" />
