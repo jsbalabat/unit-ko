@@ -97,6 +97,7 @@ interface Tenant {
   property_id: string;
   tenant_name: string;
   contact_number: string;
+  pax?: number;
   contract_months: number;
   rent_start_date: string;
   due_day: string;
@@ -656,6 +657,8 @@ export function PropertyDetailsPopup({
 
   const activeTenant = property.tenants?.find((t) => t.is_active);
   const billingEntries = activeTenant?.billing_entries || [];
+  // Get pax count with fallback to 1 for existing tenants without pax field
+  const paxCount = activeTenant?.pax ?? 1;
 
   const currentDate = new Date();
   currentDate.setHours(0, 0, 0, 0);
@@ -1279,6 +1282,131 @@ export function PropertyDetailsPopup({
                     </div>
                   </div>
 
+                  {/* Individual Per-Person Payment Breakdown */}
+                  {activeTenant && (
+                    <Card className="shadow-sm bg-gradient-to-br from-white to-blue-50/30 dark:from-gray-900 dark:to-blue-950/10 border-blue-200 dark:border-blue-800">
+                      <CardContent className="p-4 md:p-6">
+                        <div className="flex items-center gap-2 mb-4">
+                          <User className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                          <h3 className="text-base md:text-lg font-semibold">
+                            Individual Payment Breakdown
+                          </h3>
+                          <Badge
+                            variant="outline"
+                            className="ml-auto bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700"
+                          >
+                            {paxCount} {paxCount === 1 ? "Person" : "Persons"}
+                          </Badge>
+                        </div>
+
+                        <div className="space-y-3">
+                          {Array.from({ length: paxCount }, (_, index) => {
+                            const personNumber = index + 1;
+                            const perPersonRent =
+                              property.rent_amount / paxCount;
+
+                            // Calculate per-person payment stats
+                            const perPersonTotalDue = billingEntries.reduce(
+                              (sum, entry) => sum + entry.gross_due / paxCount,
+                              0,
+                            );
+                            const perPersonPaid = billingEntries.reduce(
+                              (sum, entry) =>
+                                sum + (entry.paid_amount || 0) / paxCount,
+                              0,
+                            );
+                            const perPersonBalance =
+                              perPersonTotalDue - perPersonPaid;
+                            const perPersonPaidCount = billingEntries.filter(
+                              (entry) => entry.status === "Good Standing",
+                            ).length;
+                            const perPersonPendingCount = billingEntries.filter(
+                              (entry) => entry.status !== "Good Standing",
+                            ).length;
+
+                            return (
+                              <div
+                                key={personNumber}
+                                className="bg-white dark:bg-gray-900/50 rounded-lg p-3 md:p-4 border border-blue-100 dark:border-blue-900 hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
+                              >
+                                <div className="flex items-center gap-2 mb-3">
+                                  <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                                    <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                                  </div>
+                                  <div>
+                                    <h4 className="font-semibold text-sm">
+                                      Person {personNumber}
+                                    </h4>
+                                    <p className="text-xs text-muted-foreground">
+                                      Equal Share
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 md:gap-3">
+                                  {/* Monthly Share */}
+                                  <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-2 border border-blue-200 dark:border-blue-900">
+                                    <div className="text-[10px] text-muted-foreground mb-0.5">
+                                      Monthly Share
+                                    </div>
+                                    <div className="text-sm md:text-base font-bold text-blue-600 dark:text-blue-400">
+                                      {formatCurrency(perPersonRent)}
+                                    </div>
+                                  </div>
+
+                                  {/* Paid */}
+                                  <div className="bg-green-50 dark:bg-green-950/20 rounded-lg p-2 border border-green-200 dark:border-green-900">
+                                    <div className="text-[10px] text-muted-foreground mb-0.5">
+                                      Paid
+                                    </div>
+                                    <div className="text-sm md:text-base font-bold text-green-600 dark:text-green-400">
+                                      {formatCurrency(perPersonPaid)}
+                                    </div>
+                                    <div className="text-[9px] text-muted-foreground mt-0.5">
+                                      {perPersonPaidCount}{" "}
+                                      {perPersonPaidCount === 1
+                                        ? "bill"
+                                        : "bills"}
+                                    </div>
+                                  </div>
+
+                                  {/* Balance */}
+                                  <div className="bg-amber-50 dark:bg-amber-950/20 rounded-lg p-2 border border-amber-200 dark:border-amber-900">
+                                    <div className="text-[10px] text-muted-foreground mb-0.5">
+                                      Balance
+                                    </div>
+                                    <div className="text-sm md:text-base font-bold text-amber-600 dark:text-amber-400">
+                                      {formatCurrency(perPersonBalance)}
+                                    </div>
+                                    <div className="text-[9px] text-muted-foreground mt-0.5">
+                                      {perPersonPendingCount} pending
+                                    </div>
+                                  </div>
+
+                                  {/* Total Due */}
+                                  <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-2 border border-blue-200 dark:border-blue-900">
+                                    <div className="text-[10px] text-muted-foreground mb-0.5">
+                                      Total Due
+                                    </div>
+                                    <div className="text-sm md:text-base font-bold text-blue-700 dark:text-blue-300">
+                                      {formatCurrency(perPersonTotalDue)}
+                                    </div>
+                                    <div className="text-[9px] text-muted-foreground mt-0.5">
+                                      {billingEntries.length}{" "}
+                                      {billingEntries.length === 1
+                                        ? "period"
+                                        : "periods"}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
                   <Card className="shadow-sm">
                     <CardContent className="p-4 md:p-6">
                       <div className="flex justify-between items-center mb-4 md:mb-6 flex-wrap gap-2">
@@ -1331,6 +1459,17 @@ export function PropertyDetailsPopup({
                                   >
                                     Rent
                                   </th>
+                                  {activeTenant && (
+                                    <th
+                                      scope="col"
+                                      className="px-3 py-2 text-left text-xs font-medium text-blue-600 dark:text-blue-400"
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        <User className="h-3 w-3" />
+                                        Per Person
+                                      </div>
+                                    </th>
+                                  )}
                                   <th
                                     scope="col"
                                     className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
@@ -1396,6 +1535,20 @@ export function PropertyDetailsPopup({
                                           <td className="px-3 py-2 text-xs font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
                                             {formatCurrency(entry.rent_due)}
                                           </td>
+                                          {activeTenant && (
+                                            <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                              <div className="flex flex-col">
+                                                <span className="font-semibold text-blue-600 dark:text-blue-400">
+                                                  {formatCurrency(
+                                                    entry.rent_due / paxCount,
+                                                  )}
+                                                </span>
+                                                <span className="text-[10px] text-muted-foreground">
+                                                  × {paxCount} persons
+                                                </span>
+                                              </div>
+                                            </td>
+                                          )}
                                           <td className="px-3 py-2 text-xs">
                                             <div className="relative group inline-block">
                                               <div className="flex items-center cursor-help gap-1">
@@ -1467,7 +1620,7 @@ export function PropertyDetailsPopup({
                                 ) : (
                                   <tr>
                                     <td
-                                      colSpan={7}
+                                      colSpan={activeTenant ? 8 : 7}
                                       className="px-3 py-8 text-center"
                                     >
                                       <div className="flex flex-col items-center justify-center text-muted-foreground">

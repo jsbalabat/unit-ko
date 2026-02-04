@@ -445,6 +445,7 @@ export function EditPropertyPopup({
             contact_number: formData.contactNumber,
             rent_start_date: formData.rentStartDate,
             due_day: formData.dueDay,
+            pax: formData.pax,
             updated_at: new Date().toISOString(),
           })
           .eq("id", formData.tenantId);
@@ -830,6 +831,25 @@ export function EditPropertyPopup({
                       <p className="text-xs text-muted-foreground">
                         Number of persons sharing this unit
                       </p>
+                      {formData.pax >= 1 &&
+                        property &&
+                        property.rent_amount && (
+                          <div className="mt-2 p-2 rounded-md bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                            <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
+                              Per-Person Rent: ₱
+                              {(
+                                property.rent_amount / formData.pax
+                              ).toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </p>
+                            <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-0.5">
+                              Total ₱{property.rent_amount.toLocaleString()} ÷{" "}
+                              {formData.pax} persons
+                            </p>
+                          </div>
+                        )}
                     </div>
 
                     <div className="space-y-2">

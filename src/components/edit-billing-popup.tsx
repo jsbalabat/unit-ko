@@ -42,6 +42,7 @@ import {
   Plus,
   Minus,
   ArrowRightLeft,
+  User,
 } from "lucide-react";
 import { OtherChargesPopup } from "@/components/other-charges-popup";
 
@@ -116,6 +117,7 @@ export function EditBillingPopup({
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [paymentType, setPaymentType] = useState<string>("rent");
   const [originalBillingIds, setOriginalBillingIds] = useState<string[]>([]);
+  const [tenantPax, setTenantPax] = useState<number>(1);
 
   // Fetch billing data when popup opens
   useEffect(() => {
@@ -143,6 +145,9 @@ export function EditBillingPopup({
           .single();
 
         if (tenantError) throw tenantError;
+
+        // Set tenant pax for per-person billing display
+        setTenantPax(tenantData.pax || 1);
 
         const billingEntries = (tenantData.billing_entries ||
           []) as BillingEntry[];
@@ -747,6 +752,56 @@ export function EditBillingPopup({
             <div className="text-center py-12 text-red-600">{error}</div>
           ) : formData ? (
             <div className="space-y-6">
+              {/* Per-Person Billing Breakdown - Show when pax exists */}
+              {tenantPax >= 1 && (
+                <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100">
+                        Per-Person Billing Breakdown
+                      </h3>
+                      <span className="ml-auto text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full border border-blue-300 dark:border-blue-700">
+                        {tenantPax} Persons
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="bg-white dark:bg-gray-900/50 rounded-lg p-2 border border-blue-100 dark:border-blue-900">
+                        <div className="text-[10px] text-muted-foreground mb-1">
+                          Monthly Rent (Total)
+                        </div>
+                        <div className="text-base font-bold text-blue-600 dark:text-blue-400">
+                          ₱{formData.rentAmount.toLocaleString()}
+                        </div>
+                      </div>
+                      <div className="bg-white dark:bg-gray-900/50 rounded-lg p-2 border border-blue-100 dark:border-blue-900">
+                        <div className="text-[10px] text-muted-foreground mb-1">
+                          Per Person Share
+                        </div>
+                        <div className="text-base font-bold text-emerald-600 dark:text-emerald-400">
+                          ₱
+                          {(formData.rentAmount / tenantPax).toLocaleString(
+                            undefined,
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            },
+                          )}
+                        </div>
+                      </div>
+                      <div className="bg-white dark:bg-gray-900/50 rounded-lg p-2 border border-blue-100 dark:border-blue-900">
+                        <div className="text-[10px] text-muted-foreground mb-1">
+                          Billing Mode
+                        </div>
+                        <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mt-1">
+                          Split Equally
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
               <Card>
                 <CardContent className="p-6">
                   {/* Universal Payment Field */}
@@ -855,6 +910,14 @@ export function EditBillingPopup({
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-right w-24">
                             Rent
                           </th>
+                          {tenantPax >= 1 && (
+                            <th className="px-3 py-3 text-xs font-semibold text-blue-600 dark:text-blue-400 text-center w-24">
+                              <div className="flex items-center justify-center gap-1">
+                                <User className="h-3 w-3" />
+                                Per Person
+                              </div>
+                            </th>
+                          )}
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-center w-32">
                             Other
                           </th>
@@ -887,6 +950,24 @@ export function EditBillingPopup({
                             <td className="px-3 py-3 text-sm text-right font-medium">
                               ₱{billing.rentDue.toLocaleString()}
                             </td>
+                            {tenantPax >= 1 && (
+                              <td className="px-3 py-3 text-xs text-center">
+                                <div className="flex flex-col items-center">
+                                  <span className="font-semibold text-blue-600 dark:text-blue-400">
+                                    ₱
+                                    {(
+                                      billing.rentDue / tenantPax
+                                    ).toLocaleString(undefined, {
+                                      minimumFractionDigits: 2,
+                                      maximumFractionDigits: 2,
+                                    })}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    × {tenantPax} persons
+                                  </span>
+                                </div>
+                              </td>
+                            )}
                             <td className="px-3 py-3 text-center">
                               <Button
                                 variant="ghost"
