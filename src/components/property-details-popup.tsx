@@ -1795,11 +1795,11 @@ export function PropertyDetailsPopup({
           onClose={() => setIsEditPopupOpen(false)}
           onSuccess={() => {
             // Refresh data when edit is successful
-            if (onEdit) {
-              onEdit(propertyId);
-            }
-            // Now this call will work properly
             fetchPropertyDetails();
+            // Call parent's onSuccess to refresh dashboard
+            if (onSuccess) {
+              onSuccess();
+            }
           }}
           onSwitchToBilling={() => {
             setIsEditPopupOpen(false);
@@ -1817,6 +1817,10 @@ export function PropertyDetailsPopup({
           onSuccess={() => {
             // Refresh data when edit is successful
             fetchPropertyDetails();
+            // Call parent's onSuccess to refresh dashboard
+            if (onSuccess) {
+              onSuccess();
+            }
           }}
           onSwitchToProperty={() => {
             setIsEditBillingPopupOpen(false);

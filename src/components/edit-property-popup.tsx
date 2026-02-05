@@ -475,6 +475,20 @@ export function EditPropertyPopup({
       };
     }
 
+    // Initialize pax details when changing from vacant to occupied
+    if (field === "occupancyStatus" && value === "occupied") {
+      // Ensure we have at least Person 1 with empty details
+      if (updatedFormData.paxDetails.length === 0) {
+        updatedFormData.paxDetails = [{ name: "", email: "", phone: "" }];
+        updatedFormData.pax = 1;
+
+        toast.info("Property set to occupied", {
+          description:
+            "Please fill in Person 1 details below (main tenant information required)",
+        });
+      }
+    }
+
     // Set the updated form data
     setFormData(updatedFormData);
   };
@@ -573,13 +587,41 @@ export function EditPropertyPopup({
   const handleSubmit = async () => {
     if (!formData) return;
 
-    // Validate Person 1 has required information
-    if (formData.occupancyStatus === "occupied") {
-      const person1 = formData.paxDetails[0];
+    // Check if user has started filling in tenant details
+    const person1 = formData.paxDetails[0];
+    const hasPaxData = person1 && person1.name && person1.name.trim() !== "";
+
+    // If tenant data is being filled (regardless of occupancy status), validate all required fields
+    if (hasPaxData || formData.occupancyStatus === "occupied") {
+      // Validate Person 1 has name
       if (!person1 || !person1.name || person1.name.trim() === "") {
         toast.error("Person 1 (Main Tenant) name is required", {
           description:
             "Please fill in the name for Person 1 in the Individual Person Details section",
+        });
+        return;
+      }
+
+      // Validate rent start date is required
+      if (!formData.rentStartDate || formData.rentStartDate.trim() === "") {
+        toast.error("Rent Agreement Date is required", {
+          description: "Please set the rent agreement date for the tenant",
+        });
+        return;
+      }
+
+      // Validate due day is set
+      if (!formData.dueDay || formData.dueDay.trim() === "") {
+        toast.error("Payment Due Day is required", {
+          description: "Please set the payment due day of the month",
+        });
+        return;
+      }
+
+      // Validate pax is at least 1
+      if (!formData.pax || formData.pax < 1) {
+        toast.error("Number of Pax is required", {
+          description: "Please set the number of occupants (at least 1)",
         });
         return;
       }
@@ -589,7 +631,12 @@ export function EditPropertyPopup({
     setError(null);
 
     try {
-      // Update property info
+      // Automatically determine occupancy status based on tenant data
+      // If tenant exists (Person 1 has a name) → occupied
+      // If no tenant (Person 1 has no name) → vacant
+      const finalOccupancyStatus = hasPaxData ? "occupied" : "vacant";
+
+      // Update property info (including occupancy status)
       const { error: propertyError } = await supabase
         .from("properties")
         .update({
@@ -597,24 +644,24 @@ export function EditPropertyPopup({
           property_type: formData.propertyType,
           property_location: formData.propertyLocation,
           rent_amount: formData.rentAmount,
+          occupancy_status: finalOccupancyStatus,
           updated_at: new Date().toISOString(),
         })
         .eq("id", formData.id);
 
       if (propertyError) throw propertyError;
 
-      // Update tenant info if applicable
-      if (formData.occupancyStatus === "occupied" && formData.tenantId) {
+      if (formData.occupancyStatus === "occupied" || hasPaxData) {
         // Get tenant name and contact from Person 1 (first person in paxDetails)
-        const person1 = formData.paxDetails[0] || {
+        const person1Data = formData.paxDetails[0] || {
           name: "",
           phone: "",
           email: "",
         };
 
-        const tenantUpdateData = {
-          tenant_name: person1.name || formData.tenantName,
-          contact_number: person1.phone || formData.contactNumber,
+        const tenantData = {
+          tenant_name: person1Data.name || formData.tenantName,
+          contact_number: person1Data.phone || formData.contactNumber,
           rent_start_date: formData.rentStartDate,
           due_day: formData.dueDay,
           pax: formData.pax,
@@ -622,86 +669,124 @@ export function EditPropertyPopup({
           updated_at: new Date().toISOString(),
         };
 
-        console.log("Updating tenant with data:", tenantUpdateData);
+        if (formData.tenantId) {
+          // Update existing tenant
+          console.log("Updating tenant with data:", tenantData);
 
-        const { error: tenantError } = await supabase
-          .from("tenants")
-          .update(tenantUpdateData)
-          .eq("id", formData.tenantId);
+          const { error: tenantError } = await supabase
+            .from("tenants")
+            .update(tenantData)
+            .eq("id", formData.tenantId);
 
-        if (tenantError) {
-          console.error("Tenant update error:", tenantError);
-          throw tenantError;
+          if (tenantError) {
+            console.error("Tenant update error:", tenantError);
+            throw tenantError;
+          }
+        } else {
+          // Create new tenant for previously vacant property
+          console.log("Creating new tenant with data:", tenantData);
+
+          const { data: newTenant, error: tenantError } = await supabase
+            .from("tenants")
+            .insert({
+              ...tenantData,
+              property_id: formData.id,
+              is_active: true,
+              contract_months: formData.contractMonths || 12,
+              created_at: new Date().toISOString(),
+            })
+            .select()
+            .single();
+
+          if (tenantError) {
+            console.error("Tenant creation error:", tenantError);
+            throw tenantError;
+          }
+
+          // Update formData with new tenant ID for billing entries
+          if (newTenant) {
+            formData.tenantId = newTenant.id;
+          }
         }
 
-        // Handle billing entries
-        for (const entry of formData.billingSchedule) {
-          // For existing entries, update them
-          if (!entry.id.startsWith("temp-")) {
-            const { error: billingError } = await supabase
-              .from("billing_entries")
-              .update({
-                due_date: entry.dueDate,
-                status: entry.status,
-                other_charges: entry.otherCharges,
-                rent_due: entry.rentDue,
-                gross_due: entry.grossDue,
-                paid_amount: entry.paidAmount || 0,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", entry.id);
+        // Handle billing entries only for occupied properties
+        if (formData.occupancyStatus === "occupied") {
+          for (const entry of formData.billingSchedule) {
+            // For existing entries, update them
+            if (!entry.id.startsWith("temp-")) {
+              const { error: billingError } = await supabase
+                .from("billing_entries")
+                .update({
+                  due_date: entry.dueDate,
+                  status: entry.status,
+                  other_charges: entry.otherCharges,
+                  rent_due: entry.rentDue,
+                  gross_due: entry.grossDue,
+                  paid_amount: entry.paidAmount || 0,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", entry.id);
 
-            if (billingError) throw billingError;
+              if (billingError) throw billingError;
+            }
+            // For new entries, insert them
+            else {
+              const { error: newBillingError } = await supabase
+                .from("billing_entries")
+                .insert({
+                  property_id: formData.id,
+                  tenant_id: formData.tenantId,
+                  due_date: entry.dueDate,
+                  rent_due: entry.rentDue,
+                  other_charges: entry.otherCharges,
+                  gross_due: entry.grossDue,
+                  status: entry.status,
+                  paid_amount: entry.paidAmount || 0,
+                  billing_period: formData.billingSchedule.indexOf(entry) + 1,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString(),
+                });
+
+              if (newBillingError) throw newBillingError;
+            }
           }
-          // For new entries, insert them
-          else {
-            const { error: newBillingError } = await supabase
-              .from("billing_entries")
-              .insert({
-                property_id: formData.id,
-                tenant_id: formData.tenantId,
-                due_date: entry.dueDate,
-                rent_due: entry.rentDue,
-                other_charges: entry.otherCharges,
-                gross_due: entry.grossDue,
-                status: entry.status,
-                paid_amount: entry.paidAmount || 0,
-                billing_period: formData.billingSchedule.indexOf(entry) + 1,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              });
 
-            if (newBillingError) throw newBillingError;
+          // Track deleted entries that need to be removed from database
+          const currentEntryIds = formData.billingSchedule.map(
+            (entry) => entry.id,
+          );
+          const originalEntryIds =
+            property?.tenants
+              ?.find((t) => t.is_active)
+              ?.billing_entries?.map((be) => be.id) || [];
+
+          // Find entries that exist in original data but not in current form data (they were deleted)
+          const deletedEntryIds = originalEntryIds.filter(
+            (id) => !currentEntryIds.includes(id),
+          );
+
+          // Handle deleted entries if any
+          if (deletedEntryIds.length > 0) {
+            for (const deletedId of deletedEntryIds) {
+              const { error: deleteError } = await supabase
+                .from("billing_entries")
+                .delete()
+                .eq("id", deletedId);
+
+              if (deleteError) throw deleteError;
+            }
           }
         }
       }
 
-      // Track deleted entries that need to be removed from database
-      const currentEntryIds = formData.billingSchedule.map((entry) => entry.id);
-      const originalEntryIds =
-        property?.tenants
-          ?.find((t) => t.is_active)
-          ?.billing_entries?.map((be) => be.id) || [];
-
-      // Find entries that exist in original data but not in current form data (they were deleted)
-      const deletedEntryIds = originalEntryIds.filter(
-        (id) => !currentEntryIds.includes(id),
-      );
-
-      // Handle deleted entries if any
-      if (deletedEntryIds.length > 0) {
-        for (const deletedId of deletedEntryIds) {
-          const { error: deleteError } = await supabase
-            .from("billing_entries")
-            .delete()
-            .eq("id", deletedId);
-
-          if (deleteError) throw deleteError;
-        }
-      }
+      const hasTenantData =
+        person1 && person1.name && person1.name.trim() !== "";
+      const savedWhat = hasTenantData
+        ? `${formData.unitName} and ${formData.pax} person detail${formData.pax > 1 ? "s" : ""} saved`
+        : `${formData.unitName} updated`;
 
       toast.success("Property updated successfully", {
-        description: `${formData.unitName} and ${formData.pax} person detail${formData.pax > 1 ? "s" : ""} saved.`,
+        description: savedWhat,
       });
 
       // Call the success callback if provided
@@ -889,7 +974,7 @@ export function EditPropertyPopup({
                     <Label htmlFor="unitName">Unit Name</Label>
                     <Input
                       id="unitName"
-                      value={formData.unitName}
+                      value={formData.unitName ?? ""}
                       onChange={(e) => handleChange("unitName", e.target.value)}
                       disabled={isLocked}
                       className={isLocked ? "opacity-70" : ""}
@@ -933,7 +1018,7 @@ export function EditPropertyPopup({
                         id="rentAmount"
                         type="number"
                         className={`pl-7 ${isLocked ? "opacity-70" : ""}`}
-                        value={formData.rentAmount}
+                        value={formData.rentAmount ?? ""}
                         onChange={(e) => {
                           const value = e.target.value.replace(/^0+(?=\d)/, "");
                           handleChange("rentAmount", parseFloat(value) || 0);
@@ -947,7 +1032,7 @@ export function EditPropertyPopup({
                     <Label htmlFor="propertyLocation">Address</Label>
                     <Input
                       id="propertyLocation"
-                      value={formData.propertyLocation}
+                      value={formData.propertyLocation ?? ""}
                       onChange={(e) =>
                         handleChange("propertyLocation", e.target.value)
                       }
@@ -957,12 +1042,31 @@ export function EditPropertyPopup({
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="occupancyStatus">Occupancy Status</Label>
+                    <Select
+                      value={formData.occupancyStatus}
+                      onValueChange={(value) =>
+                        handleChange("occupancyStatus", value)
+                      }
+                      disabled={isLocked}
+                    >
+                      <SelectTrigger
+                        id="occupancyStatus"
+                        className={isLocked ? "opacity-70" : ""}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="vacant">Vacant</SelectItem>
+                        <SelectItem value="occupied">Occupied</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   <div className="space-y-2 bg-muted/20 p-3 rounded-md">
                     <p className="text-xs text-muted-foreground">
                       Property ID: {formData.id}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Occupancy Status: {formData.occupancyStatus}
                     </p>
                   </div>
                 </div>
@@ -971,424 +1075,416 @@ export function EditPropertyPopup({
           </section>
 
           {/* Tenant Info Section */}
-          {formData.occupancyStatus === "occupied" && (
-            <section>
-              <h2 className="text-lg font-semibold mb-4 flex items-center">
-                <User className="mr-2 h-4 w-4" />
-                Tenant Information
-              </h2>
-              <Card>
-                <CardContent className="p-6 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="pax"
-                        className="flex items-center gap-1.5"
-                      >
-                        <User className="h-3.5 w-3.5" />
-                        Number of Pax (Bed Space)
-                      </Label>
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          onClick={() => {
-                            if (formData.pax > 1) {
-                              handleRemovePerson(formData.pax - 1);
-                            }
-                          }}
-                          disabled={isLocked || formData.pax <= 1}
-                          className={isLocked ? "opacity-70" : ""}
-                        >
-                          <Minus className="h-4 w-4" />
-                        </Button>
-                        <Input
-                          id="pax"
-                          type="number"
-                          min="1"
-                          max="20"
-                          value={formData.pax}
-                          onChange={(e) => {
-                            const value = e.target.value.replace(
-                              /^0+(?=\d)/,
-                              "",
-                            );
-                            const newPax = parseInt(value) || 1;
-                            handlePaxNumberChange(newPax);
-                          }}
-                          disabled={isLocked}
-                          className={`flex-1 ${isLocked ? "opacity-70" : ""}`}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="icon"
-                          onClick={handleAddPerson}
-                          disabled={isLocked || formData.pax >= 20}
-                          className={isLocked ? "opacity-70" : ""}
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Number of persons sharing this unit
-                      </p>
-                      {formData.pax >= 1 &&
-                        property &&
-                        property.rent_amount && (
-                          <div className="mt-2 p-2 rounded-md bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
-                            <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
-                              Per-Person Rent: ₱
-                              {(
-                                property.rent_amount / formData.pax
-                              ).toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </p>
-                            <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-0.5">
-                              Total ₱{property.rent_amount.toLocaleString()} ÷{" "}
-                              {formData.pax} persons
-                            </p>
-                          </div>
-                        )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="rentStartDate">
-                        {" "}
-                        Rent Agreement Date
-                      </Label>
-                      <Input
-                        id="rentStartDate"
-                        type="date"
-                        value={formData.rentStartDate}
-                        onChange={(e) =>
-                          handleChange("rentStartDate", e.target.value)
-                        }
-                        disabled={isLocked}
+          <section>
+            <h2 className="text-lg font-semibold mb-4 flex items-center">
+              <User className="mr-2 h-4 w-4" />
+              Tenant Information
+            </h2>
+            <Card>
+              <CardContent className="p-6 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="pax" className="flex items-center gap-1.5">
+                      <User className="h-3.5 w-3.5" />
+                      Number of Pax (Bed Space)
+                    </Label>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => {
+                          if (formData.pax > 1) {
+                            handleRemovePerson(formData.pax - 1);
+                          }
+                        }}
+                        disabled={isLocked || formData.pax <= 1}
                         className={isLocked ? "opacity-70" : ""}
-                      />
-                    </div>
-
-                    <div className="space-y-2 md:col-span-2">
-                      <Label
-                        htmlFor="dueDay"
-                        className="text-sm font-medium flex items-center gap-1.5"
                       >
-                        <Calendar className="h-3.5 w-3.5 text-purple-600" />
-                        Payment Due Day of Month
-                      </Label>
-
-                      {/* Quick Selection Buttons */}
-                      <div className="grid grid-cols-3 gap-2 mb-2">
-                        <Button
-                          type="button"
-                          variant={
-                            formData.dueDay === "1" ? "default" : "outline"
-                          }
-                          size="sm"
-                          onClick={() => handleChange("dueDay", "1")}
-                          disabled={isLocked}
-                          className="h-8 text-xs"
-                        >
-                          1st - First Day
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={
-                            formData.dueDay === "15" ? "default" : "outline"
-                          }
-                          size="sm"
-                          onClick={() => handleChange("dueDay", "15")}
-                          disabled={isLocked}
-                          className="h-8 text-xs"
-                        >
-                          15th - Mid Month
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={
-                            formData.dueDay === "last" ? "default" : "outline"
-                          }
-                          size="sm"
-                          onClick={() => handleChange("dueDay", "last")}
-                          disabled={isLocked}
-                          className="h-8 text-xs"
-                        >
-                          Last Day
-                        </Button>
-                      </div>
-
-                      {/* Custom Day Input */}
-                      <div className="flex items-center gap-2">
-                        <Input
-                          id="dueDay"
-                          type="number"
-                          value={
-                            formData.dueDay === "last" ? "" : formData.dueDay
-                          }
-                          onChange={(e) => {
-                            let value = e.target.value.replace(/^0+(?=\d)/, "");
-                            if (
-                              value === "" ||
-                              (parseInt(value) >= 1 && parseInt(value) <= 31)
-                            ) {
-                              handleChange("dueDay", value);
-                            }
-                          }}
-                          placeholder="Or enter custom day (1-31)"
-                          min="1"
-                          max="31"
-                          className="h-9 text-sm flex-1"
-                          disabled={isLocked || formData.dueDay === "last"}
-                        />
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          day of month
-                        </span>
-                      </div>
-
-                      <p className="text-xs text-muted-foreground">
-                        Select a preset or enter a custom day (1-31). Note: Day
-                        31 will adjust to last day for shorter months.
-                      </p>
+                        <Minus className="h-4 w-4" />
+                      </Button>
+                      <Input
+                        id="pax"
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={formData.pax ?? 1}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/^0+(?=\d)/, "");
+                          const newPax = parseInt(value) || 1;
+                          handlePaxNumberChange(newPax);
+                        }}
+                        disabled={isLocked}
+                        className={`flex-1 ${isLocked ? "opacity-70" : ""}`}
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={handleAddPerson}
+                        disabled={isLocked || formData.pax >= 20}
+                        className={isLocked ? "opacity-70" : ""}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      Number of persons sharing this unit
+                    </p>
+                    {formData.pax >= 1 && property && property.rent_amount && (
+                      <div className="mt-2 p-2 rounded-md bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
+                        <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
+                          Per-Person Rent: ₱
+                          {(property.rent_amount / formData.pax).toLocaleString(
+                            undefined,
+                            {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            },
+                          )}
+                        </p>
+                        <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-0.5">
+                          Total ₱{property.rent_amount.toLocaleString()} ÷{" "}
+                          {formData.pax} persons
+                        </p>
+                      </div>
+                    )}
                   </div>
 
-                  {/* Person Details Section - Full Width */}
-                  {formData.pax > 0 && !isLocked && (
-                    <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                          <h3 className="text-base font-semibold">
-                            Individual Person Details
-                          </h3>
-                        </div>
-                      </div>
-                      <p className="text-xs text-muted-foreground mb-4">
-                        Person 1 represents the main tenant. All information is
-                        saved to the database automatically when you save
-                        changes.
-                        <span className="text-red-500"> * Required field</span>
-                      </p>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {Array.from({ length: formData.pax }, (_, index) => {
-                          const person = formData.paxDetails[index] || {
-                            name: "",
-                            email: "",
-                            phone: "",
-                          };
-                          const isEditing = editingPersonIndex === index;
+                  <div className="space-y-2">
+                    <Label htmlFor="rentStartDate"> Rent Agreement Date</Label>
+                    <Input
+                      id="rentStartDate"
+                      type="date"
+                      value={formData.rentStartDate ?? ""}
+                      onChange={(e) =>
+                        handleChange("rentStartDate", e.target.value)
+                      }
+                      disabled={isLocked}
+                      className={isLocked ? "opacity-70" : ""}
+                    />
+                  </div>
 
-                          return (
-                            <Card
-                              key={index}
-                              className={`border-blue-200 dark:border-blue-800 hover:shadow-md transition-shadow ${
-                                index === 0
-                                  ? "ring-2 ring-blue-400 dark:ring-blue-600"
-                                  : ""
-                              }`}
-                            >
-                              <CardContent className="p-4">
-                                <div className="flex items-center justify-between mb-3">
-                                  <div className="flex items-center gap-2">
-                                    <div
-                                      className={`h-9 w-9 rounded-full flex items-center justify-center ${
-                                        index === 0
-                                          ? "bg-blue-600 dark:bg-blue-500"
-                                          : "bg-blue-100 dark:bg-blue-900/30"
-                                      }`}
-                                    >
-                                      <User
-                                        className={`h-4 w-4 ${
-                                          index === 0
-                                            ? "text-white"
-                                            : "text-blue-600 dark:text-blue-400"
-                                        }`}
-                                      />
-                                    </div>
-                                    <div>
-                                      <span className="text-sm font-semibold">
-                                        Person {index + 1}
-                                      </span>
-                                      {index === 0 && (
-                                        <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-medium">
-                                          Main Tenant
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() =>
-                                      setEditingPersonIndex(
-                                        isEditing ? null : index,
-                                      )
-                                    }
-                                    className="h-7 text-xs"
-                                  >
-                                    {isEditing ? "Done" : "Edit"}
-                                  </Button>
-                                </div>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label
+                      htmlFor="dueDay"
+                      className="text-sm font-medium flex items-center gap-1.5"
+                    >
+                      <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                      Payment Due Day of Month
+                    </Label>
 
-                                {isEditing ? (
-                                  <div className="space-y-3">
-                                    <div>
-                                      <Label
-                                        htmlFor={`person-${index}-name`}
-                                        className="text-xs mb-1"
-                                      >
-                                        Name{" "}
-                                        {index === 0 && (
-                                          <span className="text-red-500">
-                                            *
-                                          </span>
-                                        )}
-                                      </Label>
-                                      <Input
-                                        id={`person-${index}-name`}
-                                        value={person.name}
-                                        onChange={(e) =>
-                                          handleUpdatePersonDetail(
-                                            index,
-                                            "name",
-                                            e.target.value,
-                                          )
-                                        }
-                                        placeholder={
-                                          index === 0
-                                            ? "Enter full name (required)"
-                                            : "Enter full name"
-                                        }
-                                        className="h-9"
-                                        required={index === 0}
-                                      />
-                                    </div>
-                                    <div>
-                                      <Label
-                                        htmlFor={`person-${index}-email`}
-                                        className="text-xs flex items-center gap-1 mb-1"
-                                      >
-                                        <Mail className="h-3 w-3" />
-                                        Email
-                                      </Label>
-                                      <Input
-                                        id={`person-${index}-email`}
-                                        type="email"
-                                        value={person.email}
-                                        onChange={(e) =>
-                                          handleUpdatePersonDetail(
-                                            index,
-                                            "email",
-                                            e.target.value,
-                                          )
-                                        }
-                                        placeholder="Enter email address"
-                                        className="h-9"
-                                      />
-                                    </div>
-                                    <div>
-                                      <Label
-                                        htmlFor={`person-${index}-phone`}
-                                        className="text-xs flex items-center gap-1 mb-1"
-                                      >
-                                        <Phone className="h-3 w-3" />
-                                        Phone
-                                      </Label>
-                                      <Input
-                                        id={`person-${index}-phone`}
-                                        type="tel"
-                                        value={person.phone}
-                                        onChange={(e) =>
-                                          handleUpdatePersonDetail(
-                                            index,
-                                            "phone",
-                                            e.target.value,
-                                          )
-                                        }
-                                        placeholder="Enter phone number"
-                                        className="h-9"
-                                      />
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="space-y-2">
-                                    {person.name ? (
-                                      <>
-                                        <div>
-                                          <p className="text-xs text-muted-foreground mb-0.5">
-                                            Name
-                                          </p>
-                                          <p className="text-sm font-medium">
-                                            {person.name}
-                                          </p>
-                                        </div>
-                                        {person.email && (
-                                          <div>
-                                            <p className="text-xs text-muted-foreground mb-0.5">
-                                              Email
-                                            </p>
-                                            <p className="text-xs flex items-center gap-1.5">
-                                              <Mail className="h-3 w-3 text-muted-foreground" />
-                                              {person.email}
-                                            </p>
-                                          </div>
-                                        )}
-                                        {person.phone && (
-                                          <div>
-                                            <p className="text-xs text-muted-foreground mb-0.5">
-                                              Phone
-                                            </p>
-                                            <p className="text-xs flex items-center gap-1.5">
-                                              <Phone className="h-3 w-3 text-muted-foreground" />
-                                              {person.phone}
-                                            </p>
-                                          </div>
-                                        )}
-                                      </>
-                                    ) : (
-                                      <div className="text-center py-4">
-                                        <p className="text-xs text-muted-foreground italic">
-                                          No details added yet
-                                        </p>
-                                        <p className="text-[10px] text-muted-foreground mt-1">
-                                          Click Edit to add information
-                                        </p>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          );
-                        })}
+                    {/* Quick Selection Buttons */}
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      <Button
+                        type="button"
+                        variant={
+                          formData.dueDay === "1" ? "default" : "outline"
+                        }
+                        size="sm"
+                        onClick={() => handleChange("dueDay", "1")}
+                        disabled={isLocked}
+                        className="h-8 text-xs"
+                      >
+                        1st - First Day
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={
+                          formData.dueDay === "15" ? "default" : "outline"
+                        }
+                        size="sm"
+                        onClick={() => handleChange("dueDay", "15")}
+                        disabled={isLocked}
+                        className="h-8 text-xs"
+                      >
+                        15th - Mid Month
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={
+                          formData.dueDay === "last" ||
+                          formData.dueDay === "30th/31st - Last Day"
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        onClick={() => handleChange("dueDay", "last")}
+                        disabled={isLocked}
+                        className="h-8 text-xs"
+                      >
+                        Last Day
+                      </Button>
+                    </div>
+
+                    {/* Custom Day Input */}
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="dueDay"
+                        type="number"
+                        value={
+                          formData.dueDay === "last" ||
+                          formData.dueDay === "30th/31st - Last Day"
+                            ? ""
+                            : formData.dueDay
+                        }
+                        onChange={(e) => {
+                          let value = e.target.value.replace(/^0+(?=\d)/, "");
+                          if (
+                            value === "" ||
+                            (parseInt(value) >= 1 && parseInt(value) <= 31)
+                          ) {
+                            handleChange("dueDay", value);
+                          }
+                        }}
+                        placeholder="Or enter custom day (1-31)"
+                        min="1"
+                        max="31"
+                        className="h-9 text-sm flex-1"
+                        disabled={isLocked || formData.dueDay === "last"}
+                      />
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        day of month
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      Select a preset or enter a custom day (1-31). Note: Day 31
+                      will adjust to last day for shorter months.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Person Details Section - Full Width */}
+                {formData.pax > 0 && !isLocked && (
+                  <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        <h3 className="text-base font-semibold">
+                          Individual Person Details
+                        </h3>
                       </div>
                     </div>
-                  )}
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Person 1 represents the main tenant. All information is
+                      saved to the database automatically when you save changes.
+                      <span className="text-red-500"> * Required field</span>
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {Array.from({ length: formData.pax }, (_, index) => {
+                        const person = formData.paxDetails[index] || {
+                          name: "",
+                          email: "",
+                          phone: "",
+                        };
+                        const isEditing = editingPersonIndex === index;
 
-                  <Alert className="bg-amber-50 text-amber-800 border-amber-200">
-                    <AlertCircle className="h-4 w-4 text-amber-600" />
-                    <AlertDescription>
-                      Changing these details won&apos;t automatically update
-                      existing billing schedules. You&apos;ll need to update
-                      payment statuses individually.
-                    </AlertDescription>
-                  </Alert>
-                </CardContent>
-              </Card>
-            </section>
-          )}
+                        return (
+                          <Card
+                            key={index}
+                            className={`border-blue-200 dark:border-blue-800 hover:shadow-md transition-shadow ${
+                              index === 0
+                                ? "ring-2 ring-blue-400 dark:ring-blue-600"
+                                : ""
+                            }`}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center gap-2">
+                                  <div
+                                    className={`h-9 w-9 rounded-full flex items-center justify-center ${
+                                      index === 0
+                                        ? "bg-blue-600 dark:bg-blue-500"
+                                        : "bg-blue-100 dark:bg-blue-900/30"
+                                    }`}
+                                  >
+                                    <User
+                                      className={`h-4 w-4 ${
+                                        index === 0
+                                          ? "text-white"
+                                          : "text-blue-600 dark:text-blue-400"
+                                      }`}
+                                    />
+                                  </div>
+                                  <div>
+                                    <span className="text-sm font-semibold">
+                                      Person {index + 1}
+                                    </span>
+                                    {index === 0 && (
+                                      <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 font-medium">
+                                        Main Tenant
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() =>
+                                    setEditingPersonIndex(
+                                      isEditing ? null : index,
+                                    )
+                                  }
+                                  className="h-7 text-xs"
+                                >
+                                  {isEditing ? "Done" : "Edit"}
+                                </Button>
+                              </div>
+
+                              {isEditing ? (
+                                <div className="space-y-3">
+                                  <div>
+                                    <Label
+                                      htmlFor={`person-${index}-name`}
+                                      className="text-xs mb-1"
+                                    >
+                                      Name{" "}
+                                      {index === 0 && (
+                                        <span className="text-red-500">*</span>
+                                      )}
+                                    </Label>
+                                    <Input
+                                      id={`person-${index}-name`}
+                                      value={person.name ?? ""}
+                                      onChange={(e) =>
+                                        handleUpdatePersonDetail(
+                                          index,
+                                          "name",
+                                          e.target.value,
+                                        )
+                                      }
+                                      placeholder={
+                                        index === 0
+                                          ? "Enter full name (required)"
+                                          : "Enter full name"
+                                      }
+                                      className="h-9"
+                                      required={index === 0}
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label
+                                      htmlFor={`person-${index}-email`}
+                                      className="text-xs flex items-center gap-1 mb-1"
+                                    >
+                                      <Mail className="h-3 w-3" />
+                                      Email
+                                    </Label>
+                                    <Input
+                                      id={`person-${index}-email`}
+                                      type="email"
+                                      value={person.email ?? ""}
+                                      onChange={(e) =>
+                                        handleUpdatePersonDetail(
+                                          index,
+                                          "email",
+                                          e.target.value,
+                                        )
+                                      }
+                                      placeholder="Enter email address"
+                                      className="h-9"
+                                    />
+                                  </div>
+                                  <div>
+                                    <Label
+                                      htmlFor={`person-${index}-phone`}
+                                      className="text-xs flex items-center gap-1 mb-1"
+                                    >
+                                      <Phone className="h-3 w-3" />
+                                      Phone
+                                    </Label>
+                                    <Input
+                                      id={`person-${index}-phone`}
+                                      type="tel"
+                                      value={person.phone ?? ""}
+                                      onChange={(e) =>
+                                        handleUpdatePersonDetail(
+                                          index,
+                                          "phone",
+                                          e.target.value,
+                                        )
+                                      }
+                                      placeholder="Enter phone number"
+                                      className="h-9"
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="space-y-2">
+                                  {person.name ? (
+                                    <>
+                                      <div>
+                                        <p className="text-xs text-muted-foreground mb-0.5">
+                                          Name
+                                        </p>
+                                        <p className="text-sm font-medium">
+                                          {person.name}
+                                        </p>
+                                      </div>
+                                      {person.email && (
+                                        <div>
+                                          <p className="text-xs text-muted-foreground mb-0.5">
+                                            Email
+                                          </p>
+                                          <p className="text-xs flex items-center gap-1.5">
+                                            <Mail className="h-3 w-3 text-muted-foreground" />
+                                            {person.email}
+                                          </p>
+                                        </div>
+                                      )}
+                                      {person.phone && (
+                                        <div>
+                                          <p className="text-xs text-muted-foreground mb-0.5">
+                                            Phone
+                                          </p>
+                                          <p className="text-xs flex items-center gap-1.5">
+                                            <Phone className="h-3 w-3 text-muted-foreground" />
+                                            {person.phone}
+                                          </p>
+                                        </div>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <div className="text-center py-4">
+                                      <p className="text-xs text-muted-foreground italic">
+                                        No details added yet
+                                      </p>
+                                      <p className="text-[10px] text-muted-foreground mt-1">
+                                        Click Edit to add information
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <Alert className="bg-amber-50 text-amber-800 border-amber-200">
+                  <AlertCircle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription>
+                    Changing these details won&apos;t automatically update
+                    existing billing schedules. You&apos;ll need to update
+                    payment statuses individually.
+                  </AlertDescription>
+                </Alert>
+              </CardContent>
+            </Card>
+          </section>
 
           {formData.occupancyStatus === "vacant" && (
-            <Alert className="bg-blue-50 text-blue-800 border-blue-200">
-              <User className="h-4 w-4 text-blue-600" />
+            <Alert className="bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-800">
+              <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               <AlertDescription>
-                This property is currently vacant. Some editing options are
-                limited until a tenant is assigned.
+                This property is currently vacant. Change the occupancy status
+                to "Occupied" above to add tenant information and person
+                details.
               </AlertDescription>
             </Alert>
           )}
