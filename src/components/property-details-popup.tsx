@@ -1994,24 +1994,26 @@ export function PropertyDetailsPopup({
               <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />
               Delete Property Permanently
             </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2 text-xs sm:text-sm">
-              <p>
-                Are you sure you want to delete{" "}
-                <strong>{property.unit_name}</strong>? This action cannot be
-                undone and will permanently remove:
-              </p>
-              <ul className="list-disc pl-6 space-y-1">
-                <li>The property record</li>
-                {property.occupancy_status === "occupied" && activeTenant && (
-                  <>
-                    <li>
-                      Tenant information for{" "}
-                      <strong>{activeTenant.tenant_name}</strong>
-                    </li>
-                    <li>All billing and payment records</li>
-                  </>
-                )}
-              </ul>
+            <AlertDialogDescription className="space-y-2 text-xs sm:text-sm" asChild>
+              <div>
+                <div>
+                  Are you sure you want to delete{" "}
+                  <strong>{property.unit_name}</strong>? This action cannot be
+                  undone and will permanently remove:
+                </div>
+                <ul className="list-disc pl-6 space-y-1">
+                  <li>The property record</li>
+                  {property.occupancy_status === "occupied" && activeTenant && (
+                    <>
+                      <li>
+                        Tenant information for{" "}
+                        <strong>{activeTenant.tenant_name}</strong>
+                      </li>
+                      <li>All billing and payment records</li>
+                    </>
+                  )}
+                </ul>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-0">
