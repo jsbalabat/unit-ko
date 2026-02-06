@@ -224,6 +224,17 @@ export function PropertyDetailsPopup({
     fetchPropertyDetails();
   }, [fetchPropertyDetails]);
 
+  // Re-fetch data when edit popup closes
+  useEffect(() => {
+    if (!isEditPopupOpen && !isEditBillingPopupOpen && isOpen) {
+      // Small delay to ensure database has been updated
+      const timer = setTimeout(() => {
+        fetchPropertyDetails();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isEditPopupOpen, isEditBillingPopupOpen, isOpen, fetchPropertyDetails]);
+
   // Enhanced status styling with improved colors and design
   const getStatusColorClass = (status: string): string => {
     const lowerStatus = status.toLowerCase();
