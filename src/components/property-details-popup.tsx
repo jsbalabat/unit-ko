@@ -92,12 +92,19 @@ interface ExpenseItem {
   amount: number;
 }
 
+interface PersonDetail {
+  name: string;
+  email: string;
+  phone: string;
+}
+
 interface Tenant {
   id: string;
   property_id: string;
   tenant_name: string;
   contact_number: string;
   pax?: number;
+  pax_details?: PersonDetail[];
   contract_months: number;
   rent_start_date: string;
   due_day: string;
@@ -866,84 +873,190 @@ export function PropertyDetailsPopup({
                         <User className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
                         Tenant Information
                       </h3>
-                      <div className="space-y-2 md:space-y-3 text-sm">
-                        <div className="grid grid-cols-2 items-center">
-                          <span className="text-muted-foreground text-xs md:text-sm">
-                            Name
-                          </span>
-                          <span className="font-medium text-xs md:text-sm">
-                            {activeTenant.tenant_name}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 items-center">
-                          <span className="text-muted-foreground text-xs md:text-sm">
-                            Contact Number
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <Phone className="h-3 w-3 text-muted-foreground" />
+                      <div className="space-y-4">
+                        {/* Contract Details */}
+                        <div className="space-y-2 md:space-y-3 text-sm">
+                          <div className="grid grid-cols-2 items-center">
+                            <span className="text-muted-foreground text-xs md:text-sm">
+                              Number of Occupants
+                            </span>
                             <span className="font-medium text-xs md:text-sm">
-                              {activeTenant.contact_number}
+                              {activeTenant.pax || 1}{" "}
+                              {(activeTenant.pax || 1) === 1
+                                ? "person"
+                                : "people"}
                             </span>
                           </div>
+                          <div className="grid grid-cols-2 items-center">
+                            <span className="text-muted-foreground text-xs md:text-sm">
+                              Contract Duration
+                            </span>
+                            <span className="font-medium text-xs md:text-sm">
+                              {activeTenant.contract_months} months
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 items-center">
+                            <span className="text-muted-foreground text-xs md:text-sm">
+                              Rent Agreement Date
+                            </span>
+                            <span className="font-medium text-xs md:text-sm">
+                              {formatDate(activeTenant.rent_start_date)}
+                            </span>
+                          </div>
+                          <div className="grid grid-cols-2 items-center">
+                            <span className="text-muted-foreground text-xs md:text-sm">
+                              Due Day
+                            </span>
+                            <span className="font-medium text-xs md:text-sm">
+                              {activeTenant.due_day === "last"
+                                ? "Last Day"
+                                : `Day ${activeTenant.due_day}`}
+                            </span>
+                          </div>
+                          {((activeTenant.advance_payment !== undefined &&
+                            activeTenant.advance_payment > 0) ||
+                            (activeTenant.security_deposit !== undefined &&
+                              activeTenant.security_deposit > 0)) && (
+                            <>
+                              <div className="col-span-2 border-t my-2"></div>
+                              {activeTenant.advance_payment !== undefined &&
+                                activeTenant.advance_payment > 0 && (
+                                  <div className="grid grid-cols-2 items-center">
+                                    <span className="text-muted-foreground text-xs md:text-sm">
+                                      Advance Payment
+                                    </span>
+                                    <span className="font-medium text-green-600 dark:text-green-400 text-xs md:text-sm">
+                                      {formatCurrency(
+                                        activeTenant.advance_payment,
+                                      )}
+                                    </span>
+                                  </div>
+                                )}
+                              {activeTenant.security_deposit !== undefined &&
+                                activeTenant.security_deposit > 0 && (
+                                  <div className="grid grid-cols-2 items-center">
+                                    <span className="text-muted-foreground text-xs md:text-sm">
+                                      Security Deposit
+                                    </span>
+                                    <span className="font-medium text-green-600 dark:text-green-400 text-xs md:text-sm">
+                                      {formatCurrency(
+                                        activeTenant.security_deposit,
+                                      )}
+                                    </span>
+                                  </div>
+                                )}
+                            </>
+                          )}
                         </div>
-                        <div className="grid grid-cols-2 items-center">
-                          <span className="text-muted-foreground text-xs md:text-sm">
-                            Contract Duration
-                          </span>
-                          <span className="font-medium text-xs md:text-sm">
-                            {activeTenant.contract_months} months
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 items-center">
-                          <span className="text-muted-foreground text-xs md:text-sm">
-                            Rent Agreement Date
-                          </span>
-                          <span className="font-medium text-xs md:text-sm">
-                            {formatDate(activeTenant.rent_start_date)}
-                          </span>
-                        </div>
-                        <div className="grid grid-cols-2 items-center">
-                          <span className="text-muted-foreground text-xs md:text-sm">
-                            Due Day
-                          </span>
-                          <span className="font-medium text-xs md:text-sm">
-                            {activeTenant.due_day}
-                          </span>
-                        </div>
-                        {((activeTenant.advance_payment !== undefined &&
-                          activeTenant.advance_payment > 0) ||
-                          (activeTenant.security_deposit !== undefined &&
-                            activeTenant.security_deposit > 0)) && (
-                          <>
-                            <div className="col-span-2 border-t my-2"></div>
-                            {activeTenant.advance_payment !== undefined &&
-                              activeTenant.advance_payment > 0 && (
-                                <div className="grid grid-cols-2 items-center">
-                                  <span className="text-muted-foreground text-xs md:text-sm">
-                                    Advance Payment
-                                  </span>
-                                  <span className="font-medium text-green-600 dark:text-green-400 text-xs md:text-sm">
-                                    {formatCurrency(
-                                      activeTenant.advance_payment,
-                                    )}
-                                  </span>
-                                </div>
-                              )}
-                            {activeTenant.security_deposit !== undefined &&
-                              activeTenant.security_deposit > 0 && (
-                                <div className="grid grid-cols-2 items-center">
-                                  <span className="text-muted-foreground text-xs md:text-sm">
-                                    Security Deposit
-                                  </span>
-                                  <span className="font-medium text-green-600 dark:text-green-400 text-xs md:text-sm">
-                                    {formatCurrency(
-                                      activeTenant.security_deposit,
-                                    )}
-                                  </span>
-                                </div>
-                              )}
-                          </>
+
+                        {/* Per-Person Payment Breakdown */}
+                        {activeTenant.pax && activeTenant.pax > 1 && (
+                          <div className="border-t pt-4">
+                            <h4 className="text-sm font-semibold mb-3 flex items-center text-blue-600 dark:text-blue-400">
+                              Per-Person Rent Breakdown
+                            </h4>
+                            <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg">
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="text-xs text-muted-foreground">
+                                  Monthly Rent per Person
+                                </span>
+                                <span className="font-semibold text-blue-700 dark:text-blue-300">
+                                  {formatCurrency(
+                                    property.rent_amount / activeTenant.pax,
+                                  )}
+                                </span>
+                              </div>
+                              <p className="text-[10px] text-blue-700 dark:text-blue-300">
+                                Total {formatCurrency(property.rent_amount)} ÷{" "}
+                                {activeTenant.pax} persons
+                              </p>
+                            </div>
+                          </div>
                         )}
+
+                        {/* Occupant Details */}
+                        {activeTenant.pax_details &&
+                          activeTenant.pax_details.length > 0 && (
+                            <div className="border-t pt-4">
+                              <h4 className="text-sm font-semibold mb-3">
+                                Occupant Details (
+                                {activeTenant.pax_details.length})
+                              </h4>
+                              <div className="space-y-3">
+                                {activeTenant.pax_details.map(
+                                  (person, index) => (
+                                    <div
+                                      key={index}
+                                      className={`p-3 rounded-lg border ${
+                                        index === 0
+                                          ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800"
+                                          : "bg-muted/30"
+                                      }`}
+                                    >
+                                      <div className="flex items-start gap-3">
+                                        <div
+                                          className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                            index === 0
+                                              ? "bg-blue-600 text-white"
+                                              : "bg-muted text-muted-foreground"
+                                          }`}
+                                        >
+                                          <User className="h-5 w-5" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2 mb-1">
+                                            <p className="font-medium text-sm">
+                                              {person.name || "Not provided"}
+                                            </p>
+                                            {index === 0 && (
+                                              <Badge
+                                                variant="secondary"
+                                                className="text-[10px] px-1.5 py-0"
+                                              >
+                                                Main Tenant
+                                              </Badge>
+                                            )}
+                                          </div>
+                                          {person.email && (
+                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                                              <svg
+                                                xmlns="http://www.w3.org/2000/svg"
+                                                className="h-3 w-3"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                              >
+                                                <rect
+                                                  width="20"
+                                                  height="16"
+                                                  x="2"
+                                                  y="4"
+                                                  rx="2"
+                                                />
+                                                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                                              </svg>
+                                              <span className="truncate">
+                                                {person.email}
+                                              </span>
+                                            </div>
+                                          )}
+                                          {person.phone && (
+                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                              <Phone className="h-3 w-3" />
+                                              <span>{person.phone}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ),
+                                )}
+                              </div>
+                            </div>
+                          )}
                       </div>
                     </CardContent>
                   </Card>
