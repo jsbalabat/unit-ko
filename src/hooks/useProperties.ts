@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
 
+interface PersonDetail {
+  name: string
+  email: string
+  phone: string
+}
+
 interface PropertyWithTenant {
   id: string
   unit_name: string
@@ -13,6 +19,8 @@ interface PropertyWithTenant {
     id: string
     tenant_name: string
     contact_number: string
+    pax?: number
+    pax_details?: PersonDetail[]
     is_active: boolean
   }>
 }
@@ -70,6 +78,8 @@ export function useProperties() {
             id,
             tenant_name,
             contact_number,
+            pax,
+            pax_details,
             is_active
           )
         `)
