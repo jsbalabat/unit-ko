@@ -1318,19 +1318,33 @@ export function EditPropertyPopup({
                                     )}
                                   </div>
                                 </div>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() =>
-                                    setEditingPersonIndex(
-                                      isEditing ? null : index,
-                                    )
-                                  }
-                                  className="h-7 text-xs"
-                                >
-                                  {isEditing ? "Done" : "Edit"}
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() =>
+                                      setEditingPersonIndex(
+                                        isEditing ? null : index,
+                                      )
+                                    }
+                                    className="h-7 text-xs"
+                                  >
+                                    {isEditing ? "Done" : "Edit"}
+                                  </Button>
+                                  {index > 0 && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleRemovePerson(index)}
+                                      className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/30"
+                                      title="Remove this person"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
                               </div>
 
                               {isEditing ? (
