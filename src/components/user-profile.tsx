@@ -13,7 +13,6 @@ import {
   User,
   Mail,
   Calendar,
-  Building,
   Loader2,
   AlertCircle,
   Edit2,
@@ -41,23 +40,12 @@ interface UserProfile {
   payment_other_details?: string;
 }
 
-interface PropertyStats {
-  totalProperties: number;
-  occupiedProperties: number;
-  vacantProperties: number;
-}
-
 export function UserProfile() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [propertyStats, setPropertyStats] = useState<PropertyStats>({
-    totalProperties: 0,
-    occupiedProperties: 0,
-    vacantProperties: 0,
-  });
   const [formData, setFormData] = useState({
     full_name: "",
     phone: "",
@@ -71,7 +59,6 @@ export function UserProfile() {
 
   useEffect(() => {
     fetchUserProfile();
-    fetchPropertyStats();
   }, []);
 
   const fetchUserProfile = async () => {
@@ -113,7 +100,7 @@ export function UserProfile() {
           if (insertError) {
             console.error("Error creating profile:", insertError);
             throw new Error(
-              "Failed to create user profile. Please contact support."
+              "Failed to create user profile. Please contact support.",
             );
           }
 
@@ -182,28 +169,6 @@ export function UserProfile() {
       setError(err instanceof Error ? err.message : "Failed to load profile");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchPropertyStats = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("properties")
-        .select("occupancy_status");
-
-      if (error) throw error;
-
-      const stats = {
-        totalProperties: data?.length || 0,
-        occupiedProperties:
-          data?.filter((p) => p.occupancy_status === "occupied").length || 0,
-        vacantProperties:
-          data?.filter((p) => p.occupancy_status === "vacant").length || 0,
-      };
-
-      setPropertyStats(stats);
-    } catch (err) {
-      console.error("Error fetching property stats:", err);
     }
   };
 
@@ -336,48 +301,50 @@ export function UserProfile() {
                 <h1 className="text-2xl font-bold">
                   {userProfile?.full_name || "No name set"}
                 </h1>
-                {!isEditing ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsEditing(true)}
-                    className="gap-2"
-                  >
-                    <Edit2 className="h-4 w-4" />
-                    Edit Profile
-                  </Button>
-                ) : (
-                  <div className="flex gap-2">
+                <div className="flex gap-2 sm:min-w-[180px] justify-end">
+                  {!isEditing ? (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={handleCancel}
-                      disabled={saving}
-                      className="gap-2"
+                      onClick={() => setIsEditing(true)}
+                      className="gap-2 w-full sm:w-auto"
                     >
-                      <X className="h-4 w-4" />
-                      Cancel
+                      <Edit2 className="h-4 w-4" />
+                      Edit Profile
                     </Button>
-                    <Button
-                      size="sm"
-                      onClick={handleSave}
-                      disabled={saving}
-                      className="gap-2"
-                    >
-                      {saving ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="h-4 w-4" />
-                          Save
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                )}
+                  ) : (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleCancel}
+                        disabled={saving}
+                        className="gap-2"
+                      >
+                        <X className="h-4 w-4" />
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSave}
+                        disabled={saving}
+                        className="gap-2"
+                      >
+                        {saving ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Saving...
+                          </>
+                        ) : (
+                          <>
+                            <Save className="h-4 w-4" />
+                            Save
+                          </>
+                        )}
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
               <div className="flex flex-col sm:flex-row items-center sm:items-start gap-3 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1.5">
@@ -470,6 +437,148 @@ export function UserProfile() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Payment Channels (Landlord Only) */}
+      {userProfile?.role === "landlord" && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CreditCard className="h-5 w-5" />
+              Payment Channels
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Quick access to payment platforms and methods
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* GCash */}
+              <div className="border rounded-lg p-4 hover:border-primary transition-colors cursor-pointer hover:shadow-md">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-10 w-10 rounded-lg bg-blue-100 dark:bg-blue-950 flex items-center justify-center">
+                      <Wallet className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-sm">GCash</h3>
+                      <p className="text-xs text-muted-foreground">E-Wallet</p>
+                    </div>
+                  </div>
+                  {userProfile?.payment_gcash_number && (
+                    <div
+                      className="h-2 w-2 rounded-full bg-green-500"
+                      title="Active"
+                    />
+                  )}
+                </div>
+                {userProfile?.payment_gcash_number ? (
+                  <p className="text-xs font-mono">
+                    {userProfile.payment_gcash_number}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Not configured
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full mt-3 text-xs"
+                  onClick={() => window.open("https://www.gcash.com", "_blank")}
+                >
+                  Open GCash
+                </Button>
+              </div>
+
+              {/* PayMaya */}
+              <div className="border rounded-lg p-4 hover:border-primary transition-colors cursor-pointer hover:shadow-md">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-10 w-10 rounded-lg bg-green-100 dark:bg-green-950 flex items-center justify-center">
+                      <Wallet className="h-5 w-5 text-green-600 dark:text-green-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-sm">PayMaya</h3>
+                      <p className="text-xs text-muted-foreground">E-Wallet</p>
+                    </div>
+                  </div>
+                  {userProfile?.payment_paymaya_number && (
+                    <div
+                      className="h-2 w-2 rounded-full bg-green-500"
+                      title="Active"
+                    />
+                  )}
+                </div>
+                {userProfile?.payment_paymaya_number ? (
+                  <p className="text-xs font-mono">
+                    {userProfile.payment_paymaya_number}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Not configured
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full mt-3 text-xs"
+                  onClick={() =>
+                    window.open("https://www.paymaya.com", "_blank")
+                  }
+                >
+                  Open PayMaya
+                </Button>
+              </div>
+
+              {/* Bank Transfer */}
+              <div className="border rounded-lg p-4 hover:border-primary transition-colors cursor-pointer hover:shadow-md">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-10 w-10 rounded-lg bg-purple-100 dark:bg-purple-950 flex items-center justify-center">
+                      <CreditCard className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-sm">Bank Transfer</h3>
+                      <p className="text-xs text-muted-foreground">
+                        Direct Deposit
+                      </p>
+                    </div>
+                  </div>
+                  {userProfile?.payment_bank_name && (
+                    <div
+                      className="h-2 w-2 rounded-full bg-green-500"
+                      title="Active"
+                    />
+                  )}
+                </div>
+                {userProfile?.payment_bank_name ? (
+                  <p className="text-xs">{userProfile.payment_bank_name}</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Not configured
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full mt-3 text-xs"
+                  onClick={() => setIsEditing(true)}
+                >
+                  Configure
+                </Button>
+              </div>
+            </div>
+
+            <Alert className="mt-4 bg-muted/50">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-xs">
+                Configure your payment details below to activate these payment
+                channels for your tenants.
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Payment Details (Landlord Only) */}
       {userProfile?.role === "landlord" && (
@@ -653,40 +762,6 @@ export function UserProfile() {
           </CardContent>
         </Card>
       )}
-
-      {/* Property Statistics */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Building className="h-5 w-5" />
-            Property Portfolio
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="text-center p-4 rounded-lg bg-muted/50">
-              <div className="text-3xl font-bold text-primary">
-                {propertyStats.totalProperties}
-              </div>
-              <div className="text-sm text-muted-foreground mt-1">
-                Total Properties
-              </div>
-            </div>
-            <div className="text-center p-4 rounded-lg bg-green-50 border border-green-200">
-              <div className="text-3xl font-bold text-green-600">
-                {propertyStats.occupiedProperties}
-              </div>
-              <div className="text-sm text-green-700 mt-1">Occupied</div>
-            </div>
-            <div className="text-center p-4 rounded-lg bg-amber-50 border border-amber-200">
-              <div className="text-3xl font-bold text-amber-600">
-                {propertyStats.vacantProperties}
-              </div>
-              <div className="text-sm text-amber-700 mt-1">Vacant</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

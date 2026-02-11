@@ -272,14 +272,7 @@ export function SiteHeader() {
                 className="cursor-pointer"
               >
                 <FileText className="mr-2 h-4 w-4" />
-                <span>Monthly Statement</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => window.open("https://www.gcash.com", "_blank")}
-                className="cursor-pointer"
-              >
-                <CreditCard className="mr-2 h-4 w-4" />
-                <span>Payment Channels</span>
+                <span>My Plan</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -346,15 +339,7 @@ export function SiteHeader() {
                 className="flex items-center gap-2 cursor-pointer"
               >
                 <FileText className="h-4 w-4" />
-                <span className="text-sm">Monthly Statement</span>
-              </DropdownMenuItem>
-
-              <DropdownMenuItem
-                onClick={() => window.open("https://www.gcash.com", "_blank")}
-                className="flex items-center gap-2 cursor-pointer"
-              >
-                <CreditCard className="h-4 w-4" />
-                <span className="text-sm">Payment Channels</span>
+                <span className="text-sm">My Plan</span>
               </DropdownMenuItem>
 
               <DropdownMenuSeparator />
