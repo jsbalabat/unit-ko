@@ -114,6 +114,271 @@ interface ValidationErrors {
   [key: string]: string | undefined; // Allow dynamic keys for tenant validation
 }
 
+// Property Preview Component
+interface PropertyPreviewProps {
+  formData: PropertyFormData;
+  currentStep: number;
+}
+
+function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
+  const paxCount =
+    formData.maxTenants > 1 ? formData.maxTenants : formData.tenantName ? 1 : 0;
+  const perPersonRent =
+    formData.rentAmount && paxCount > 1
+      ? Math.floor(formData.rentAmount / paxCount)
+      : formData.rentAmount;
+
+  return (
+    <div className="space-y-4">
+      <div className="sticky top-0 bg-muted/20 pb-2 border-b">
+        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+          Live Preview
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          See how your property will look
+        </p>
+      </div>
+
+      {/* Property Card Preview */}
+      <Card className="shadow-md">
+        <CardContent className="p-4 space-y-3">
+          <div className="flex items-start justify-between">
+            <div className="flex-1">
+              <h4 className="font-semibold text-base">
+                {formData.unitName || "Unit Name"}
+              </h4>
+              <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
+                <Building className="h-3 w-3" />
+                {formData.propertyType || "Property Type"}
+              </p>
+            </div>
+            <div
+              className={cn(
+                "px-2 py-1 rounded text-xs font-medium",
+                formData.occupancyStatus === "occupied"
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
+                  : "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
+              )}
+            >
+              {formData.occupancyStatus === "occupied" ? "Occupied" : "Vacant"}
+            </div>
+          </div>
+
+          {formData.propertyLocation && (
+            <div className="flex items-start gap-2 text-xs text-muted-foreground">
+              <MapPin className="h-3 w-3 mt-0.5 flex-shrink-0" />
+              <span className="line-clamp-2">{formData.propertyLocation}</span>
+            </div>
+          )}
+
+          <Separator />
+
+          {/* Rent Information */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                Monthly Rent
+              </span>
+              <div className="text-right">
+                <div className="text-sm font-semibold text-green-600">
+                  ₱{formData.rentAmount.toLocaleString() || "0"}/month
+                </div>
+                {paxCount > 1 && (
+                  <div className="text-xs text-muted-foreground">
+                    ₱{perPersonRent.toLocaleString()} per person
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Occupancy Information */}
+          {formData.occupancyStatus === "occupied" && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">
+                    Occupancy
+                  </span>
+                  <span className="text-xs font-medium">
+                    {paxCount > 0
+                      ? `${paxCount} ${paxCount === 1 ? "person" : "people"}`
+                      : "No tenants"}
+                  </span>
+                </div>
+
+                {formData.maxTenants === 1 ? (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 text-xs">
+                      <User className="h-3 w-3 text-blue-600" />
+                      <span className="font-medium">Main Tenant</span>
+                    </div>
+                    {formData.tenantName && (
+                      <p className="text-xs ml-5">{formData.tenantName}</p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {formData.tenants.map(
+                      (tenant, idx) =>
+                        tenant.tenantName && (
+                          <div
+                            key={idx}
+                            className="flex items-center gap-2 text-xs"
+                          >
+                            <User
+                              className={cn(
+                                "h-3 w-3",
+                                idx === 0
+                                  ? "text-blue-600"
+                                  : "text-muted-foreground",
+                              )}
+                            />
+                            <span className={idx === 0 ? "font-medium" : ""}>
+                              {idx === 0 ? "Main: " : `Person ${idx + 1}: `}
+                              {tenant.tenantName}
+                            </span>
+                          </div>
+                        ),
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Billing Details Preview */}
+      {currentStep >= 2 && formData.occupancyStatus === "occupied" && (
+        <Card className="shadow-sm">
+          <CardContent className="p-4 space-y-3">
+            <h4 className="text-sm font-semibold flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-purple-600" />
+              Billing Setup
+            </h4>
+
+            <div className="space-y-2 text-xs">
+              {formData.rentStartDate && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Start Date</span>
+                  <span className="font-medium">
+                    {new Date(formData.rentStartDate).toLocaleDateString(
+                      "en-US",
+                      {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      },
+                    )}
+                  </span>
+                </div>
+              )}
+
+              {formData.contractMonths > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Duration</span>
+                  <span className="font-medium">
+                    {formData.contractMonths} months
+                  </span>
+                </div>
+              )}
+
+              {formData.dueDay && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Due Day</span>
+                  <span className="font-medium">
+                    {formData.dueDay === "last"
+                      ? "Last day of month"
+                      : `Day ${formData.dueDay} of month`}
+                  </span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Accounting Preview */}
+      {currentStep >= 3 && formData.occupancyStatus === "occupied" && (
+        <Card className="shadow-sm">
+          <CardContent className="p-4 space-y-3">
+            <h4 className="text-sm font-semibold flex items-center gap-2">
+              <DollarSign className="h-4 w-4 text-orange-600" />
+              Accounting
+            </h4>
+
+            <div className="space-y-2 text-xs">
+              {formData.advancePayment > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Advance Payment</span>
+                  <span className="font-medium text-green-600">
+                    ₱{formData.advancePayment.toLocaleString()}
+                  </span>
+                </div>
+              )}
+
+              {formData.securityDeposit > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">
+                    Security Deposit
+                  </span>
+                  <span className="font-medium text-green-600">
+                    ₱{formData.securityDeposit.toLocaleString()}
+                  </span>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Billing Schedule Preview */}
+      {currentStep === 4 && formData.billingSchedule.length > 0 && (
+        <Card className="shadow-sm">
+          <CardContent className="p-4 space-y-3">
+            <h4 className="text-sm font-semibold flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-green-600" />
+              Billing Schedule
+            </h4>
+
+            <div className="text-xs text-muted-foreground">
+              {formData.billingSchedule.length} billing{" "}
+              {formData.billingSchedule.length === 1 ? "entry" : "entries"}{" "}
+              generated
+            </div>
+
+            <div className="max-h-40 overflow-y-auto space-y-1">
+              {formData.billingSchedule.slice(0, 3).map((bill, idx) => (
+                <div
+                  key={idx}
+                  className="flex justify-between items-center text-xs py-1 px-2 bg-muted/30 rounded"
+                >
+                  <span>
+                    {new Date(bill.dueDate).toLocaleDateString("en-US", {
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </span>
+                  <span className="font-medium">
+                    ₱{bill.grossDue.toLocaleString()}
+                  </span>
+                </div>
+              ))}
+              {formData.billingSchedule.length > 3 && (
+                <div className="text-center text-xs text-muted-foreground py-1">
+                  +{formData.billingSchedule.length - 3} more...
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 interface MultiStepPopupProps {
   isOpen: boolean;
   onClose: () => void;
@@ -702,7 +967,7 @@ export function MultiStepPopup({
   return (
     <>
       <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="w-[95vw] sm:w-[90vw] lg:max-w-5xl !max-w-[1200px] h-[90vh] max-h-[900px] overflow-hidden flex flex-col bg-background p-0 [&>button]:hidden">
+        <DialogContent className="w-[95vw] sm:w-[90vw] lg:max-w-7xl !max-w-[1600px] h-[90vh] max-h-[900px] overflow-hidden flex flex-col bg-background p-0 [&>button]:hidden">
           {/* Enhanced Header - More compact and visually distinct */}
           <div
             className={`w-full ${stepInfo.bgColor} px-4 py-3 md:px-6 md:py-4`}
@@ -760,1139 +1025,1171 @@ export function MultiStepPopup({
             </DialogHeader>
           </div>
 
-          {/* Content Area with better scroll handling */}
-          <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4">
-            {/* Validation Errors Alert - More compact */}
-            {Object.keys(errors).length > 0 && (
-              <Alert className="mb-4 border-destructive bg-destructive/5">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <p className="font-medium">
-                    Please correct the following errors:
-                  </p>
-                  <ul className="mt-1 list-disc list-inside text-xs">
-                    {Object.entries(errors).map(([field, error]) => (
-                      <li key={field}>{error}</li>
-                    ))}
-                  </ul>
-                </AlertDescription>
-              </Alert>
-            )}
+          {/* Split-pane Content Area */}
+          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+            {/* Left Side - Form Fields */}
+            <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 lg:border-r">
+              {/* Validation Errors Alert - More compact */}
+              {Object.keys(errors).length > 0 && (
+                <Alert className="mb-4 border-destructive bg-destructive/5">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <p className="font-medium">
+                      Please correct the following errors:
+                    </p>
+                    <ul className="mt-1 list-disc list-inside text-xs">
+                      {Object.entries(errors).map(([field, error]) => (
+                        <li key={field}>{error}</li>
+                      ))}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              )}
 
-            {currentStep === 1 && (
-              <div className="space-y-4">
-                <Card className="shadow-sm border">
-                  <CardContent className="p-3 md:p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="p-1.5 rounded-full bg-blue-100 dark:bg-blue-950/50">
-                        <Home className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <div>
-                        <h3 className="text-base md:text-lg font-semibold text-foreground">
-                          Property Information
-                        </h3>
-                        <p className="text-xs text-muted-foreground">
-                          Basic property details
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label
-                          htmlFor="unitName"
-                          className="text-sm font-medium"
-                        >
-                          Unit Name *
-                        </Label>
-                        <Input
-                          id="unitName"
-                          value={formData.unitName}
-                          onChange={(e) =>
-                            updateFormData("unitName", e.target.value)
-                          }
-                          placeholder="e.g., Unit 101, Office 3B"
-                          className={`h-9 text-sm ${
-                            errors.unitName ? "border-destructive" : ""
-                          }`}
-                        />
-                        {errors.unitName && (
-                          <p className="text-xs text-destructive">
-                            {errors.unitName}
+              {currentStep === 1 && (
+                <div className="space-y-4">
+                  <Card className="shadow-sm border">
+                    <CardContent className="p-3 md:p-5">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="p-1.5 rounded-full bg-blue-100 dark:bg-blue-950/50">
+                          <Home className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        </div>
+                        <div>
+                          <h3 className="text-base md:text-lg font-semibold text-foreground">
+                            Property Information
+                          </h3>
+                          <p className="text-xs text-muted-foreground">
+                            Basic property details
                           </p>
-                        )}
+                        </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label
-                          htmlFor="propertyType"
-                          className="text-sm font-medium"
-                        >
-                          Property Type *
-                        </Label>
-                        <Select
-                          value={formData.propertyType}
-                          onValueChange={(value) =>
-                            updateFormData("propertyType", value)
-                          }
-                        >
-                          <SelectTrigger
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label
+                            htmlFor="unitName"
+                            className="text-sm font-medium"
+                          >
+                            Unit Name *
+                          </Label>
+                          <Input
+                            id="unitName"
+                            value={formData.unitName}
+                            onChange={(e) =>
+                              updateFormData("unitName", e.target.value)
+                            }
+                            placeholder="e.g., Unit 101, Office 3B"
                             className={`h-9 text-sm ${
-                              errors.propertyType ? "border-destructive" : ""
+                              errors.unitName ? "border-destructive" : ""
                             }`}
-                          >
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              <SelectItem value="Residential - Apartment">
-                                Residential - Apartment
-                              </SelectItem>
-                              <SelectItem value="Residential - House">
-                                Residential - House
-                              </SelectItem>
-                              <SelectItem value="Commercial - Office">
-                                Commercial - Office
-                              </SelectItem>
-                              <SelectItem value="Commercial - Retail">
-                                Commercial - Retail
-                              </SelectItem>
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                        {errors.propertyType && (
-                          <p className="text-xs text-destructive">
-                            {errors.propertyType}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-4">
-                      <Label className="text-sm font-medium mb-2 block">
-                        Property Location *
-                      </Label>
-                      <div className="relative">
-                        <MapPin className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <textarea
-                          value={formData.propertyLocation}
-                          onChange={(e) =>
-                            updateFormData("propertyLocation", e.target.value)
-                          }
-                          placeholder="Enter complete property address..."
-                          className={`w-full h-20 pl-9 pr-3 py-2 text-sm border rounded-md focus:ring-1 resize-none ${
-                            errors.propertyLocation
-                              ? "border-destructive"
-                              : "border-input"
-                          }`}
-                        />
-                      </div>
-                      {errors.propertyLocation && (
-                        <p className="text-xs text-destructive mt-1">
-                          {errors.propertyLocation}
-                        </p>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="shadow-sm border">
-                  <CardContent className="p-3 md:p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="p-1.5 rounded-full bg-green-100 dark:bg-green-950/50">
-                        <User className="h-4 w-4 text-green-600 dark:text-green-400" />
-                      </div>
-                      <div>
-                        <h3 className="text-base md:text-lg font-semibold text-foreground">
-                          Occupancy Details
-                        </h3>
-                        <p className="text-xs text-muted-foreground">
-                          Current status and tenant information
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      {/* Max Tenants / Bed Space Configuration */}
-                      <div className="space-y-2">
-                        <Label
-                          htmlFor="maxTenants"
-                          className="text-sm font-medium flex items-center gap-1.5"
-                        >
-                          Number of Tenants (Pax) *
-                        </Label>
-                        <Input
-                          id="maxTenants"
-                          type="number"
-                          min="1"
-                          max="20"
-                          value={formData.maxTenants}
-                          onChange={(e) =>
-                            handleMaxTenantsChange(
-                              parseInt(e.target.value) || 1,
-                            )
-                          }
-                          placeholder="1"
-                          className={`h-9 text-sm ${
-                            errors.maxTenants ? "border-destructive" : ""
-                          }`}
-                        />
-                        {errors.maxTenants && (
-                          <p className="text-xs text-destructive">
-                            {errors.maxTenants}
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground">
-                          Number of tenant slots/bed spaces in this property
-                          (1-20)
-                        </p>
-                      </div>
-
-                      <div>
-                        <Label className="text-sm font-medium">Status</Label>
-                        <div className="grid grid-cols-2 gap-2 mt-1">
-                          <Button
-                            type="button"
-                            variant={
-                              formData.occupancyStatus === "occupied"
-                                ? "default"
-                                : "outline"
-                            }
-                            size="sm"
-                            className="h-auto py-2 flex items-center gap-2 text-xs"
-                            onClick={() =>
-                              updateFormData("occupancyStatus", "occupied")
-                            }
-                          >
-                            <User className="h-3.5 w-3.5" />
-                            <span>Occupied</span>
-                          </Button>
-                          <Button
-                            type="button"
-                            variant={
-                              formData.occupancyStatus === "vacant"
-                                ? "default"
-                                : "outline"
-                            }
-                            size="sm"
-                            className="h-auto py-2 flex items-center gap-2 text-xs"
-                            onClick={() =>
-                              updateFormData("occupancyStatus", "vacant")
-                            }
-                          >
-                            <Building className="h-3.5 w-3.5" />
-                            <span>Available</span>
-                          </Button>
-                        </div>
-                      </div>
-
-                      {formData.occupancyStatus === "occupied" && (
-                        <div className="space-y-4 pt-3 border-t border-border">
-                          {/* Display mode indicator */}
-                          {formData.maxTenants > 1 && (
-                            <Alert className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
-                              <AlertCircle className="h-4 w-4 text-blue-600" />
-                              <AlertDescription className="text-xs text-blue-800 dark:text-blue-300">
-                                <strong>Bed Space Mode:</strong> You can add up
-                                to {formData.maxTenants} tenants. Fill in
-                                details for occupied slots (optional for vacant
-                                slots).
-                              </AlertDescription>
-                            </Alert>
-                          )}
-
-                          {/* Dynamic Tenant Fields */}
-                          {formData.maxTenants === 1 ? (
-                            // Single Tenant Mode (Legacy)
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div className="space-y-2">
-                                <Label
-                                  htmlFor="tenantName"
-                                  className="text-sm font-medium"
-                                >
-                                  Tenant Name *
-                                </Label>
-                                <Input
-                                  id="tenantName"
-                                  value={formData.tenantName}
-                                  onChange={(e) =>
-                                    updateFormData("tenantName", e.target.value)
-                                  }
-                                  placeholder="Tenant's full name"
-                                  className={`h-9 text-sm ${
-                                    errors.tenantName
-                                      ? "border-destructive"
-                                      : ""
-                                  }`}
-                                />
-                                {errors.tenantName && (
-                                  <p className="text-xs text-destructive">
-                                    {errors.tenantName}
-                                  </p>
-                                )}
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label
-                                  htmlFor="tenantEmail"
-                                  className="text-sm font-medium"
-                                >
-                                  Email Address *
-                                </Label>
-                                <Input
-                                  id="tenantEmail"
-                                  type="email"
-                                  value={formData.tenantEmail}
-                                  onChange={(e) =>
-                                    updateFormData(
-                                      "tenantEmail",
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="tenant@example.com"
-                                  className={`h-9 text-sm ${
-                                    errors.tenantEmail
-                                      ? "border-destructive"
-                                      : ""
-                                  }`}
-                                />
-                                {errors.tenantEmail && (
-                                  <p className="text-xs text-destructive">
-                                    {errors.tenantEmail}
-                                  </p>
-                                )}
-                              </div>
-
-                              <div className="space-y-2">
-                                <Label
-                                  htmlFor="contactNumber"
-                                  className="text-sm font-medium"
-                                >
-                                  Contact Number *
-                                </Label>
-                                <Input
-                                  id="contactNumber"
-                                  value={formData.contactNumber}
-                                  onChange={(e) =>
-                                    updateFormData(
-                                      "contactNumber",
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="e.g., 09123456789"
-                                  className={`h-9 text-sm ${
-                                    errors.contactNumber
-                                      ? "border-destructive"
-                                      : ""
-                                  }`}
-                                />
-                                {errors.contactNumber && (
-                                  <p className="text-xs text-destructive">
-                                    {errors.contactNumber}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            // Multiple Tenants Mode (Bed Space)
-                            <div className="space-y-4">
-                              {formData.tenants.map((tenant, index) => (
-                                <Card
-                                  key={index}
-                                  className="border-l-4 border-l-primary"
-                                >
-                                  <CardContent className="p-4">
-                                    <div className="flex items-center justify-between mb-3">
-                                      <h4 className="text-sm font-semibold flex items-center gap-2">
-                                        <User className="h-4 w-4 text-primary" />
-                                        Tenant Slot #{index + 1}
-                                      </h4>
-                                      <span className="text-xs text-muted-foreground">
-                                        {tenant.tenantName
-                                          ? "Occupied"
-                                          : "Vacant"}
-                                      </span>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                      <div className="space-y-2">
-                                        <Label
-                                          htmlFor={`tenant${index}_name`}
-                                          className="text-xs font-medium"
-                                        >
-                                          Tenant Name
-                                        </Label>
-                                        <Input
-                                          id={`tenant${index}_name`}
-                                          value={tenant.tenantName}
-                                          onChange={(e) =>
-                                            updateTenantData(
-                                              index,
-                                              "tenantName",
-                                              e.target.value,
-                                            )
-                                          }
-                                          placeholder="Full name"
-                                          className={`h-9 text-sm ${
-                                            errors[`tenant${index}_name`]
-                                              ? "border-destructive"
-                                              : ""
-                                          }`}
-                                        />
-                                        {errors[`tenant${index}_name`] && (
-                                          <p className="text-xs text-destructive">
-                                            {errors[`tenant${index}_name`]}
-                                          </p>
-                                        )}
-                                      </div>
-
-                                      <div className="space-y-2">
-                                        <Label
-                                          htmlFor={`tenant${index}_email`}
-                                          className="text-xs font-medium"
-                                        >
-                                          Email Address
-                                        </Label>
-                                        <Input
-                                          id={`tenant${index}_email`}
-                                          type="email"
-                                          value={tenant.tenantEmail}
-                                          onChange={(e) =>
-                                            updateTenantData(
-                                              index,
-                                              "tenantEmail",
-                                              e.target.value,
-                                            )
-                                          }
-                                          placeholder="email@example.com"
-                                          className={`h-9 text-sm ${
-                                            errors[`tenant${index}_email`]
-                                              ? "border-destructive"
-                                              : ""
-                                          }`}
-                                        />
-                                        {errors[`tenant${index}_email`] && (
-                                          <p className="text-xs text-destructive">
-                                            {errors[`tenant${index}_email`]}
-                                          </p>
-                                        )}
-                                      </div>
-
-                                      <div className="space-y-2">
-                                        <Label
-                                          htmlFor={`tenant${index}_contact`}
-                                          className="text-xs font-medium"
-                                        >
-                                          Contact Number
-                                        </Label>
-                                        <Input
-                                          id={`tenant${index}_contact`}
-                                          value={tenant.contactNumber}
-                                          onChange={(e) =>
-                                            updateTenantData(
-                                              index,
-                                              "contactNumber",
-                                              e.target.value,
-                                            )
-                                          }
-                                          placeholder="09XXXXXXXXX"
-                                          className={`h-9 text-sm ${
-                                            errors[`tenant${index}_contact`]
-                                              ? "border-destructive"
-                                              : ""
-                                          }`}
-                                        />
-                                        {errors[`tenant${index}_contact`] && (
-                                          <p className="text-xs text-destructive">
-                                            {errors[`tenant${index}_contact`]}
-                                          </p>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              ))}
-                            </div>
+                          />
+                          {errors.unitName && (
+                            <p className="text-xs text-destructive">
+                              {errors.unitName}
+                            </p>
                           )}
                         </div>
-                      )}
 
-                      {formData.occupancyStatus === "vacant" && (
-                        <div className="pt-3 border-t border-border">
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <Label
-                                htmlFor="vacantRentAmount"
-                                className="text-sm font-medium flex items-center gap-1.5"
-                              >
-                                Expected Monthly Rent (₱) *
-                              </Label>
-                            </div>
-                            <Input
-                              id="vacantRentAmount"
-                              type="number"
-                              min="0"
-                              value={formData.rentAmount}
-                              onChange={(e) =>
-                                updateFormData(
-                                  "rentAmount",
-                                  e.target.value === ""
-                                    ? ""
-                                    : parseInt(e.target.value) || "",
-                                )
-                              }
-                              placeholder="25000"
+                        <div className="space-y-2">
+                          <Label
+                            htmlFor="propertyType"
+                            className="text-sm font-medium"
+                          >
+                            Property Type *
+                          </Label>
+                          <Select
+                            value={formData.propertyType}
+                            onValueChange={(value) =>
+                              updateFormData("propertyType", value)
+                            }
+                          >
+                            <SelectTrigger
                               className={`h-9 text-sm ${
-                                errors.rentAmount ? "border-destructive" : ""
+                                errors.propertyType ? "border-destructive" : ""
                               }`}
-                            />
-                            {errors.rentAmount && (
-                              <p className="text-xs text-destructive">
-                                {errors.rentAmount}
-                              </p>
+                            >
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                <SelectItem value="Residential - Apartment">
+                                  Residential - Apartment
+                                </SelectItem>
+                                <SelectItem value="Residential - House">
+                                  Residential - House
+                                </SelectItem>
+                                <SelectItem value="Commercial - Office">
+                                  Commercial - Office
+                                </SelectItem>
+                                <SelectItem value="Commercial - Retail">
+                                  Commercial - Retail
+                                </SelectItem>
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
+                          {errors.propertyType && (
+                            <p className="text-xs text-destructive">
+                              {errors.propertyType}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <Label className="text-sm font-medium mb-2 block">
+                          Property Location *
+                        </Label>
+                        <div className="relative">
+                          <MapPin className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                          <textarea
+                            value={formData.propertyLocation}
+                            onChange={(e) =>
+                              updateFormData("propertyLocation", e.target.value)
+                            }
+                            placeholder="Enter complete property address..."
+                            className={`w-full h-20 pl-9 pr-3 py-2 text-sm border rounded-md focus:ring-1 resize-none ${
+                              errors.propertyLocation
+                                ? "border-destructive"
+                                : "border-input"
+                            }`}
+                          />
+                        </div>
+                        {errors.propertyLocation && (
+                          <p className="text-xs text-destructive mt-1">
+                            {errors.propertyLocation}
+                          </p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="shadow-sm border">
+                    <CardContent className="p-3 md:p-5">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="p-1.5 rounded-full bg-green-100 dark:bg-green-950/50">
+                          <User className="h-4 w-4 text-green-600 dark:text-green-400" />
+                        </div>
+                        <div>
+                          <h3 className="text-base md:text-lg font-semibold text-foreground">
+                            Occupancy Details
+                          </h3>
+                          <p className="text-xs text-muted-foreground">
+                            Current status and tenant information
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        {/* Max Tenants / Bed Space Configuration */}
+                        <div className="space-y-2">
+                          <Label
+                            htmlFor="maxTenants"
+                            className="text-sm font-medium flex items-center gap-1.5"
+                          >
+                            Number of Tenants (Pax) *
+                          </Label>
+                          <Input
+                            id="maxTenants"
+                            type="number"
+                            min="1"
+                            max="20"
+                            value={formData.maxTenants}
+                            onChange={(e) =>
+                              handleMaxTenantsChange(
+                                parseInt(e.target.value) || 1,
+                              )
+                            }
+                            placeholder="1"
+                            className={`h-9 text-sm ${
+                              errors.maxTenants ? "border-destructive" : ""
+                            }`}
+                          />
+                          {errors.maxTenants && (
+                            <p className="text-xs text-destructive">
+                              {errors.maxTenants}
+                            </p>
+                          )}
+                          <p className="text-xs text-muted-foreground">
+                            Number of tenant slots/bed spaces in this property
+                            (1-20)
+                          </p>
+                        </div>
+
+                        <div>
+                          <Label className="text-sm font-medium">Status</Label>
+                          <div className="grid grid-cols-2 gap-2 mt-1">
+                            <Button
+                              type="button"
+                              variant={
+                                formData.occupancyStatus === "occupied"
+                                  ? "default"
+                                  : "outline"
+                              }
+                              size="sm"
+                              className="h-auto py-2 flex items-center gap-2 text-xs"
+                              onClick={() =>
+                                updateFormData("occupancyStatus", "occupied")
+                              }
+                            >
+                              <User className="h-3.5 w-3.5" />
+                              <span>Occupied</span>
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={
+                                formData.occupancyStatus === "vacant"
+                                  ? "default"
+                                  : "outline"
+                              }
+                              size="sm"
+                              className="h-auto py-2 flex items-center gap-2 text-xs"
+                              onClick={() =>
+                                updateFormData("occupancyStatus", "vacant")
+                              }
+                            >
+                              <Building className="h-3.5 w-3.5" />
+                              <span>Available</span>
+                            </Button>
+                          </div>
+                        </div>
+
+                        {formData.occupancyStatus === "occupied" && (
+                          <div className="space-y-4 pt-3 border-t border-border">
+                            {/* Display mode indicator */}
+                            {formData.maxTenants > 1 && (
+                              <Alert className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
+                                <AlertCircle className="h-4 w-4 text-blue-600" />
+                                <AlertDescription className="text-xs text-blue-800 dark:text-blue-300">
+                                  <strong>Bed Space Mode:</strong> You can add
+                                  up to {formData.maxTenants} tenants. Fill in
+                                  details for occupied slots (optional for
+                                  vacant slots).
+                                </AlertDescription>
+                              </Alert>
+                            )}
+
+                            {/* Dynamic Tenant Fields */}
+                            {formData.maxTenants === 1 ? (
+                              // Single Tenant Mode (Legacy)
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <Label
+                                    htmlFor="tenantName"
+                                    className="text-sm font-medium"
+                                  >
+                                    Tenant Name *
+                                  </Label>
+                                  <Input
+                                    id="tenantName"
+                                    value={formData.tenantName}
+                                    onChange={(e) =>
+                                      updateFormData(
+                                        "tenantName",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="Tenant's full name"
+                                    className={`h-9 text-sm ${
+                                      errors.tenantName
+                                        ? "border-destructive"
+                                        : ""
+                                    }`}
+                                  />
+                                  {errors.tenantName && (
+                                    <p className="text-xs text-destructive">
+                                      {errors.tenantName}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label
+                                    htmlFor="tenantEmail"
+                                    className="text-sm font-medium"
+                                  >
+                                    Email Address *
+                                  </Label>
+                                  <Input
+                                    id="tenantEmail"
+                                    type="email"
+                                    value={formData.tenantEmail}
+                                    onChange={(e) =>
+                                      updateFormData(
+                                        "tenantEmail",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="tenant@example.com"
+                                    className={`h-9 text-sm ${
+                                      errors.tenantEmail
+                                        ? "border-destructive"
+                                        : ""
+                                    }`}
+                                  />
+                                  {errors.tenantEmail && (
+                                    <p className="text-xs text-destructive">
+                                      {errors.tenantEmail}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label
+                                    htmlFor="contactNumber"
+                                    className="text-sm font-medium"
+                                  >
+                                    Contact Number *
+                                  </Label>
+                                  <Input
+                                    id="contactNumber"
+                                    value={formData.contactNumber}
+                                    onChange={(e) =>
+                                      updateFormData(
+                                        "contactNumber",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="e.g., 09123456789"
+                                    className={`h-9 text-sm ${
+                                      errors.contactNumber
+                                        ? "border-destructive"
+                                        : ""
+                                    }`}
+                                  />
+                                  {errors.contactNumber && (
+                                    <p className="text-xs text-destructive">
+                                      {errors.contactNumber}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              // Multiple Tenants Mode (Bed Space)
+                              <div className="space-y-4">
+                                {formData.tenants.map((tenant, index) => (
+                                  <Card
+                                    key={index}
+                                    className="border-l-4 border-l-primary"
+                                  >
+                                    <CardContent className="p-4">
+                                      <div className="flex items-center justify-between mb-3">
+                                        <h4 className="text-sm font-semibold flex items-center gap-2">
+                                          <User className="h-4 w-4 text-primary" />
+                                          Tenant Slot #{index + 1}
+                                        </h4>
+                                        <span className="text-xs text-muted-foreground">
+                                          {tenant.tenantName
+                                            ? "Occupied"
+                                            : "Vacant"}
+                                        </span>
+                                      </div>
+
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="space-y-2">
+                                          <Label
+                                            htmlFor={`tenant${index}_name`}
+                                            className="text-xs font-medium"
+                                          >
+                                            Tenant Name
+                                          </Label>
+                                          <Input
+                                            id={`tenant${index}_name`}
+                                            value={tenant.tenantName}
+                                            onChange={(e) =>
+                                              updateTenantData(
+                                                index,
+                                                "tenantName",
+                                                e.target.value,
+                                              )
+                                            }
+                                            placeholder="Full name"
+                                            className={`h-9 text-sm ${
+                                              errors[`tenant${index}_name`]
+                                                ? "border-destructive"
+                                                : ""
+                                            }`}
+                                          />
+                                          {errors[`tenant${index}_name`] && (
+                                            <p className="text-xs text-destructive">
+                                              {errors[`tenant${index}_name`]}
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        <div className="space-y-2">
+                                          <Label
+                                            htmlFor={`tenant${index}_email`}
+                                            className="text-xs font-medium"
+                                          >
+                                            Email Address
+                                          </Label>
+                                          <Input
+                                            id={`tenant${index}_email`}
+                                            type="email"
+                                            value={tenant.tenantEmail}
+                                            onChange={(e) =>
+                                              updateTenantData(
+                                                index,
+                                                "tenantEmail",
+                                                e.target.value,
+                                              )
+                                            }
+                                            placeholder="email@example.com"
+                                            className={`h-9 text-sm ${
+                                              errors[`tenant${index}_email`]
+                                                ? "border-destructive"
+                                                : ""
+                                            }`}
+                                          />
+                                          {errors[`tenant${index}_email`] && (
+                                            <p className="text-xs text-destructive">
+                                              {errors[`tenant${index}_email`]}
+                                            </p>
+                                          )}
+                                        </div>
+
+                                        <div className="space-y-2">
+                                          <Label
+                                            htmlFor={`tenant${index}_contact`}
+                                            className="text-xs font-medium"
+                                          >
+                                            Contact Number
+                                          </Label>
+                                          <Input
+                                            id={`tenant${index}_contact`}
+                                            value={tenant.contactNumber}
+                                            onChange={(e) =>
+                                              updateTenantData(
+                                                index,
+                                                "contactNumber",
+                                                e.target.value,
+                                              )
+                                            }
+                                            placeholder="09XXXXXXXXX"
+                                            className={`h-9 text-sm ${
+                                              errors[`tenant${index}_contact`]
+                                                ? "border-destructive"
+                                                : ""
+                                            }`}
+                                          />
+                                          {errors[`tenant${index}_contact`] && (
+                                            <p className="text-xs text-destructive">
+                                              {errors[`tenant${index}_contact`]}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                ))}
+                              </div>
                             )}
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
+                        )}
 
-            {/* Step 2: Billing Setup - More compact */}
-            {currentStep === 2 && formData.occupancyStatus === "occupied" && (
-              <div className="space-y-4">
-                <div className="bg-purple-50/50 dark:bg-purple-950/20 p-2 rounded-lg border border-purple-100 dark:border-purple-900/50 text-center">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <div className="p-1 rounded-full bg-purple-100 dark:bg-purple-900/50">
-                      <Calendar className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-                    </div>
-                    <p className="text-sm font-medium text-purple-800 dark:text-purple-300">
-                      Setting up billing for{" "}
-                      <span className="font-semibold">{formData.unitName}</span>
-                    </p>
-                  </div>
+                        {formData.occupancyStatus === "vacant" && (
+                          <div className="pt-3 border-t border-border">
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label
+                                  htmlFor="vacantRentAmount"
+                                  className="text-sm font-medium flex items-center gap-1.5"
+                                >
+                                  Expected Monthly Rent (₱) *
+                                </Label>
+                              </div>
+                              <Input
+                                id="vacantRentAmount"
+                                type="number"
+                                min="0"
+                                value={formData.rentAmount}
+                                onChange={(e) =>
+                                  updateFormData(
+                                    "rentAmount",
+                                    e.target.value === ""
+                                      ? ""
+                                      : parseInt(e.target.value) || "",
+                                  )
+                                }
+                                placeholder="25000"
+                                className={`h-9 text-sm ${
+                                  errors.rentAmount ? "border-destructive" : ""
+                                }`}
+                              />
+                              {errors.rentAmount && (
+                                <p className="text-xs text-destructive">
+                                  {errors.rentAmount}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
                 </div>
+              )}
 
-                <Card className="shadow-sm border">
-                  <CardContent className="p-3 md:p-5">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label
-                          htmlFor="contractMonths"
-                          className="text-sm font-medium flex items-center gap-1.5"
-                        >
-                          <Clock className="h-3.5 w-3.5 text-purple-600" />
-                          Contract Duration (Months) *
-                        </Label>
-                        <Input
-                          id="contractMonths"
-                          type="number"
-                          min="0"
-                          value={formData.contractMonths}
-                          onChange={(e) =>
-                            updateFormData(
-                              "contractMonths",
-                              e.target.value === ""
-                                ? ""
-                                : parseInt(e.target.value) || "",
-                            )
-                          }
-                          className={`h-9 text-sm ${
-                            errors.contractMonths ? "border-destructive" : ""
-                          }`}
-                        />
-                        {errors.contractMonths && (
-                          <p className="text-xs text-destructive">
-                            {errors.contractMonths}
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground">
-                          Typically 6-12 months for residential
-                        </p>
+              {/* Step 2: Billing Setup - More compact */}
+              {currentStep === 2 && formData.occupancyStatus === "occupied" && (
+                <div className="space-y-4">
+                  <div className="bg-purple-50/50 dark:bg-purple-950/20 p-2 rounded-lg border border-purple-100 dark:border-purple-900/50 text-center">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <div className="p-1 rounded-full bg-purple-100 dark:bg-purple-900/50">
+                        <Calendar className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
                       </div>
+                      <p className="text-sm font-medium text-purple-800 dark:text-purple-300">
+                        Setting up billing for{" "}
+                        <span className="font-semibold">
+                          {formData.unitName}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
 
-                      <div className="space-y-2">
-                        <Label
-                          htmlFor="rentStartDate"
-                          className="text-sm font-medium flex items-center gap-1.5"
-                        >
-                          <Calendar className="h-3.5 w-3.5 text-purple-600" />
-                          Rent Agreement Date *
-                        </Label>
-                        <Input
-                          id="rentStartDate"
-                          type="date"
-                          value={formData.rentStartDate}
-                          onChange={(e) =>
-                            updateFormData("rentStartDate", e.target.value)
-                          }
-                          className={`h-9 text-sm ${
-                            errors.rentStartDate ? "border-destructive" : ""
-                          }`}
-                        />
-                        {errors.rentStartDate && (
-                          <p className="text-xs text-destructive">
-                            {errors.rentStartDate}
-                          </p>
-                        )}
-                        <p className="text-xs text-muted-foreground">
-                          First billing cycle date
-                        </p>
-                      </div>
-
-                      <div className="space-y-2 md:col-span-2">
-                        <Label
-                          htmlFor="dueDay"
-                          className="text-sm font-medium flex items-center gap-1.5"
-                        >
-                          <Calendar className="h-3.5 w-3.5 text-purple-600" />
-                          Payment Due Day of Month *
-                        </Label>
-
-                        {/* Quick Selection Buttons */}
-                        <div className="grid grid-cols-3 gap-2 mb-2">
-                          <Button
-                            type="button"
-                            variant={
-                              formData.dueDay === "1" ? "default" : "outline"
-                            }
-                            size="sm"
-                            onClick={() => updateFormData("dueDay", "1")}
-                            className="h-8 text-xs"
+                  <Card className="shadow-sm border">
+                    <CardContent className="p-3 md:p-5">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label
+                            htmlFor="contractMonths"
+                            className="text-sm font-medium flex items-center gap-1.5"
                           >
-                            1st - First Day
-                          </Button>
-                          <Button
-                            type="button"
-                            variant={
-                              formData.dueDay === "15" ? "default" : "outline"
-                            }
-                            size="sm"
-                            onClick={() => updateFormData("dueDay", "15")}
-                            className="h-8 text-xs"
-                          >
-                            15th - Mid Month
-                          </Button>
-                          <Button
-                            type="button"
-                            variant={
-                              formData.dueDay === "last" ? "default" : "outline"
-                            }
-                            size="sm"
-                            onClick={() => updateFormData("dueDay", "last")}
-                            className="h-8 text-xs"
-                          >
-                            Last Day
-                          </Button>
-                        </div>
-
-                        {/* Custom Day Input */}
-                        <div className="flex items-center gap-2">
+                            <Clock className="h-3.5 w-3.5 text-purple-600" />
+                            Contract Duration (Months) *
+                          </Label>
                           <Input
-                            id="dueDay"
+                            id="contractMonths"
                             type="number"
                             min="0"
-                            value={
-                              formData.dueDay === "last" ? "" : formData.dueDay
+                            value={formData.contractMonths}
+                            onChange={(e) =>
+                              updateFormData(
+                                "contractMonths",
+                                e.target.value === ""
+                                  ? ""
+                                  : parseInt(e.target.value) || "",
+                              )
                             }
-                            onChange={(e) => {
-                              const value = e.target.value;
-                              if (
-                                value === "" ||
-                                (parseInt(value) >= 1 && parseInt(value) <= 31)
-                              ) {
-                                updateFormData(
-                                  "dueDay",
-                                  value === "" ? "" : parseInt(value) || "",
-                                );
-                              }
-                            }}
-                            placeholder="Or enter custom day (1-31)"
-                            className="h-9 text-sm flex-1"
-                            disabled={formData.dueDay === "last"}
+                            className={`h-9 text-sm ${
+                              errors.contractMonths ? "border-destructive" : ""
+                            }`}
                           />
-                          <span className="text-xs text-muted-foreground whitespace-nowrap">
-                            day of month
-                          </span>
-                        </div>
-
-                        <p className="text-xs text-muted-foreground">
-                          Select a preset or enter a custom day (1-31). Note:
-                          Day 31 will adjust to last day for shorter months.
-                        </p>
-                      </div>
-
-                      <div className="space-y-2 md:col-span-2">
-                        <Label
-                          htmlFor="rentAmount"
-                          className="text-sm font-medium flex items-center gap-1.5"
-                        >
-                          Monthly Rent Amount (₱) *
-                        </Label>
-                        <Input
-                          id="rentAmount"
-                          type="number"
-                          min="0"
-                          value={formData.rentAmount}
-                          onChange={(e) =>
-                            updateFormData(
-                              "rentAmount",
-                              e.target.value === ""
-                                ? ""
-                                : parseInt(e.target.value) || "",
-                            )
-                          }
-                          placeholder="25000"
-                          className={`h-9 text-sm ${
-                            errors.rentAmount ? "border-destructive" : ""
-                          }`}
-                        />
-                        {errors.rentAmount && (
-                          <p className="text-xs text-destructive">
-                            {errors.rentAmount}
+                          {errors.contractMonths && (
+                            <p className="text-xs text-destructive">
+                              {errors.contractMonths}
+                            </p>
+                          )}
+                          <p className="text-xs text-muted-foreground">
+                            Typically 6-12 months for residential
                           </p>
-                        )}
-                        <p className="text-xs text-muted-foreground">
-                          Base monthly rental fee
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                        </div>
 
-                {/* Preview Panel */}
-                <Card className="bg-muted/20 border-dashed">
-                  <CardContent className="p-3 md:p-5">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="text-sm font-medium">Billing Preview</h3>
-                      <div className="text-xs text-muted-foreground">
-                        {formData.contractMonths} months from{" "}
-                        {formData.rentStartDate
-                          ? new Date(
-                              formData.rentStartDate,
-                            ).toLocaleDateString()
-                          : "agreement date"}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {Array.from(
-                        { length: Math.min(formData.contractMonths || 0, 12) },
-                        (_, i) => {
-                          const date = formData.rentStartDate
-                            ? new Date(formData.rentStartDate)
-                            : new Date();
-                          date.setMonth(date.getMonth() + i);
+                        <div className="space-y-2">
+                          <Label
+                            htmlFor="rentStartDate"
+                            className="text-sm font-medium flex items-center gap-1.5"
+                          >
+                            <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                            Rent Agreement Date *
+                          </Label>
+                          <Input
+                            id="rentStartDate"
+                            type="date"
+                            value={formData.rentStartDate}
+                            onChange={(e) =>
+                              updateFormData("rentStartDate", e.target.value)
+                            }
+                            className={`h-9 text-sm ${
+                              errors.rentStartDate ? "border-destructive" : ""
+                            }`}
+                          />
+                          {errors.rentStartDate && (
+                            <p className="text-xs text-destructive">
+                              {errors.rentStartDate}
+                            </p>
+                          )}
+                          <p className="text-xs text-muted-foreground">
+                            First billing cycle date
+                          </p>
+                        </div>
 
-                          // Set the due day based on selection
-                          if (formData.dueDay === "last") {
-                            date.setMonth(date.getMonth() + 1);
-                            date.setDate(0); // Last day of month
-                          } else {
-                            const dueDay = parseInt(formData.dueDay) || 1;
-                            const lastDayOfMonth = new Date(
-                              date.getFullYear(),
-                              date.getMonth() + 1,
-                              0,
-                            ).getDate();
-                            date.setDate(Math.min(dueDay, lastDayOfMonth));
-                          }
+                        <div className="space-y-2 md:col-span-2">
+                          <Label
+                            htmlFor="dueDay"
+                            className="text-sm font-medium flex items-center gap-1.5"
+                          >
+                            <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                            Payment Due Day of Month *
+                          </Label>
 
-                          return (
-                            <div
-                              key={i}
-                              className="px-2 py-1 bg-background text-xs rounded border flex items-center gap-1.5"
+                          {/* Quick Selection Buttons */}
+                          <div className="grid grid-cols-3 gap-2 mb-2">
+                            <Button
+                              type="button"
+                              variant={
+                                formData.dueDay === "1" ? "default" : "outline"
+                              }
+                              size="sm"
+                              onClick={() => updateFormData("dueDay", "1")}
+                              className="h-8 text-xs"
                             >
-                              <Calendar className="h-3 w-3 text-purple-500" />
-                              {date.toLocaleDateString("default", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              })}
-                            </div>
-                          );
-                        },
-                      )}
-                      {formData.contractMonths > 12 && (
-                        <div className="px-2 py-1 bg-background text-xs rounded border">
-                          +{formData.contractMonths - 12} more
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
-
-            {/* Step 3: Billing Schedule Table - Better compact design */}
-            {currentStep === 3 && formData.occupancyStatus === "occupied" && (
-              <div className="space-y-4">
-                <div className="bg-orange-50/50 dark:bg-orange-950/20 rounded-lg border border-orange-100 dark:border-orange-900/50 p-2">
-                  <div className="flex items-center justify-center gap-1.5">
-                    <div className="p-1 rounded-full bg-orange-100 dark:bg-orange-900/50">
-                      <CreditCard className="h-3.5 w-3.5 text-orange-600" />
-                    </div>
-                    <div className="text-sm font-medium text-orange-800 dark:text-orange-300">
-                      Review billing schedule for{" "}
-                      <span className="font-semibold">
-                        {formData.tenantName}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Accounting & Monitoring Section */}
-                <Card className="shadow-sm border">
-                  <CardContent className="p-3 md:p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div>
-                        <h3 className="text-base md:text-lg font-semibold text-foreground">
-                          Accounting & Deposits
-                        </h3>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label
-                          htmlFor="advancePayment"
-                          className="text-sm font-medium flex items-center gap-1.5"
-                        >
-                          Advance Payment (₱)
-                        </Label>
-                        <Input
-                          id="advancePayment"
-                          type="number"
-                          min="0"
-                          value={formData.advancePayment}
-                          onChange={(e) =>
-                            updateFormData(
-                              "advancePayment",
-                              e.target.value === ""
-                                ? ""
-                                : parseInt(e.target.value) || "",
-                            )
-                          }
-                          placeholder="Enter advance payment amount"
-                          className="h-9 text-sm"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Advance rent payment (affects billing status)
-                        </p>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label
-                          htmlFor="securityDeposit"
-                          className="text-sm font-medium flex items-center gap-1.5"
-                        >
-                          Security Deposit (₱)
-                        </Label>
-                        <Input
-                          id="securityDeposit"
-                          type="number"
-                          min="0"
-                          value={formData.securityDeposit}
-                          onChange={(e) =>
-                            updateFormData(
-                              "securityDeposit",
-                              e.target.value === ""
-                                ? ""
-                                : parseInt(e.target.value) || "",
-                            )
-                          }
-                          placeholder="Enter security deposit amount"
-                          className="h-9 text-sm"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Refundable security deposit amount
-                        </p>
-                      </div>
-
-                      {/* Summary Display */}
-                      {(formData.advancePayment > 0 ||
-                        formData.securityDeposit > 0) && (
-                        <div className="md:col-span-2 mt-2">
-                          <div className="bg-green-50/50 dark:bg-green-950/20 p-3 rounded-lg border border-green-200 dark:border-green-900">
-                            <h4 className="text-xs font-semibold text-green-800 dark:text-green-300 mb-2">
-                              Financial Summary
-                            </h4>
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                              <div>
-                                <span className="text-muted-foreground">
-                                  Advance Payment:
-                                </span>
-                                <span className="font-medium ml-2 text-green-600">
-                                  ₱{formData.advancePayment.toLocaleString()}
-                                </span>
-                              </div>
-                              <div>
-                                <span className="text-muted-foreground">
-                                  Security Deposit:
-                                </span>
-                                <span className="font-medium ml-2 text-green-600">
-                                  ₱{formData.securityDeposit.toLocaleString()}
-                                </span>
-                              </div>
-                              <div className="col-span-2 pt-2 border-t border-green-200 dark:border-green-800">
-                                <span className="text-muted-foreground">
-                                  Total Collected:
-                                </span>
-                                <span className="font-semibold ml-2 text-green-700 dark:text-green-400">
-                                  ₱
-                                  {(
-                                    formData.advancePayment +
-                                    formData.securityDeposit
-                                  ).toLocaleString()}
-                                </span>
-                              </div>
-                            </div>
+                              1st - First Day
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={
+                                formData.dueDay === "15" ? "default" : "outline"
+                              }
+                              size="sm"
+                              onClick={() => updateFormData("dueDay", "15")}
+                              className="h-8 text-xs"
+                            >
+                              15th - Mid Month
+                            </Button>
+                            <Button
+                              type="button"
+                              variant={
+                                formData.dueDay === "last"
+                                  ? "default"
+                                  : "outline"
+                              }
+                              size="sm"
+                              onClick={() => updateFormData("dueDay", "last")}
+                              className="h-8 text-xs"
+                            >
+                              Last Day
+                            </Button>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
 
-                <Card className="shadow-sm border overflow-hidden">
-                  <CardContent className="p-3 md:p-5 pb-0">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="p-1.5 rounded-full bg-orange-100 dark:bg-orange-950/50">
-                        <CreditCard className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                      </div>
-                      <div>
-                        <h3 className="text-base md:text-lg font-semibold text-foreground">
-                          Billing Schedule
-                        </h3>
-                      </div>
-                    </div>
-                  </CardContent>
-
-                  {/* Mobile: Stack layout, Desktop: Table layout */}
-                  <div className="block sm:hidden">
-                    {/* Mobile Card Layout */}
-                    <div className="divide-y">
-                      {formData.billingSchedule.map((bill, index) => (
-                        <div key={index} className="p-3">
-                          <div className="flex justify-between items-center mb-2">
-                            <h4 className="text-xs font-medium">
-                              Month {index + 1}
-                            </h4>
-                            <span className="text-xs bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded-full">
-                              {bill.dueDate}
+                          {/* Custom Day Input */}
+                          <div className="flex items-center gap-2">
+                            <Input
+                              id="dueDay"
+                              type="number"
+                              min="0"
+                              value={
+                                formData.dueDay === "last"
+                                  ? ""
+                                  : formData.dueDay
+                              }
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                if (
+                                  value === "" ||
+                                  (parseInt(value) >= 1 &&
+                                    parseInt(value) <= 31)
+                                ) {
+                                  updateFormData(
+                                    "dueDay",
+                                    value === "" ? "" : parseInt(value) || "",
+                                  );
+                                }
+                              }}
+                              placeholder="Or enter custom day (1-31)"
+                              className="h-9 text-sm flex-1"
+                              disabled={formData.dueDay === "last"}
+                            />
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              day of month
                             </span>
                           </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs">
-                            <div>
-                              <div className="text-muted-foreground">Rent</div>
-                              <div className="font-medium text-green-600">
-                                ₱{bill.rentDue.toLocaleString()}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-muted-foreground">
-                                Other Charges
-                              </div>
-                              <button
-                                onClick={() => handleOtherChargesClick(index)}
-                                className="flex items-center gap-1 text-blue-600 font-medium"
-                              >
-                                ₱{bill.otherCharges.toLocaleString()}
-                                <EditIcon className="h-3 w-3" />
-                              </button>
-                            </div>
-                            <div>
-                              <div className="text-muted-foreground">Total</div>
-                              <div className="font-bold">
-                                ₱{bill.grossDue.toLocaleString()}
-                              </div>
-                            </div>
-                            <div className="col-span-2">
-                              <div className="text-muted-foreground">
-                                Status
-                              </div>
-                              <div className="text-xs font-medium px-2 py-1 rounded bg-muted inline-block">
-                                {bill.status}
-                              </div>
-                            </div>
-                          </div>
+
+                          <p className="text-xs text-muted-foreground">
+                            Select a preset or enter a custom day (1-31). Note:
+                            Day 31 will adjust to last day for shorter months.
+                          </p>
                         </div>
-                      ))}
+
+                        <div className="space-y-2 md:col-span-2">
+                          <Label
+                            htmlFor="rentAmount"
+                            className="text-sm font-medium flex items-center gap-1.5"
+                          >
+                            Monthly Rent Amount (₱) *
+                          </Label>
+                          <Input
+                            id="rentAmount"
+                            type="number"
+                            min="0"
+                            value={formData.rentAmount}
+                            onChange={(e) =>
+                              updateFormData(
+                                "rentAmount",
+                                e.target.value === ""
+                                  ? ""
+                                  : parseInt(e.target.value) || "",
+                              )
+                            }
+                            placeholder="25000"
+                            className={`h-9 text-sm ${
+                              errors.rentAmount ? "border-destructive" : ""
+                            }`}
+                          />
+                          {errors.rentAmount && (
+                            <p className="text-xs text-destructive">
+                              {errors.rentAmount}
+                            </p>
+                          )}
+                          <p className="text-xs text-muted-foreground">
+                            Base monthly rental fee
+                          </p>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Preview Panel */}
+                  <Card className="bg-muted/20 border-dashed">
+                    <CardContent className="p-3 md:p-5">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-medium">Billing Preview</h3>
+                        <div className="text-xs text-muted-foreground">
+                          {formData.contractMonths} months from{" "}
+                          {formData.rentStartDate
+                            ? new Date(
+                                formData.rentStartDate,
+                              ).toLocaleDateString()
+                            : "agreement date"}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Array.from(
+                          {
+                            length: Math.min(formData.contractMonths || 0, 12),
+                          },
+                          (_, i) => {
+                            const date = formData.rentStartDate
+                              ? new Date(formData.rentStartDate)
+                              : new Date();
+                            date.setMonth(date.getMonth() + i);
+
+                            // Set the due day based on selection
+                            if (formData.dueDay === "last") {
+                              date.setMonth(date.getMonth() + 1);
+                              date.setDate(0); // Last day of month
+                            } else {
+                              const dueDay = parseInt(formData.dueDay) || 1;
+                              const lastDayOfMonth = new Date(
+                                date.getFullYear(),
+                                date.getMonth() + 1,
+                                0,
+                              ).getDate();
+                              date.setDate(Math.min(dueDay, lastDayOfMonth));
+                            }
+
+                            return (
+                              <div
+                                key={i}
+                                className="px-2 py-1 bg-background text-xs rounded border flex items-center gap-1.5"
+                              >
+                                <Calendar className="h-3 w-3 text-purple-500" />
+                                {date.toLocaleDateString("default", {
+                                  month: "short",
+                                  day: "numeric",
+                                  year: "numeric",
+                                })}
+                              </div>
+                            );
+                          },
+                        )}
+                        {formData.contractMonths > 12 && (
+                          <div className="px-2 py-1 bg-background text-xs rounded border">
+                            +{formData.contractMonths - 12} more
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Step 3: Billing Schedule Table - Better compact design */}
+              {currentStep === 3 && formData.occupancyStatus === "occupied" && (
+                <div className="space-y-4">
+                  <div className="bg-orange-50/50 dark:bg-orange-950/20 rounded-lg border border-orange-100 dark:border-orange-900/50 p-2">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <div className="p-1 rounded-full bg-orange-100 dark:bg-orange-900/50">
+                        <CreditCard className="h-3.5 w-3.5 text-orange-600" />
+                      </div>
+                      <div className="text-sm font-medium text-orange-800 dark:text-orange-300">
+                        Review billing schedule for{" "}
+                        <span className="font-semibold">
+                          {formData.tenantName}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Desktop Table Layout */}
-                  <div className="hidden sm:block">
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="bg-muted/50 text-xs font-medium">
-                            <th className="text-left p-2">Month</th>
-                            <th className="text-left p-2">Due Date</th>
-                            <th className="text-left p-2">Rent</th>
-                            <th className="text-left p-2">Other Charges</th>
-                            <th className="text-left p-2">Total Due</th>
-                            <th className="text-left p-2">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="text-sm">
-                          {formData.billingSchedule.map((bill, index) => (
-                            <tr
-                              key={index}
-                              className={`border-b hover:bg-muted/30 ${
-                                index % 2 === 0
-                                  ? "bg-background"
-                                  : "bg-muted/10"
-                              }`}
-                            >
-                              <td className="p-2 text-xs">{index + 1}</td>
-                              <td className="p-2 text-xs">{bill.dueDate}</td>
-                              <td className="p-2 text-xs font-medium text-green-600">
-                                ₱{bill.rentDue.toLocaleString()}
-                              </td>
-                              <td className="p-2 text-xs">
+                  {/* Accounting & Monitoring Section */}
+                  <Card className="shadow-sm border">
+                    <CardContent className="p-3 md:p-5">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div>
+                          <h3 className="text-base md:text-lg font-semibold text-foreground">
+                            Accounting & Deposits
+                          </h3>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label
+                            htmlFor="advancePayment"
+                            className="text-sm font-medium flex items-center gap-1.5"
+                          >
+                            Advance Payment (₱)
+                          </Label>
+                          <Input
+                            id="advancePayment"
+                            type="number"
+                            min="0"
+                            value={formData.advancePayment}
+                            onChange={(e) =>
+                              updateFormData(
+                                "advancePayment",
+                                e.target.value === ""
+                                  ? ""
+                                  : parseInt(e.target.value) || "",
+                              )
+                            }
+                            placeholder="Enter advance payment amount"
+                            className="h-9 text-sm"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Advance rent payment (affects billing status)
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label
+                            htmlFor="securityDeposit"
+                            className="text-sm font-medium flex items-center gap-1.5"
+                          >
+                            Security Deposit (₱)
+                          </Label>
+                          <Input
+                            id="securityDeposit"
+                            type="number"
+                            min="0"
+                            value={formData.securityDeposit}
+                            onChange={(e) =>
+                              updateFormData(
+                                "securityDeposit",
+                                e.target.value === ""
+                                  ? ""
+                                  : parseInt(e.target.value) || "",
+                              )
+                            }
+                            placeholder="Enter security deposit amount"
+                            className="h-9 text-sm"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Refundable security deposit amount
+                          </p>
+                        </div>
+
+                        {/* Summary Display */}
+                        {(formData.advancePayment > 0 ||
+                          formData.securityDeposit > 0) && (
+                          <div className="md:col-span-2 mt-2">
+                            <div className="bg-green-50/50 dark:bg-green-950/20 p-3 rounded-lg border border-green-200 dark:border-green-900">
+                              <h4 className="text-xs font-semibold text-green-800 dark:text-green-300 mb-2">
+                                Financial Summary
+                              </h4>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <span className="text-muted-foreground">
+                                    Advance Payment:
+                                  </span>
+                                  <span className="font-medium ml-2 text-green-600">
+                                    ₱{formData.advancePayment.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-muted-foreground">
+                                    Security Deposit:
+                                  </span>
+                                  <span className="font-medium ml-2 text-green-600">
+                                    ₱{formData.securityDeposit.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="col-span-2 pt-2 border-t border-green-200 dark:border-green-800">
+                                  <span className="text-muted-foreground">
+                                    Total Collected:
+                                  </span>
+                                  <span className="font-semibold ml-2 text-green-700 dark:text-green-400">
+                                    ₱
+                                    {(
+                                      formData.advancePayment +
+                                      formData.securityDeposit
+                                    ).toLocaleString()}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="shadow-sm border overflow-hidden">
+                    <CardContent className="p-3 md:p-5 pb-0">
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className="p-1.5 rounded-full bg-orange-100 dark:bg-orange-950/50">
+                          <CreditCard className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                        </div>
+                        <div>
+                          <h3 className="text-base md:text-lg font-semibold text-foreground">
+                            Billing Schedule
+                          </h3>
+                        </div>
+                      </div>
+                    </CardContent>
+
+                    {/* Mobile: Stack layout, Desktop: Table layout */}
+                    <div className="block sm:hidden">
+                      {/* Mobile Card Layout */}
+                      <div className="divide-y">
+                        {formData.billingSchedule.map((bill, index) => (
+                          <div key={index} className="p-3">
+                            <div className="flex justify-between items-center mb-2">
+                              <h4 className="text-xs font-medium">
+                                Month {index + 1}
+                              </h4>
+                              <span className="text-xs bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded-full">
+                                {bill.dueDate}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <div className="text-muted-foreground">
+                                  Rent
+                                </div>
+                                <div className="font-medium text-green-600">
+                                  ₱{bill.rentDue.toLocaleString()}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-muted-foreground">
+                                  Other Charges
+                                </div>
                                 <button
                                   onClick={() => handleOtherChargesClick(index)}
                                   className="flex items-center gap-1 text-blue-600 font-medium"
                                 >
                                   ₱{bill.otherCharges.toLocaleString()}
-                                  <span className="ml-1 text-[10px] bg-blue-50 text-blue-700 px-1 py-0.5 rounded">
-                                    {bill.expenseItems.length}
-                                  </span>
                                   <EditIcon className="h-3 w-3" />
                                 </button>
-                              </td>
-                              <td className="p-2 text-xs font-semibold">
-                                ₱{bill.grossDue.toLocaleString()}
-                              </td>
-                              <td className="p-2 text-xs">
-                                <span className="inline-block px-2 py-1 rounded bg-muted text-xs font-medium">
+                              </div>
+                              <div>
+                                <div className="text-muted-foreground">
+                                  Total
+                                </div>
+                                <div className="font-bold">
+                                  ₱{bill.grossDue.toLocaleString()}
+                                </div>
+                              </div>
+                              <div className="col-span-2">
+                                <div className="text-muted-foreground">
+                                  Status
+                                </div>
+                                <div className="text-xs font-medium px-2 py-1 rounded bg-muted inline-block">
                                   {bill.status}
-                                </span>
-                              </td>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Desktop Table Layout */}
+                    <div className="hidden sm:block">
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="bg-muted/50 text-xs font-medium">
+                              <th className="text-left p-2">Month</th>
+                              <th className="text-left p-2">Due Date</th>
+                              <th className="text-left p-2">Rent</th>
+                              <th className="text-left p-2">Other Charges</th>
+                              <th className="text-left p-2">Total Due</th>
+                              <th className="text-left p-2">Status</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody className="text-sm">
+                            {formData.billingSchedule.map((bill, index) => (
+                              <tr
+                                key={index}
+                                className={`border-b hover:bg-muted/30 ${
+                                  index % 2 === 0
+                                    ? "bg-background"
+                                    : "bg-muted/10"
+                                }`}
+                              >
+                                <td className="p-2 text-xs">{index + 1}</td>
+                                <td className="p-2 text-xs">{bill.dueDate}</td>
+                                <td className="p-2 text-xs font-medium text-green-600">
+                                  ₱{bill.rentDue.toLocaleString()}
+                                </td>
+                                <td className="p-2 text-xs">
+                                  <button
+                                    onClick={() =>
+                                      handleOtherChargesClick(index)
+                                    }
+                                    className="flex items-center gap-1 text-blue-600 font-medium"
+                                  >
+                                    ₱{bill.otherCharges.toLocaleString()}
+                                    <span className="ml-1 text-[10px] bg-blue-50 text-blue-700 px-1 py-0.5 rounded">
+                                      {bill.expenseItems.length}
+                                    </span>
+                                    <EditIcon className="h-3 w-3" />
+                                  </button>
+                                </td>
+                                <td className="p-2 text-xs font-semibold">
+                                  ₱{bill.grossDue.toLocaleString()}
+                                </td>
+                                <td className="p-2 text-xs">
+                                  <span className="inline-block px-2 py-1 rounded bg-muted text-xs font-medium">
+                                    {bill.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Summary Bar */}
-                  <div className="bg-muted/20 p-3 border-t flex items-center justify-between">
-                    <div className="text-xs flex gap-3">
-                      <div>
-                        <span className="text-muted-foreground">Periods:</span>{" "}
-                        <span className="font-medium">
-                          {formData.billingSchedule.length}
+                    {/* Summary Bar */}
+                    <div className="bg-muted/20 p-3 border-t flex items-center justify-between">
+                      <div className="text-xs flex gap-3">
+                        <div>
+                          <span className="text-muted-foreground">
+                            Periods:
+                          </span>{" "}
+                          <span className="font-medium">
+                            {formData.billingSchedule.length}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">
+                            Monthly:
+                          </span>{" "}
+                          <span className="font-medium text-green-600">
+                            ₱{formData.rentAmount.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-xs">
+                        <span className="text-muted-foreground">
+                          Total Contract Value:
+                        </span>{" "}
+                        <span className="font-bold">
+                          ₱
+                          {formData.billingSchedule
+                            .reduce((sum, bill) => sum + bill.grossDue, 0)
+                            .toLocaleString()}
                         </span>
                       </div>
-                      <div>
-                        <span className="text-muted-foreground">Monthly:</span>{" "}
-                        <span className="font-medium text-green-600">
-                          ₱{formData.rentAmount.toLocaleString()}
-                        </span>
-                      </div>
                     </div>
-                    <div className="text-xs">
-                      <span className="text-muted-foreground">
-                        Total Contract Value:
-                      </span>{" "}
-                      <span className="font-bold">
-                        ₱
-                        {formData.billingSchedule
-                          .reduce((sum, bill) => sum + bill.grossDue, 0)
-                          .toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                </Card>
-              </div>
-            )}
-
-            {/* Step 4: Completion - More polished */}
-            {currentStep === totalSteps && (
-              <div className="text-center space-y-4">
-                <div className="relative inline-flex mx-auto">
-                  <div className="absolute inset-0 bg-green-200 dark:bg-green-900/30 rounded-full blur-xl opacity-70"></div>
-                  <div className="relative bg-gradient-to-br from-green-100 to-green-50 dark:from-green-900/70 dark:to-green-800/50 p-4 rounded-full">
-                    <CheckCircle className="h-12 w-12 md:h-16 md:w-16 text-green-600 dark:text-green-400" />
-                  </div>
+                  </Card>
                 </div>
+              )}
 
-                <div>
-                  <h2 className="text-xl font-bold text-green-600 dark:text-green-400 mb-1">
-                    Ready to Add Property
-                  </h2>
-                  <p className="text-sm text-muted-foreground">
-                    Your new property will be added to your portfolio
-                  </p>
-                </div>
-
-                <Card className="max-w-sm mx-auto shadow-sm border mt-2">
-                  <CardContent className="p-3 md:p-4">
-                    <div className="space-y-3">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-muted-foreground">
-                          Property
-                        </span>
-                        <span className="text-sm font-medium">
-                          {formData.unitName}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-muted-foreground">
-                          Type
-                        </span>
-                        <span className="text-sm">{formData.propertyType}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-muted-foreground">
-                          Status
-                        </span>
-                        <span className="text-sm font-medium capitalize">
-                          {formData.occupancyStatus === "vacant" ? (
-                            <span className="text-orange-600">Available</span>
-                          ) : (
-                            <span className="text-blue-600">Occupied</span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-muted-foreground">
-                          Rent
-                        </span>
-                        <span className="text-sm font-medium text-green-600">
-                          ₱{formData.rentAmount.toLocaleString()}
-                        </span>
-                      </div>
-
-                      {formData.occupancyStatus === "occupied" && (
-                        <>
-                          <Separator />
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs text-muted-foreground">
-                              Tenant
-                            </span>
-                            <span className="text-sm">
-                              {formData.tenantName}
-                            </span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs text-muted-foreground">
-                              Duration
-                            </span>
-                            <span className="text-sm">
-                              {formData.contractMonths} months
-                            </span>
-                          </div>
-                        </>
-                      )}
+              {/* Step 4: Completion - More polished */}
+              {currentStep === totalSteps && (
+                <div className="text-center space-y-4">
+                  <div className="relative inline-flex mx-auto">
+                    <div className="absolute inset-0 bg-green-200 dark:bg-green-900/30 rounded-full blur-xl opacity-70"></div>
+                    <div className="relative bg-gradient-to-br from-green-100 to-green-50 dark:from-green-900/70 dark:to-green-800/50 p-4 rounded-full">
+                      <CheckCircle className="h-12 w-12 md:h-16 md:w-16 text-green-600 dark:text-green-400" />
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
-            )}
+                  </div>
+
+                  <div>
+                    <h2 className="text-xl font-bold text-green-600 dark:text-green-400 mb-1">
+                      Ready to Add Property
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      Your new property will be added to your portfolio
+                    </p>
+                  </div>
+
+                  <Card className="max-w-sm mx-auto shadow-sm border mt-2">
+                    <CardContent className="p-3 md:p-4">
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">
+                            Property
+                          </span>
+                          <span className="text-sm font-medium">
+                            {formData.unitName}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">
+                            Type
+                          </span>
+                          <span className="text-sm">
+                            {formData.propertyType}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">
+                            Status
+                          </span>
+                          <span className="text-sm font-medium capitalize">
+                            {formData.occupancyStatus === "vacant" ? (
+                              <span className="text-orange-600">Available</span>
+                            ) : (
+                              <span className="text-blue-600">Occupied</span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs text-muted-foreground">
+                            Rent
+                          </span>
+                          <span className="text-sm font-medium text-green-600">
+                            ₱{formData.rentAmount.toLocaleString()}
+                          </span>
+                        </div>
+
+                        {formData.occupancyStatus === "occupied" && (
+                          <>
+                            <Separator />
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs text-muted-foreground">
+                                Tenant
+                              </span>
+                              <span className="text-sm">
+                                {formData.tenantName}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs text-muted-foreground">
+                                Duration
+                              </span>
+                              <span className="text-sm">
+                                {formData.contractMonths} months
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+            </div>
+
+            {/* Right Side - Live Preview */}
+            <div className="hidden lg:block w-96 overflow-y-auto px-4 py-4 bg-muted/20">
+              <PropertyPreview formData={formData} currentStep={currentStep} />
+            </div>
           </div>
 
           {/* Navigation Bar - More compact and visually appealing */}
