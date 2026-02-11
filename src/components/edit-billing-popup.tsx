@@ -835,13 +835,17 @@ export function EditBillingPopup({
                                 paymentAmount >= 0 ? "default" : "outline"
                               }
                               size="icon"
-                              className="h-10 w-10"
+                              className={`h-10 w-10 ${
+                                paymentAmount >= 0
+                                  ? "!bg-emerald-500 hover:!bg-emerald-800 dark:!bg-emerald-900 dark:hover:!bg-emerald-1000 !text-white font-bold shadow-lg border-0 !opacity-100"
+                                  : ""
+                              }`}
                               onClick={() =>
                                 setPaymentAmount(Math.abs(paymentAmount))
                               }
                               disabled={isLocked || paymentAmount >= 0}
                             >
-                              <Plus className="h-4 w-4" />
+                              <Plus className="h-5 w-5" />
                             </Button>
                             <Button
                               type="button"
@@ -849,13 +853,17 @@ export function EditBillingPopup({
                                 paymentAmount < 0 ? "default" : "outline"
                               }
                               size="icon"
-                              className="h-10 w-10"
+                              className={`h-10 w-10 ${
+                                paymentAmount < 0
+                                  ? "!bg-red-500 hover:!bg-red-600 dark:!bg-red-700 dark:hover:!bg-red-800 !text-white font-bold shadow-lg border-0 !opacity-100"
+                                  : ""
+                              }`}
                               onClick={() =>
                                 setPaymentAmount(-Math.abs(paymentAmount))
                               }
                               disabled={isLocked || paymentAmount <= 0}
                             >
-                              <Minus className="h-4 w-4" />
+                              <Minus className="h-5 w-5" />
                             </Button>
                           </div>
                         </div>
