@@ -169,6 +169,8 @@ export function PropertyDetailsPopup({
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [paymentType, setPaymentType] = useState<string>("rent");
+  const [paymentNote, setPaymentNote] = useState<string>("");
+  const [receiptDate, setReceiptDate] = useState<string>("");
   const [isApplyingPayment, setIsApplyingPayment] = useState(false);
 
   // Wrap fetchPropertyDetails in useCallback to prevent recreation on every render
@@ -482,9 +484,15 @@ export function PropertyDetailsPopup({
           },
         );
 
+        // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
+        // console.log('Payment note for activity log:', paymentNote);
+        // console.log('Receipt date for activity log:', receiptDate);
+
         // Reset and close dialog
         setPaymentAmount(0);
         setPaymentType("rent");
+        setPaymentNote("");
+        setReceiptDate("");
         setIsPaymentDialogOpen(false);
         return;
       }
@@ -608,9 +616,15 @@ export function PropertyDetailsPopup({
         });
       }
 
+      // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
+      // console.log('Payment note for activity log:', paymentNote);
+      // console.log('Receipt date for activity log:', receiptDate);
+
       // Reset and close dialog
       setPaymentAmount(0);
       setPaymentType("rent");
+      setPaymentNote("");
+      setReceiptDate("");
       setIsPaymentDialogOpen(false);
     } catch (err) {
       console.error("Error applying payment:", err);
@@ -1994,7 +2008,10 @@ export function PropertyDetailsPopup({
               <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />
               Delete Property Permanently
             </AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2 text-xs sm:text-sm" asChild>
+            <AlertDialogDescription
+              className="space-y-2 text-xs sm:text-sm"
+              asChild
+            >
               <div>
                 <div>
                   Are you sure you want to delete{" "}
@@ -2078,21 +2095,29 @@ export function PropertyDetailsPopup({
                     type="button"
                     variant={paymentAmount >= 0 ? "default" : "outline"}
                     size="icon"
-                    className="h-10 w-10"
+                    className={`h-10 w-10 ${
+                      paymentAmount >= 0
+                        ? "!bg-emerald-500 hover:!bg-emerald-600 dark:!bg-emerald-700 dark:hover:!bg-emerald-800 !text-white font-bold shadow-lg border-0 !opacity-100"
+                        : ""
+                    }`}
                     onClick={() => setPaymentAmount(Math.abs(paymentAmount))}
                     disabled={paymentAmount >= 0}
                   >
-                    <Plus className="h-4 w-4" />
+                    <Plus className="h-5 w-5" />
                   </Button>
                   <Button
                     type="button"
                     variant={paymentAmount < 0 ? "default" : "outline"}
                     size="icon"
-                    className="h-10 w-10"
+                    className={`h-10 w-10 ${
+                      paymentAmount < 0
+                        ? "!bg-red-500 hover:!bg-red-600 dark:!bg-red-700 dark:hover:!bg-red-800 !text-white font-bold shadow-lg border-0 !opacity-100"
+                        : ""
+                    }`}
                     onClick={() => setPaymentAmount(-Math.abs(paymentAmount))}
                     disabled={paymentAmount <= 0}
                   >
-                    <Minus className="h-4 w-4" />
+                    <Minus className="h-5 w-5" />
                   </Button>
                 </div>
               </div>
@@ -2112,6 +2137,36 @@ export function PropertyDetailsPopup({
               </Select>
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="receipt-date" className="text-sm font-medium">
+                Receipt Date (Optional)
+              </Label>
+              <Input
+                id="receipt-date"
+                type="date"
+                value={receiptDate}
+                onChange={(e) => setReceiptDate(e.target.value)}
+                className="h-10"
+              />
+              <p className="text-xs text-muted-foreground">
+                Use this if the payment date differs from the log date
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="payment-note" className="text-sm font-medium">
+                Note (Optional)
+              </Label>
+              <textarea
+                id="payment-note"
+                value={paymentNote}
+                onChange={(e) => setPaymentNote(e.target.value)}
+                placeholder="Add a note for this payment (will appear in activity log)..."
+                className="w-full px-3 py-2 text-sm border rounded-md resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                rows={3}
+              />
+            </div>
+
             <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg p-3">
               <p className="text-xs text-muted-foreground">
                 {paymentType === "deposit" || paymentType === "advance"
@@ -2128,6 +2183,8 @@ export function PropertyDetailsPopup({
                 setIsPaymentDialogOpen(false);
                 setPaymentAmount(0);
                 setPaymentType("rent");
+                setPaymentNote("");
+                setReceiptDate("");
               }}
               disabled={isApplyingPayment}
             >

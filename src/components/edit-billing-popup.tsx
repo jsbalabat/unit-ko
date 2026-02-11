@@ -116,6 +116,8 @@ export function EditBillingPopup({
   >({});
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [paymentType, setPaymentType] = useState<string>("rent");
+  const [paymentNote, setPaymentNote] = useState<string>("");
+  const [receiptDate, setReceiptDate] = useState<string>("");
   const [originalBillingIds, setOriginalBillingIds] = useState<string[]>([]);
   const [tenantPax, setTenantPax] = useState<number>(1);
 
@@ -336,7 +338,13 @@ export function EditBillingPopup({
           },
         );
 
+        // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
+        // console.log('Payment note for activity log:', paymentNote);
+        // console.log('Receipt date for activity log:', receiptDate);
+
         setPaymentAmount(0);
+        setPaymentNote("");
+        setReceiptDate("");
         return;
       } catch (err) {
         console.error("Error updating tenant field:", err);
@@ -406,7 +414,14 @@ export function EditBillingPopup({
     // Recalculate all statuses with carry-over logic
     const finalSchedule = recalculateAllStatuses(updatedSchedule);
     setFormData({ ...formData, billingSchedule: finalSchedule });
+
+    // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
+    // console.log('Payment note for activity log:', paymentNote);
+    // console.log('Receipt date for activity log:', receiptDate);
+
     setPaymentAmount(0);
+    setPaymentNote("");
+    setReceiptDate("");
 
     if (paymentAmount > 0 && remainingPayment > 0) {
       toast.info(`₱${remainingPayment.toFixed(2)} excess payment remaining`, {
@@ -895,6 +910,44 @@ export function EditBillingPopup({
                           <DollarSign className="h-4 w-4 mr-2" />
                           Apply Payment
                         </Button>
+                      </div>
+                      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                          <Label
+                            htmlFor="receiptDate"
+                            className="text-xs font-medium"
+                          >
+                            Receipt Date (Optional)
+                          </Label>
+                          <Input
+                            id="receiptDate"
+                            type="date"
+                            value={receiptDate}
+                            onChange={(e) => setReceiptDate(e.target.value)}
+                            className="mt-1.5 h-9 text-xs"
+                            disabled={isLocked}
+                          />
+                          <p className="text-[10px] text-muted-foreground mt-1">
+                            If payment date differs from log date
+                          </p>
+                        </div>
+                        <div>
+                          <Label
+                            htmlFor="paymentNote"
+                            className="text-xs font-medium"
+                          >
+                            Note (Optional)
+                          </Label>
+                          <textarea
+                            id="paymentNote"
+                            value={paymentNote}
+                            onChange={(e) => setPaymentNote(e.target.value)}
+                            placeholder="Add a note for this payment..."
+                            className="w-full mt-1.5 px-3 py-2 text-xs border rounded-md resize-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                            rows={2}
+                            disabled={isLocked}
+                          />
+                        </div>
                       </div>
                       <p className="text-xs text-muted-foreground mt-2">
                         {paymentType === "deposit" || paymentType === "advance"
