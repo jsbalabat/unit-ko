@@ -1012,20 +1012,10 @@ export function PropertyDetailsPopup({
                                   (person, index) => (
                                     <div
                                       key={index}
-                                      className={`p-3 rounded-lg border ${
-                                        index === 0
-                                          ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-800"
-                                          : "bg-muted/30"
-                                      }`}
+                                      className="p-3 rounded-lg border bg-muted/30"
                                     >
                                       <div className="flex items-start gap-3">
-                                        <div
-                                          className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                                            index === 0
-                                              ? "bg-blue-600 text-white"
-                                              : "bg-muted text-muted-foreground"
-                                          }`}
-                                        >
+                                        <div className="h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 bg-muted text-muted-foreground">
                                           <User className="h-5 w-5" />
                                         </div>
                                         <div className="flex-1 min-w-0">
@@ -1033,14 +1023,6 @@ export function PropertyDetailsPopup({
                                             <p className="font-medium text-sm">
                                               {person.name || "Not provided"}
                                             </p>
-                                            {index === 0 && (
-                                              <Badge
-                                                variant="secondary"
-                                                className="text-[10px] px-1.5 py-0"
-                                              >
-                                                Main Tenant
-                                              </Badge>
-                                            )}
                                           </div>
                                           {person.email && (
                                             <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
@@ -1215,7 +1197,7 @@ export function PropertyDetailsPopup({
                                   </Badge>
 
                                   {/* Expense items tooltip - more mobile friendly */}
-                                  <div className="hidden group-hover:block absolute right-0 bottom-full mb-2 bg-popover shadow-md rounded-md p-2 z-10 w-48 xs:w-64 border">
+                                  <div className="hidden group-hover:block absolute right-0 bottom-full mb-2 bg-popover shadow-md rounded-md p-2 z-50 w-48 xs:w-64 border">
                                     <div className="text-xs font-medium mb-1">
                                       Expense Breakdown:
                                     </div>
@@ -1663,7 +1645,7 @@ export function PropertyDetailsPopup({
                                             <div className="flex items-center">
                                               <ClipboardCheck className="h-3 w-3 text-muted-foreground mr-1.5 flex-shrink-0" />
                                               <span>
-                                                Month {entry.billing_period}
+                                                {entry.billing_period}
                                               </span>
                                             </div>
                                           </td>
@@ -1701,9 +1683,9 @@ export function PropertyDetailsPopup({
                                               </div>
 
                                               {/* Hover tooltip for expenses */}
-                                              <div className="hidden group-hover:block absolute left-0 top-full mt-2 bg-popover shadow-lg rounded-md p-2 z-20 min-w-[200px] border">
+                                              <div className="hidden group-hover:block absolute left-0 top-full mt-2 bg-popover shadow-lg rounded-md p-2 z-50 min-w-[200px] border">
                                                 <div className="text-xs font-medium mb-1.5">
-                                                  Expenses for Month{" "}
+                                                  Expenses for Period{" "}
                                                   {entry.billing_period}:
                                                 </div>
                                                 {expenseItems.map((item) => (
@@ -2024,7 +2006,14 @@ export function PropertyDetailsPopup({
                     <>
                       <li>
                         Tenant information for{" "}
-                        <strong>{activeTenant.tenant_name}</strong>
+                        {activeTenant.pax_details &&
+                        activeTenant.pax_details.length > 1 ? (
+                          <strong>
+                            Multiple Tenants ({activeTenant.pax_details.length})
+                          </strong>
+                        ) : (
+                          <strong>{activeTenant.tenant_name}</strong>
+                        )}
                       </li>
                       <li>All billing and payment records</li>
                     </>

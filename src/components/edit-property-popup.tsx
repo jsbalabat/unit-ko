@@ -214,27 +214,27 @@ export function EditPropertyPopup({
           billingSchedule: [],
         };
 
-        // Ensure Person 1 is populated with the main tenant's info
+        // Ensure Person 1 is populated with the tenant's info
         if (activeTenant) {
-          const mainTenantAsPerson1 = {
+          const tenantAsPerson1 = {
             name: activeTenant.tenant_name || "",
             email: "",
             phone: activeTenant.contact_number || "",
           };
 
-          // If pax_details exists and has Person 1, merge with main tenant data
+          // If pax_details exists and has Person 1, merge with tenant data
           if (
             initialFormData.paxDetails.length > 0 &&
             initialFormData.paxDetails[0]
           ) {
             initialFormData.paxDetails[0] = {
-              ...mainTenantAsPerson1,
+              ...tenantAsPerson1,
               email: initialFormData.paxDetails[0].email || "",
             };
           } else {
             // Ensure paxDetails array has at least Person 1
             initialFormData.paxDetails = [
-              mainTenantAsPerson1,
+              tenantAsPerson1,
               ...initialFormData.paxDetails.slice(1),
             ];
           }
@@ -459,7 +459,7 @@ export function EditPropertyPopup({
       });
     }
 
-    // Sync main tenant fields to Person 1 in paxDetails
+    // Sync tenant fields to Person 1 in paxDetails
     if (field === "tenantName" && updatedFormData.paxDetails.length > 0) {
       updatedFormData.paxDetails[0] = {
         ...updatedFormData.paxDetails[0],
@@ -484,7 +484,7 @@ export function EditPropertyPopup({
 
         toast.info("Property set to occupied", {
           description:
-            "Please fill in Person 1 details below (main tenant information required)",
+            "Please fill in Person 1 details below (tenant information required)",
         });
       }
     }
@@ -521,7 +521,10 @@ export function EditPropertyPopup({
     }
 
     if (index === 0) {
-      toast.error("Cannot remove the main tenant (Person 1)");
+      toast.error("Cannot remove Person 1", {
+        description:
+          "At least one tenant is required. You can edit Person 1 details instead.",
+      });
       return;
     }
 
@@ -557,7 +560,7 @@ export function EditPropertyPopup({
 
     const updatedPaxDetails = [...formData.paxDetails];
 
-    // Ensure Person 1 (main tenant) always exists
+    // Ensure Person 1 always exists
     if (updatedPaxDetails.length === 0) {
       updatedPaxDetails.push({
         name: formData.tenantName,
@@ -595,7 +598,7 @@ export function EditPropertyPopup({
     if (hasPaxData || formData.occupancyStatus === "occupied") {
       // Validate Person 1 has name
       if (!person1 || !person1.name || person1.name.trim() === "") {
-        toast.error("Person 1 (Main Tenant) name is required", {
+        toast.error("Person 1 name is required", {
           description:
             "Please fill in the name for Person 1 in the Individual Person Details section",
         });
@@ -1267,8 +1270,8 @@ export function EditPropertyPopup({
                       </div>
                     </div>
                     <p className="text-xs text-muted-foreground mb-4">
-                      Person 1 represents the main tenant. All information is
-                      saved to the database automatically when you save changes.
+                      Manage individual tenant details. All information is saved
+                      to the database automatically when you save changes.
                       <span className="text-red-500"> * Required field</span>
                     </p>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

@@ -212,7 +212,7 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
                   <div className="space-y-1">
                     <div className="flex items-center gap-2 text-xs">
                       <User className="h-3 w-3 text-blue-600" />
-                      <span className="font-medium">Main Tenant</span>
+                      <span className="font-medium">Tenant</span>
                     </div>
                     {formData.tenantName && (
                       <p className="text-xs ml-5">{formData.tenantName}</p>
@@ -220,27 +220,50 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
                   </div>
                 ) : (
                   <div className="space-y-1">
-                    {formData.tenants.map(
-                      (tenant, idx) =>
-                        tenant.tenantName && (
-                          <div
-                            key={idx}
-                            className="flex items-center gap-2 text-xs"
-                          >
-                            <User
-                              className={cn(
-                                "h-3 w-3",
-                                idx === 0
-                                  ? "text-blue-600"
-                                  : "text-muted-foreground",
-                              )}
-                            />
-                            <span className={idx === 0 ? "font-medium" : ""}>
-                              {idx === 0 ? "Main: " : `Person ${idx + 1}: `}
-                              {tenant.tenantName}
-                            </span>
+                    {formData.tenants.filter((t) => t.tenantName).length > 1 ? (
+                      <div className="relative group">
+                        <div className="flex items-center gap-2 text-xs">
+                          <User className="h-3 w-3 text-blue-600" />
+                          <span className="font-medium cursor-help">
+                            Multiple (
+                            {
+                              formData.tenants.filter((t) => t.tenantName)
+                                .length
+                            }
+                            )
+                          </span>
+                        </div>
+                        {/* Hover tooltip */}
+                        <div className="hidden group-hover:block absolute left-0 top-full mt-2 bg-popover shadow-lg rounded-md p-3 z-50 min-w-[200px] border">
+                          <div className="text-xs font-medium mb-2">
+                            Tenants:
                           </div>
-                        ),
+                          <div className="space-y-1">
+                            {formData.tenants.map((tenant, idx) =>
+                              tenant.tenantName ? (
+                                <div key={idx} className="text-xs">
+                                  {idx + 1}. {tenant.tenantName}
+                                </div>
+                              ) : null,
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      formData.tenants.map(
+                        (tenant, idx) =>
+                          tenant.tenantName && (
+                            <div
+                              key={idx}
+                              className="flex items-center gap-2 text-xs"
+                            >
+                              <User className="h-3 w-3 text-blue-600" />
+                              <span className="font-medium">
+                                {tenant.tenantName}
+                              </span>
+                            </div>
+                          ),
+                      )
                     )}
                   </div>
                 )}
@@ -1956,7 +1979,7 @@ export function MultiStepPopup({
                           <div key={index} className="p-3">
                             <div className="flex justify-between items-center mb-2">
                               <h4 className="text-xs font-medium">
-                                Month {index + 1}
+                                {index + 1}
                               </h4>
                               <span className="text-xs bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded-full">
                                 {bill.dueDate}
@@ -2011,7 +2034,7 @@ export function MultiStepPopup({
                         <table className="w-full">
                           <thead>
                             <tr className="bg-muted/50 text-xs font-medium">
-                              <th className="text-left p-2">Month</th>
+                              <th className="text-left p-2">Period</th>
                               <th className="text-left p-2">Due Date</th>
                               <th className="text-left p-2">Rent</th>
                               <th className="text-left p-2">Other Charges</th>
