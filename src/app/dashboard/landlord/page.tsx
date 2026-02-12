@@ -516,10 +516,10 @@ function LandlordDashboard() {
                 const paxCount = activeTenant?.pax || 0;
                 const occupancyText =
                   property.occupancy_status === "occupied" && paxCount > 0
-                    ? `${paxCount} ${paxCount === 1 ? 'person' : 'people'}`
+                    ? `${paxCount} ${paxCount === 1 ? "person" : "people"}`
                     : "Vacant";
 
-                const perPersonRent = 
+                const perPersonRent =
                   property.occupancy_status === "occupied" && paxCount > 1
                     ? property.rent_amount / paxCount
                     : null;
@@ -575,10 +575,12 @@ function LandlordDashboard() {
                           </div>
                           {perPersonRent && (
                             <div className="text-[10px] text-green-700 dark:text-green-300 mt-0.5">
-                              ₱{perPersonRent.toLocaleString(undefined, {
+                              ₱
+                              {perPersonRent.toLocaleString(undefined, {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
-                              })} per person
+                              })}{" "}
+                              per person
                             </div>
                           )}
                         </div>
@@ -601,11 +603,13 @@ function LandlordDashboard() {
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-xs text-muted-foreground">
-                          {paxCount > 1 ? "Main Tenant" : "Tenant"}
+                          Tenant
                         </span>
                         <span className="font-medium text-sm truncate max-w-[150px]">
-                          {activeTenant 
-                            ? (activeTenant.pax_details?.[0]?.name || activeTenant.tenant_name || "-")
+                          {activeTenant
+                            ? activeTenant.pax_details?.[0]?.name ||
+                              activeTenant.tenant_name ||
+                              "-"
                             : "-"}
                         </span>
                       </div>
