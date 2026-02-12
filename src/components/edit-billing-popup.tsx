@@ -1087,7 +1087,7 @@ export function EditBillingPopup({
                     </table>
                   </div>
 
-                  {/* Add New Billing Month Button */}
+                  {/* Add New Billing Period Button */}
                   <div className="mt-4 flex justify-end">
                     <Button
                       variant="outline"
@@ -1097,7 +1097,7 @@ export function EditBillingPopup({
                       className="gap-2"
                     >
                       <Plus className="h-4 w-4" />
-                      Add New Billing Month
+                      Add New Billing Period
                     </Button>
                   </div>
                 </CardContent>

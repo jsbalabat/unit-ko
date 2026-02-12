@@ -31,7 +31,7 @@ import Link from "next/link";
 
 interface MonthlyStatement {
   id: string;
-  month: string;
+  period: string;
   year: number;
   amount: number;
   status: "paid" | "pending" | "overdue";
@@ -174,7 +174,7 @@ function SubscriptionPage() {
       const mockStatements: MonthlyStatement[] = [
         {
           id: "1",
-          month: "January",
+          period: "January",
           year: 2026,
           amount: 299,
           status: "pending",
@@ -182,7 +182,7 @@ function SubscriptionPage() {
         },
         {
           id: "2",
-          month: "December",
+          period: "December",
           year: 2025,
           amount: 299,
           status: "paid",
@@ -191,7 +191,7 @@ function SubscriptionPage() {
         },
         {
           id: "3",
-          month: "November",
+          period: "November",
           year: 2025,
           amount: 299,
           status: "paid",
@@ -459,7 +459,7 @@ function SubscriptionPage() {
                         </div>
                         <div>
                           <h4 className="font-medium">
-                            {statement.month} {statement.year}
+                            {statement.period} {statement.year}
                           </h4>
                           <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3 text-sm text-muted-foreground mt-1">
                             <span className="flex items-center gap-1">
