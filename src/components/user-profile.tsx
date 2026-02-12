@@ -444,7 +444,7 @@ export function UserProfile() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <CreditCard className="h-5 w-5" />
-              Payment Channels
+              Linked Accounts
             </CardTitle>
             <p className="text-sm text-muted-foreground mt-1">
               Quick access to payment platforms and methods

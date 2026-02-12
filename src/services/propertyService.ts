@@ -106,7 +106,7 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
           }
         })
       } else if (formData.tenantName) {
-        // Single occupant - create pax_details from main tenant fields
+        // Single occupant - create pax_details from tenant fields
         paxDetails.push({
           name: formData.tenantName,
           email: formData.tenantEmail || '',
@@ -116,14 +116,14 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
 
       // Only create tenant if we have at least one person
       if (paxDetails.length > 0) {
-        const mainTenant = paxDetails[0]
+        const firstTenant = paxDetails[0]
         
         const { data: tenantData, error: tenantError } = await supabase
           .from('tenants')
           .insert({
             property_id: property.id,
-            tenant_name: mainTenant.name,
-            contact_number: mainTenant.phone,
+            tenant_name: firstTenant.name,
+            contact_number: firstTenant.phone || '',
             pax: paxDetails.length,
             pax_details: paxDetails,
             contract_months: formData.contractMonths,
@@ -146,13 +146,13 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
 
         tenants.push(tenantData)
 
-        // 3. Create profile entry for main tenant (optional - skip if table doesn't exist)
-        if (tenantData && tenantData.id && mainTenant.email) {
+        // 3. Create profile entry for tenant (optional - skip if table doesn't exist)
+        if (tenantData && tenantData.id && firstTenant.email) {
           try {
             await supabase
               .from('profiles')
               .insert({
-                email: mainTenant.email,
+                email: firstTenant.email,
                 full_name: mainTenant.name,
                 phone: mainTenant.phone,
                 role: 'tenant',
