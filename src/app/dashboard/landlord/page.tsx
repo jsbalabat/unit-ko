@@ -527,7 +527,7 @@ function LandlordDashboard() {
                 return (
                   <Card
                     key={property.id}
-                    className="overflow-hidden transition-all hover:shadow-md"
+                    className="transition-all hover:shadow-md overflow-x-hidden"
                   >
                     <div
                       className={cn(
@@ -605,13 +605,36 @@ function LandlordDashboard() {
                         <span className="text-xs text-muted-foreground">
                           Tenant
                         </span>
-                        <span className="font-medium text-sm truncate max-w-[150px]">
-                          {activeTenant
-                            ? activeTenant.pax_details?.[0]?.name ||
-                              activeTenant.tenant_name ||
-                              "-"
-                            : "-"}
-                        </span>
+                        {activeTenant &&
+                        activeTenant.pax_details &&
+                        activeTenant.pax_details.length > 1 ? (
+                          <div className="relative group">
+                            <span className="font-medium text-sm cursor-help">
+                              Multiple ({activeTenant.pax_details.length})
+                            </span>
+                            {/* Hover tooltip - positioned upwards */}
+                            <div className="hidden group-hover:block absolute right-0 bottom-full mb-2 bg-popover shadow-lg rounded-md p-3 z-50 min-w-[200px] border">
+                              <div className="text-xs font-medium mb-2">
+                                Tenants:
+                              </div>
+                              <div className="space-y-1">
+                                {activeTenant.pax_details.map((person, idx) => (
+                                  <div key={idx} className="text-xs">
+                                    {idx + 1}. {person.name}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="font-medium text-sm truncate max-w-[150px]">
+                            {activeTenant
+                              ? activeTenant.pax_details?.[0]?.name ||
+                                activeTenant.tenant_name ||
+                                "-"
+                              : "-"}
+                          </span>
+                        )}
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-xs text-muted-foreground">
