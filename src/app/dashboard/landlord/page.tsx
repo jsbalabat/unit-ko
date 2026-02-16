@@ -513,7 +513,13 @@ function LandlordDashboard() {
                   };
                 })();
 
-                const paxCount = activeTenant?.pax || 0;
+                // Count only filled-in pax_details entries
+                const filledPaxCount =
+                  activeTenant?.pax_details?.filter(
+                    (p) => p.name && p.name.trim() !== "",
+                  ).length || 0;
+                const paxCount =
+                  filledPaxCount > 0 ? filledPaxCount : activeTenant?.pax || 0;
                 const occupancyText =
                   property.occupancy_status === "occupied" && paxCount > 0
                     ? `${paxCount} ${paxCount === 1 ? "person" : "people"}`
@@ -571,11 +577,11 @@ function LandlordDashboard() {
                         </span>
                         <div className="text-right">
                           <div className="font-medium text-green-600 dark:text-green-400">
-                            ₱{property.rent_amount.toLocaleString()}
+                            ~ ₱{property.rent_amount.toLocaleString()}
                           </div>
                           {perPersonRent && (
                             <div className="text-[10px] text-green-700 dark:text-green-300 mt-0.5">
-                              ₱
+                              ~ ₱
                               {perPersonRent.toLocaleString(undefined, {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
@@ -595,44 +601,50 @@ function LandlordDashboard() {
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-xs text-muted-foreground">
-                          Occupancy
-                        </span>
-                        <span className="font-medium text-sm">
-                          {occupancyText}
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs text-muted-foreground">
-                          Tenant
+                          Tenant Occupancy
                         </span>
                         {activeTenant &&
                         activeTenant.pax_details &&
-                        activeTenant.pax_details.length > 1 ? (
-                          <div className="relative group">
+                        activeTenant.pax_details.length > 0 ? (
+                          <div className="group">
                             <span className="font-medium text-sm cursor-help">
-                              Multiple ({activeTenant.pax_details.length})
+                              {filledPaxCount}/{activeTenant.pax_details.length}
                             </span>
-                            {/* Hover tooltip - positioned upwards */}
-                            <div className="hidden group-hover:block absolute right-0 bottom-full mb-2 bg-popover shadow-lg rounded-md p-3 z-50 min-w-[200px] border">
-                              <div className="text-xs font-medium mb-2">
-                                Tenants:
-                              </div>
-                              <div className="space-y-1">
-                                {activeTenant.pax_details.map((person, idx) => (
-                                  <div key={idx} className="text-xs">
-                                    {idx + 1}. {person.name}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
+                            {/* Hover tooltip - positioned upwards - wrapper technique */}
+                            <span className="absolute invisible group-hover:visible z-[100]">
+                              <span className="relative block right-0 bottom-full mb-1 bg-popover shadow-lg rounded-md p-3 min-w-[200px] border">
+                                <div className="text-xs font-medium mb-2">
+                                  Tenants:
+                                </div>
+                                <div className="space-y-1">
+                                  {activeTenant.pax_details.map(
+                                    (person, idx) => (
+                                      <div key={idx} className="text-xs">
+                                        {person.name &&
+                                        person.name.trim() !== "" ? (
+                                          <span>
+                                            {idx + 1}. {person.name}
+                                          </span>
+                                        ) : (
+                                          <span className="text-muted-foreground">
+                                            {idx + 1}.{" "}
+                                            <span className="italic">
+                                              Slot Vacant
+                                            </span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    ),
+                                  )}
+                                </div>
+                              </span>
+                            </span>
                           </div>
                         ) : (
-                          <span className="font-medium text-sm truncate max-w-[150px]">
-                            {activeTenant
-                              ? activeTenant.pax_details?.[0]?.name ||
-                                activeTenant.tenant_name ||
-                                "-"
-                              : "-"}
+                          <span className="font-medium text-sm">
+                            {property.occupancy_status === "occupied"
+                              ? "1/1"
+                              : "0/0"}
                           </span>
                         )}
                       </div>
