@@ -573,22 +573,12 @@ function LandlordDashboard() {
                     <CardContent className="space-y-2.5 pb-3">
                       <div className="flex justify-between items-center">
                         <span className="text-xs text-muted-foreground">
-                          Monthly Rent
+                          Monthly Rent per Tenant
                         </span>
                         <div className="text-right">
                           <div className="font-medium text-green-600 dark:text-green-400">
                             ~ ₱{property.rent_amount.toLocaleString()}
                           </div>
-                          {perPersonRent && (
-                            <div className="text-[10px] text-green-700 dark:text-green-300 mt-0.5">
-                              ~ ₱
-                              {perPersonRent.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}{" "}
-                              per person
-                            </div>
-                          )}
                         </div>
                       </div>
                       <div className="flex justify-between items-center">

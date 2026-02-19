@@ -84,6 +84,11 @@ interface BillingEntry {
   created_at: string;
   updated_at: string;
   expense_items?: string; // Add this field for the JSON string of expense items
+  tenant_payments?: string; // JSON string of per-tenant payments: {"0": 1500, "1": 1500}
+}
+
+interface TenantPaymentMap {
+  [tenantIndex: string]: number;
 }
 
 interface ExpenseItem {
@@ -111,6 +116,7 @@ interface Tenant {
   is_active: boolean;
   advance_payment?: number;
   security_deposit?: number;
+  overflow?: number;
   created_at: string;
   updated_at: string;
   billing_entries?: BillingEntry[];
@@ -172,6 +178,11 @@ export function PropertyDetailsPopup({
   const [paymentNote, setPaymentNote] = useState<string>("");
   const [receiptDate, setReceiptDate] = useState<string>("");
   const [isApplyingPayment, setIsApplyingPayment] = useState(false);
+  const [selectedTenantIndex, setSelectedTenantIndex] = useState<number | null>(
+    null,
+  );
+  const [billingViewMode, setBillingViewMode] =
+    useState<string>("consolidated");
 
   // Wrap fetchPropertyDetails in useCallback to prevent recreation on every render
   const fetchPropertyDetails = useCallback(async () => {
@@ -193,6 +204,10 @@ export function PropertyDetailsPopup({
         `,
         )
         .eq("id", propertyId)
+        .order("billing_period", {
+          foreignTable: "tenants.billing_entries",
+          ascending: true,
+        })
         .single();
 
       if (error) throw error;
@@ -241,8 +256,8 @@ export function PropertyDetailsPopup({
   const getStatusColorClass = (status: string): string => {
     const lowerStatus = status.toLowerCase();
 
-    // Good Standing - Green
-    if (lowerStatus.includes("collected") || lowerStatus === "good standing") {
+    // Paid - Green
+    if (lowerStatus.includes("collected") || lowerStatus === "paid") {
       return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-800/50";
     }
 
@@ -275,8 +290,8 @@ export function PropertyDetailsPopup({
   // Convert billing status to payment display status
   const getPaymentDisplayStatus = (status: string): string => {
     const lowerStatus = status.toLowerCase();
-    // Good Standing = Paid
-    if (lowerStatus === "good standing" || lowerStatus.includes("collected")) {
+    // Paid = Paid
+    if (lowerStatus === "paid" || lowerStatus.includes("collected")) {
       return "Paid";
     }
     // All others = Pending
@@ -453,6 +468,26 @@ export function PropertyDetailsPopup({
     setIsApplyingPayment(true);
 
     try {
+      // Build payment note with tenant information if applicable
+      let finalPaymentNote = paymentNote;
+      if (
+        paxCount > 1 &&
+        selectedTenantIndex !== null &&
+        activeTenant.pax_details
+      ) {
+        const tenantName =
+          activeTenant.pax_details[selectedTenantIndex]?.name ||
+          `Tenant ${selectedTenantIndex + 1}`;
+        const prefix = `Payment by: ${tenantName} (Share: 1/${paxCount})`;
+        finalPaymentNote = paymentNote ? `${prefix}. ${paymentNote}` : prefix;
+      } else if (paxCount > 1 && selectedTenantIndex === null) {
+        const prefix = `Payment for all tenants (Full amount)`;
+        finalPaymentNote = paymentNote ? `${prefix}. ${paymentNote}` : prefix;
+      }
+
+      // If a specific tenant is selected in pax system, apply only their share
+      const isPerPersonPayment = paxCount > 1 && selectedTenantIndex !== null;
+
       // Handle Deposit and Advance Payment differently
       if (paymentType === "deposit" || paymentType === "advance") {
         // Update tenant's deposit or advance payment field
@@ -499,6 +534,7 @@ export function PropertyDetailsPopup({
 
       // Handle normal rent/other charges payment to billing entries
       const entries = activeTenant.billing_entries || [];
+      const currentOverflow = activeTenant.overflow || 0;
 
       // Sort entries: chronologically for positive payments, reverse for negative payments
       const sortedEntries = [...entries].sort((a, b) => {
@@ -509,62 +545,285 @@ export function PropertyDetailsPopup({
       });
 
       let remainingPayment = paymentAmount;
-      const updates: Array<{ id: string; paidAmount: number; status: string }> =
-        [];
+      let newOverflow = currentOverflow;
+      const updates: Array<{
+        id: string;
+        paidAmount: number;
+        status: string;
+        tenantPayments: string;
+      }> = [];
 
-      // Apply payment to each entry in chronological order
-      for (const entry of sortedEntries) {
-        // For negative payments, process all entries to allow deduction
-        if (paymentAmount > 0 && remainingPayment <= 0) break;
-        if (paymentAmount < 0 && remainingPayment >= 0) break;
+      // For POSITIVE payments: First use overflow to pay billing entries, then add excess to overflow
+      if (paymentAmount > 0) {
+        // Step 1: Use existing overflow to pay off billing entries first
+        if (newOverflow > 0) {
+          for (const entry of sortedEntries) {
+            if (newOverflow <= 0) break;
 
-        const currentPaid = entry.paid_amount || 0;
+            const currentPaid = entry.paid_amount || 0;
+            const amountDue = entry.gross_due - currentPaid;
 
-        // For positive payments, only apply to entries with amounts due
-        // For negative payments, only deduct from entries with paid amounts
-        if (paymentAmount > 0) {
-          const amountDue = entry.gross_due - currentPaid;
-          if (amountDue > 0) {
-            const paymentToApply = Math.min(remainingPayment, amountDue);
-            const newPaidAmount = currentPaid + paymentToApply;
+            if (amountDue > 0) {
+              const overflowToUse = Math.min(newOverflow, amountDue);
+              const newPaidAmount = currentPaid + overflowToUse;
+              newOverflow -= overflowToUse;
 
-            // Determine new status
-            let newStatus = entry.status;
-            if (newPaidAmount >= entry.gross_due) {
-              newStatus = "paid";
-            } else if (newPaidAmount > 0) {
-              newStatus = "partial";
+              // Parse existing tenant payments
+              let tenantPaymentsMap: TenantPaymentMap = {};
+              try {
+                tenantPaymentsMap = entry.tenant_payments
+                  ? JSON.parse(entry.tenant_payments)
+                  : {};
+              } catch (e) {
+                tenantPaymentsMap = {};
+              }
+
+              // Distribute overflow payment proportionally among all tenants
+              const paymentPerTenant = overflowToUse / paxCount;
+              for (let i = 0; i < paxCount; i++) {
+                const tenantKey = i.toString();
+                const currentTenantPaid = tenantPaymentsMap[tenantKey] || 0;
+                tenantPaymentsMap[tenantKey] =
+                  currentTenantPaid + paymentPerTenant;
+              }
+
+              // Determine new status
+              let newStatus = entry.status;
+              const epsilon = 0.01;
+              if (newPaidAmount >= entry.gross_due - epsilon) {
+                newStatus = "Paid";
+              } else if (newPaidAmount > epsilon) {
+                newStatus = "Partial";
+              } else {
+                const dueDate = new Date(entry.due_date);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                dueDate.setHours(0, 0, 0, 0);
+                newStatus = dueDate < today ? "overdue" : "Not Yet Due";
+              }
+
+              updates.push({
+                id: entry.id,
+                paidAmount: newPaidAmount,
+                status: newStatus,
+                tenantPayments: JSON.stringify(tenantPaymentsMap),
+              });
+            }
+          }
+        }
+
+        // Step 2: Apply the new payment to billing entries
+        for (const entry of sortedEntries) {
+          if (remainingPayment <= 0) break;
+
+          // Find if this entry was already updated from overflow
+          const existingUpdate = updates.find((u) => u.id === entry.id);
+          const currentPaid = existingUpdate
+            ? existingUpdate.paidAmount
+            : entry.paid_amount || 0;
+
+          // Parse existing tenant payments
+          let tenantPaymentsMap: TenantPaymentMap = {};
+          try {
+            if (existingUpdate) {
+              tenantPaymentsMap = JSON.parse(existingUpdate.tenantPayments);
             } else {
-              // Determine overdue vs not yet due
-              const dueDate = new Date(entry.due_date);
-              const today = new Date();
-              today.setHours(0, 0, 0, 0);
-              dueDate.setHours(0, 0, 0, 0);
-              newStatus = dueDate < today ? "overdue" : "Not Yet Due";
+              tenantPaymentsMap = entry.tenant_payments
+                ? JSON.parse(entry.tenant_payments)
+                : {};
+            }
+          } catch (e) {
+            tenantPaymentsMap = {};
+          }
+
+          const perPersonShare = entry.gross_due / paxCount;
+          let amountDue: number;
+          let paymentToApply: number;
+
+          if (isPerPersonPayment && selectedTenantIndex !== null) {
+            // Individual tenant payment - check their specific share
+            const tenantKey = selectedTenantIndex.toString();
+            const tenantPaid = tenantPaymentsMap[tenantKey] || 0;
+            const tenantShare = perPersonShare;
+            const tenantDue = tenantShare - tenantPaid;
+
+            if (tenantDue > 0) {
+              paymentToApply = Math.min(remainingPayment, tenantDue);
+              tenantPaymentsMap[tenantKey] = tenantPaid + paymentToApply;
+              const newTotalPaid = Object.values(tenantPaymentsMap).reduce(
+                (sum, val) => sum + val,
+                0,
+              );
+
+              // Determine new status based on all tenant payments
+              let newStatus = "Partial";
+              const epsilon = 0.01;
+
+              // Check if all tenants have paid their shares
+              const allTenantsPaid = Array.from(
+                { length: paxCount },
+                (_, i) => {
+                  const paid = tenantPaymentsMap[i.toString()] || 0;
+                  return paid >= perPersonShare - epsilon;
+                },
+              ).every(Boolean);
+
+              if (allTenantsPaid || newTotalPaid >= entry.gross_due - epsilon) {
+                newStatus = "Paid";
+              } else if (newTotalPaid > epsilon) {
+                newStatus = "Partial";
+              } else {
+                const dueDate = new Date(entry.due_date);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                dueDate.setHours(0, 0, 0, 0);
+                newStatus = dueDate < today ? "overdue" : "Not Yet Due";
+              }
+
+              if (existingUpdate) {
+                existingUpdate.paidAmount = newTotalPaid;
+                existingUpdate.status = newStatus;
+                existingUpdate.tenantPayments =
+                  JSON.stringify(tenantPaymentsMap);
+              } else {
+                updates.push({
+                  id: entry.id,
+                  paidAmount: newTotalPaid,
+                  status: newStatus,
+                  tenantPayments: JSON.stringify(tenantPaymentsMap),
+                });
+              }
+
+              remainingPayment -= paymentToApply;
+            }
+          } else {
+            // Full payment (all tenants) - traditional logic
+            amountDue = entry.gross_due - currentPaid;
+            if (amountDue > 0) {
+              paymentToApply = Math.min(remainingPayment, amountDue);
+              const newPaidAmount = currentPaid + paymentToApply;
+
+              // Distribute payment proportionally among all tenants
+              const paymentPerTenant = paymentToApply / paxCount;
+              for (let i = 0; i < paxCount; i++) {
+                const tenantKey = i.toString();
+                const currentTenantPaid = tenantPaymentsMap[tenantKey] || 0;
+                tenantPaymentsMap[tenantKey] =
+                  currentTenantPaid + paymentPerTenant;
+              }
+
+              // Determine new status
+              let newStatus = entry.status;
+              const epsilon = 0.01;
+              if (newPaidAmount >= entry.gross_due - epsilon) {
+                newStatus = "Paid";
+              } else if (newPaidAmount > epsilon) {
+                newStatus = "Partial";
+              } else {
+                // Determine overdue vs not yet due
+                const dueDate = new Date(entry.due_date);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                dueDate.setHours(0, 0, 0, 0);
+                newStatus = dueDate < today ? "overdue" : "Not Yet Due";
+              }
+
+              if (existingUpdate) {
+                existingUpdate.paidAmount = newPaidAmount;
+                existingUpdate.status = newStatus;
+                existingUpdate.tenantPayments =
+                  JSON.stringify(tenantPaymentsMap);
+              } else {
+                updates.push({
+                  id: entry.id,
+                  paidAmount: newPaidAmount,
+                  status: newStatus,
+                  tenantPayments: JSON.stringify(tenantPaymentsMap),
+                });
+              }
+
+              remainingPayment -= paymentToApply;
+            }
+          }
+        }
+
+        // Step 3: Any remaining payment goes to overflow
+        if (remainingPayment > 0) {
+          newOverflow += remainingPayment;
+          remainingPayment = 0;
+        }
+      } else {
+        // For NEGATIVE payments (refunds): Deduct from overflow FIRST (highest priority), then from billing entries
+
+        // Step 1: Deduct from overflow first
+        if (remainingPayment < 0 && newOverflow > 0) {
+          const deductFromOverflow = Math.min(
+            Math.abs(remainingPayment),
+            newOverflow,
+          );
+          newOverflow -= deductFromOverflow;
+          remainingPayment += deductFromOverflow;
+        }
+
+        // Step 2: If still have remaining negative payment, deduct from billing entries
+        for (const entry of sortedEntries) {
+          if (remainingPayment >= 0) break;
+
+          const currentPaid = entry.paid_amount || 0;
+
+          if (currentPaid > 0) {
+            let deductionAmount: number;
+            let newPaidAmount: number;
+
+            // Parse existing tenant payments
+            let tenantPaymentsMap: TenantPaymentMap = {};
+            try {
+              tenantPaymentsMap = entry.tenant_payments
+                ? JSON.parse(entry.tenant_payments)
+                : {};
+            } catch (e) {
+              tenantPaymentsMap = {};
             }
 
-            updates.push({
-              id: entry.id,
-              paidAmount: newPaidAmount,
-              status: newStatus,
-            });
+            if (isPerPersonPayment && selectedTenantIndex !== null) {
+              // Individual tenant refund
+              const tenantKey = selectedTenantIndex.toString();
+              const tenantPaid = tenantPaymentsMap[tenantKey] || 0;
+              const maxDeduction = Math.min(
+                Math.abs(remainingPayment),
+                tenantPaid,
+              );
 
-            remainingPayment -= paymentToApply;
-          }
-        } else {
-          // Negative payment - deduct from paid amounts
-          if (currentPaid > 0) {
-            // Add negative value (which subtracts)
-            const deductionAmount = Math.max(remainingPayment, -currentPaid);
-            const newPaidAmount = currentPaid + deductionAmount;
+              tenantPaymentsMap[tenantKey] = tenantPaid - maxDeduction;
+              newPaidAmount = Object.values(tenantPaymentsMap).reduce(
+                (sum, val) => sum + val,
+                0,
+              );
+              deductionAmount = -maxDeduction;
+            } else {
+              // Full refund (proportional to all tenants)
+              deductionAmount = Math.max(remainingPayment, -currentPaid);
+              newPaidAmount = currentPaid + deductionAmount;
+
+              // Distribute deduction proportionally among all tenants
+              const deductionPerTenant = Math.abs(deductionAmount) / paxCount;
+              for (let i = 0; i < paxCount; i++) {
+                const tenantKey = i.toString();
+                const currentTenantPaid = tenantPaymentsMap[tenantKey] || 0;
+                tenantPaymentsMap[tenantKey] = Math.max(
+                  0,
+                  currentTenantPaid - deductionPerTenant,
+                );
+              }
+            }
 
             // Determine new status
             let newStatus = entry.status;
             const epsilon = 0.01;
             if (newPaidAmount >= entry.gross_due - epsilon) {
-              newStatus = "paid";
+              newStatus = "Paid";
             } else if (newPaidAmount > epsilon) {
-              newStatus = "partial";
+              newStatus = "Partial";
             } else {
               // Determine overdue vs not yet due
               const dueDate = new Date(entry.due_date);
@@ -578,6 +837,7 @@ export function PropertyDetailsPopup({
               id: entry.id,
               paidAmount: Math.max(0, newPaidAmount),
               status: newStatus,
+              tenantPayments: JSON.stringify(tenantPaymentsMap),
             });
 
             remainingPayment -= deductionAmount;
@@ -592,9 +852,23 @@ export function PropertyDetailsPopup({
           .update({
             paid_amount: update.paidAmount,
             status: update.status,
+            tenant_payments: update.tenantPayments,
             updated_at: new Date().toISOString(),
           })
           .eq("id", update.id);
+
+        if (error) throw error;
+      }
+
+      // Update tenant overflow if it changed
+      if (newOverflow !== currentOverflow) {
+        const { error } = await supabase
+          .from("tenants")
+          .update({
+            overflow: newOverflow,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", activeTenant.id);
 
         if (error) throw error;
       }
@@ -603,21 +877,27 @@ export function PropertyDetailsPopup({
       await fetchPropertyDetails();
 
       // Show success message
-      if (remainingPayment > 0) {
-        toast.info(
-          `Payment applied. ₱${remainingPayment.toFixed(2)} excess payment remaining`,
-          {
-            description: "All due amounts have been paid.",
-          },
-        );
+      const tenantInfo =
+        isPerPersonPayment && activeTenant.pax_details?.[selectedTenantIndex!]
+          ? ` by ${activeTenant.pax_details[selectedTenantIndex!].name}`
+          : "";
+
+      if (newOverflow > currentOverflow) {
+        toast.success("Payment applied successfully", {
+          description: `₱${paymentAmount.toLocaleString()} applied. Excess of ₱${(newOverflow - currentOverflow).toFixed(2)} added to overflow${tenantInfo}.`,
+        });
+      } else if (newOverflow < currentOverflow) {
+        toast.success("Payment applied successfully", {
+          description: `₱${Math.abs(paymentAmount).toLocaleString()} deducted. ₱${(currentOverflow - newOverflow).toFixed(2)} deducted from overflow${tenantInfo}.`,
+        });
       } else {
         toast.success("Payment applied successfully", {
-          description: `₱${paymentAmount.toLocaleString()} has been distributed across billing entries.`,
+          description: `₱${Math.abs(paymentAmount).toLocaleString()} has been distributed across billing entries${tenantInfo}.`,
         });
       }
 
-      // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
-      // console.log('Payment note for activity log:', paymentNote);
+      // TODO: Log to activity log with finalPaymentNote and receiptDate when activity log is implemented
+      // console.log('Payment note for activity log:', finalPaymentNote);
       // console.log('Receipt date for activity log:', receiptDate);
 
       // Reset and close dialog
@@ -625,6 +905,7 @@ export function PropertyDetailsPopup({
       setPaymentType("rent");
       setPaymentNote("");
       setReceiptDate("");
+      setSelectedTenantIndex(null);
       setIsPaymentDialogOpen(false);
     } catch (err) {
       console.error("Error applying payment:", err);
@@ -690,17 +971,22 @@ export function PropertyDetailsPopup({
   const activeTenant = property.tenants?.find((t) => t.is_active);
   const billingEntries = activeTenant?.billing_entries || [];
   // Get pax count with fallback to 1 for existing tenants without pax field
-  const paxCount = activeTenant?.pax ?? 1;
+  // Count only filled-in pax_details entries
+  const filledPaxCount =
+    activeTenant?.pax_details?.filter((p) => p.name && p.name.trim() !== "")
+      .length || 0;
+  const paxCount =
+    filledPaxCount > 0 ? filledPaxCount : (activeTenant?.pax ?? 1);
 
   const currentDate = new Date();
   currentDate.setHours(0, 0, 0, 0);
 
-  // Recent Transactions: Paid entries (Good Standing) that are past or current
+  // Recent Transactions: Paid entries that are past or current
   const recentPayments = billingEntries
     .filter((entry) => {
       const dueDate = new Date(entry.due_date);
       dueDate.setHours(0, 0, 0, 0);
-      const isPaid = entry.status === "Good Standing";
+      const isPaid = entry.status === "Paid";
       const isPastOrCurrent = dueDate <= currentDate;
       return isPaid && isPastOrCurrent;
     })
@@ -709,12 +995,12 @@ export function PropertyDetailsPopup({
     )
     .slice(0, 5);
 
-  // Upcoming Payments: Unpaid entries (not Good Standing) that are current or future
+  // Upcoming Payments: Unpaid entries that are current or future
   const upcomingPayments = billingEntries
     .filter((entry) => {
       const dueDate = new Date(entry.due_date);
       dueDate.setHours(0, 0, 0, 0);
-      const isUnpaid = entry.status !== "Good Standing";
+      const isUnpaid = entry.status !== "Paid";
       const isCurrentOrFuture = dueDate >= currentDate;
       return isUnpaid && isCurrentOrFuture;
     })
@@ -723,9 +1009,9 @@ export function PropertyDetailsPopup({
     );
 
   // Calculate financial summaries
-  // Total Revenue: All paid entries (Good Standing)
+  // Total Revenue: All paid entries
   const totalRevenue = billingEntries
-    .filter((entry) => entry.status === "Good Standing")
+    .filter((entry) => entry.status === "Paid")
     .reduce((sum, entry) => sum + entry.gross_due, 0);
 
   // Pending Payments: All unpaid entries except Problem/Urgent (Needs Monitoring, Neutral/Administrative)
@@ -857,18 +1143,27 @@ export function PropertyDetailsPopup({
                       </div>
                       <div className="grid grid-cols-2 items-center">
                         <span className="text-muted-foreground text-xs md:text-sm">
-                          Monthly Rent
+                          Monthly Rent per Tenant
                         </span>
                         <span className="font-medium text-green-600 dark:text-green-400 text-xs md:text-sm">
-                          {formatCurrency(property.rent_amount)}
+                          ~ {formatCurrency(property.rent_amount)}
                         </span>
                       </div>
                       <div className="grid grid-cols-2 items-center">
                         <span className="text-muted-foreground text-xs md:text-sm">
                           Status
                         </span>
-                        <span className="font-medium capitalize text-xs md:text-sm">
-                          {property.occupancy_status}
+                        <span className="font-medium text-xs md:text-sm">
+                          {property.occupancy_status === "occupied" &&
+                          activeTenant?.pax ? (
+                            <span className="text-green-600 dark:text-green-400">
+                              Occupied ({paxCount}/{activeTenant.pax})
+                            </span>
+                          ) : (
+                            <span className="capitalize">
+                              {property.occupancy_status}
+                            </span>
+                          )}
                         </span>
                       </div>
                       <div className="grid grid-cols-2 items-center">
@@ -941,7 +1236,9 @@ export function PropertyDetailsPopup({
                           {((activeTenant.advance_payment !== undefined &&
                             activeTenant.advance_payment > 0) ||
                             (activeTenant.security_deposit !== undefined &&
-                              activeTenant.security_deposit > 0)) && (
+                              activeTenant.security_deposit > 0) ||
+                            (activeTenant.overflow !== undefined &&
+                              activeTenant.overflow > 0)) && (
                             <>
                               <div className="col-span-2 border-t my-2"></div>
                               {activeTenant.advance_payment !== undefined &&
@@ -970,100 +1267,130 @@ export function PropertyDetailsPopup({
                                     </span>
                                   </div>
                                 )}
+                              {activeTenant.overflow !== undefined &&
+                                activeTenant.overflow > 0 && (
+                                  <div className="grid grid-cols-2 items-center">
+                                    <span className="text-muted-foreground text-xs md:text-sm flex items-center gap-1">
+                                      <TrendingUp className="h-3 w-3" />
+                                      Overflow (Excess Payment)
+                                    </span>
+                                    <span className="font-medium text-blue-600 dark:text-blue-400 text-xs md:text-sm">
+                                      {formatCurrency(activeTenant.overflow)}
+                                    </span>
+                                  </div>
+                                )}
                             </>
                           )}
                         </div>
 
-                        {/* Per-Person Payment Breakdown */}
-                        {activeTenant.pax && activeTenant.pax > 1 && (
-                          <div className="border-t pt-4">
-                            <h4 className="text-sm font-semibold mb-3 flex items-center text-blue-600 dark:text-blue-400">
-                              Per-Person Rent Breakdown
-                            </h4>
-                            <div className="bg-blue-50 dark:bg-blue-950/30 p-3 rounded-lg">
-                              <div className="flex justify-between items-center mb-2">
-                                <span className="text-xs text-muted-foreground">
-                                  Monthly Rent per Person
-                                </span>
-                                <span className="font-semibold text-blue-700 dark:text-blue-300">
-                                  {formatCurrency(
-                                    property.rent_amount / activeTenant.pax,
-                                  )}
-                                </span>
-                              </div>
-                              <p className="text-[10px] text-blue-700 dark:text-blue-300">
-                                Total {formatCurrency(property.rent_amount)} ÷{" "}
-                                {activeTenant.pax} persons
-                              </p>
-                            </div>
-                          </div>
-                        )}
-
                         {/* Occupant Details */}
-                        {activeTenant.pax_details &&
-                          activeTenant.pax_details.length > 0 && (
-                            <div className="border-t pt-4">
-                              <h4 className="text-sm font-semibold mb-3">
-                                Occupant Details (
-                                {activeTenant.pax_details.length})
-                              </h4>
-                              <div className="space-y-3">
-                                {activeTenant.pax_details.map(
-                                  (person, index) => (
+                        {activeTenant.pax && activeTenant.pax > 0 && (
+                          <div className="border-t pt-4">
+                            <h4 className="text-sm font-semibold mb-3">
+                              Occupant Details ({paxCount}/{activeTenant.pax}{" "}
+                              Occupied)
+                            </h4>
+                            <div className="space-y-3">
+                              {Array.from(
+                                { length: activeTenant.pax },
+                                (_, index) => {
+                                  const person =
+                                    activeTenant.pax_details?.[index];
+                                  const isOccupied =
+                                    person?.name && person.name.trim() !== "";
+
+                                  return (
                                     <div
                                       key={index}
-                                      className="p-3 rounded-lg border bg-muted/30"
+                                      className={`p-3 rounded-lg border ${
+                                        isOccupied
+                                          ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
+                                          : "bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800 border-dashed"
+                                      }`}
                                     >
                                       <div className="flex items-start gap-3">
-                                        <div className="h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 bg-muted text-muted-foreground">
+                                        <div
+                                          className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                            isOccupied
+                                              ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+                                              : "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600"
+                                          }`}
+                                        >
                                           <User className="h-5 w-5" />
                                         </div>
                                         <div className="flex-1 min-w-0">
                                           <div className="flex items-center gap-2 mb-1">
-                                            <p className="font-medium text-sm">
-                                              {person.name || "Not provided"}
+                                            <p
+                                              className={`font-medium text-sm ${
+                                                isOccupied
+                                                  ? "text-foreground"
+                                                  : "text-muted-foreground italic"
+                                              }`}
+                                            >
+                                              {isOccupied
+                                                ? person.name
+                                                : `Slot ${index + 1} - Vacant`}
                                             </p>
-                                          </div>
-                                          {person.email && (
-                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-                                              <svg
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                className="h-3 w-3"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth="2"
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                              >
-                                                <rect
-                                                  width="20"
-                                                  height="16"
-                                                  x="2"
-                                                  y="4"
-                                                  rx="2"
-                                                />
-                                                <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                                              </svg>
-                                              <span className="truncate">
-                                                {person.email}
+                                            {isOccupied && (
+                                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300">
+                                                Occupied
                                               </span>
-                                            </div>
-                                          )}
-                                          {person.phone && (
-                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                              <Phone className="h-3 w-3" />
-                                              <span>{person.phone}</span>
-                                            </div>
+                                            )}
+                                            {!isOccupied && (
+                                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                                                Available
+                                              </span>
+                                            )}
+                                          </div>
+                                          {isOccupied ? (
+                                            <>
+                                              {person.email && (
+                                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                                                  <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    className="h-3 w-3"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth="2"
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                  >
+                                                    <rect
+                                                      width="20"
+                                                      height="16"
+                                                      x="2"
+                                                      y="4"
+                                                      rx="2"
+                                                    />
+                                                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                                                  </svg>
+                                                  <span className="truncate">
+                                                    {person.email}
+                                                  </span>
+                                                </div>
+                                              )}
+                                              {person.phone && (
+                                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                  <Phone className="h-3 w-3" />
+                                                  <span>{person.phone}</span>
+                                                </div>
+                                              )}
+                                            </>
+                                          ) : (
+                                            <p className="text-xs text-muted-foreground">
+                                              No tenant assigned to this slot
+                                            </p>
                                           )}
                                         </div>
                                       </div>
                                     </div>
-                                  ),
-                                )}
-                              </div>
+                                  );
+                                },
+                              )}
                             </div>
-                          )}
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -1170,7 +1497,7 @@ export function PropertyDetailsPopup({
                             return (
                               <div
                                 key={payment.id}
-                                className="flex justify-between items-center p-2 md:p-3 bg-muted/30 rounded-lg border group relative"
+                                className="flex justify-between items-center p-2 md:p-3 bg-muted/30 rounded-lg border group"
                               >
                                 <div className="flex items-center">
                                   <CreditCard className="h-3.5 w-3.5 text-muted-foreground mr-1.5 flex-shrink-0" />
@@ -1196,39 +1523,41 @@ export function PropertyDetailsPopup({
                                     {getPaymentDisplayStatus(payment.status)}
                                   </Badge>
 
-                                  {/* Expense items tooltip - more mobile friendly */}
-                                  <div className="hidden group-hover:block absolute right-0 bottom-full mb-2 bg-popover shadow-md rounded-md p-2 z-50 w-48 xs:w-64 border">
-                                    <div className="text-xs font-medium mb-1">
-                                      Expense Breakdown:
-                                    </div>
-                                    <div className="flex justify-between text-xs mb-1">
-                                      <span>Rent</span>
-                                      <span>
-                                        {formatCurrency(payment.rent_due)}
-                                      </span>
-                                    </div>
-                                    {expenseItems.map((item) => (
-                                      <div
-                                        key={item.id}
-                                        className="flex justify-between text-xs mb-1"
-                                      >
-                                        <span className="truncate mr-2">
-                                          {item.name}
-                                        </span>
-                                        <span className="flex-shrink-0">
-                                          {formatCurrency(item.amount)}
-                                        </span>
+                                  {/* Expense items tooltip - more mobile friendly - wrapper technique */}
+                                  <span className="absolute invisible group-hover:visible z-[100]">
+                                    <span className="relative block right-0 bottom-full mb-1 bg-popover shadow-md rounded-md p-2 w-48 xs:w-64 border">
+                                      <div className="text-xs font-medium mb-1">
+                                        Expense Breakdown:
                                       </div>
-                                    ))}
-                                    <div className="border-t pt-1 mt-1 text-xs font-semibold">
-                                      <div className="flex justify-between">
-                                        <span>Total</span>
+                                      <div className="flex justify-between text-xs mb-1">
+                                        <span>Rent</span>
                                         <span>
-                                          {formatCurrency(payment.gross_due)}
+                                          {formatCurrency(payment.rent_due)}
                                         </span>
                                       </div>
-                                    </div>
-                                  </div>
+                                      {expenseItems.map((item) => (
+                                        <div
+                                          key={item.id}
+                                          className="flex justify-between text-xs mb-1"
+                                        >
+                                          <span className="truncate mr-2">
+                                            {item.name}
+                                          </span>
+                                          <span className="flex-shrink-0">
+                                            {formatCurrency(item.amount)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                      <div className="border-t pt-1 mt-1 text-xs font-semibold">
+                                        <div className="flex justify-between">
+                                          <span>Total</span>
+                                          <span>
+                                            {formatCurrency(payment.gross_due)}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </span>
+                                  </span>
                                 </div>
                               </div>
                             );
@@ -1398,134 +1727,28 @@ export function PropertyDetailsPopup({
                             </div>
                           </div>
                         </div>
+
+                        <div className="h-10 w-px bg-border shrink-0" />
+
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
+                            <Plus className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                              Overflow (Excess)
+                            </div>
+                            <div className="text-lg font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                              {activeTenant.overflow !== undefined &&
+                              activeTenant.overflow > 0
+                                ? formatCurrency(activeTenant.overflow)
+                                : formatCurrency(0)}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-
-                  {/* Individual Per-Person Payment Breakdown */}
-                  {activeTenant && (
-                    <Card className="shadow-sm bg-gradient-to-br from-white to-blue-50/30 dark:from-gray-900 dark:to-blue-950/10 border-blue-200 dark:border-blue-800">
-                      <CardContent className="p-4 md:p-6">
-                        <div className="flex items-center gap-2 mb-4">
-                          <User className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                          <h3 className="text-base md:text-lg font-semibold">
-                            Individual Payment Breakdown
-                          </h3>
-                          <Badge
-                            variant="outline"
-                            className="ml-auto bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 border-blue-300 dark:border-blue-700"
-                          >
-                            {paxCount} {paxCount === 1 ? "Person" : "Persons"}
-                          </Badge>
-                        </div>
-
-                        <div className="space-y-3">
-                          {Array.from({ length: paxCount }, (_, index) => {
-                            const personNumber = index + 1;
-                            const perPersonRent =
-                              property.rent_amount / paxCount;
-
-                            // Calculate per-person payment stats
-                            const perPersonTotalDue = billingEntries.reduce(
-                              (sum, entry) => sum + entry.gross_due / paxCount,
-                              0,
-                            );
-                            const perPersonPaid = billingEntries.reduce(
-                              (sum, entry) =>
-                                sum + (entry.paid_amount || 0) / paxCount,
-                              0,
-                            );
-                            const perPersonBalance =
-                              perPersonTotalDue - perPersonPaid;
-                            const perPersonPaidCount = billingEntries.filter(
-                              (entry) => entry.status === "Good Standing",
-                            ).length;
-                            const perPersonPendingCount = billingEntries.filter(
-                              (entry) => entry.status !== "Good Standing",
-                            ).length;
-
-                            return (
-                              <div
-                                key={personNumber}
-                                className="bg-white dark:bg-gray-900/50 rounded-lg p-3 md:p-4 border border-blue-100 dark:border-blue-900 hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
-                              >
-                                <div className="flex items-center gap-2 mb-3">
-                                  <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                                    <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                                  </div>
-                                  <div>
-                                    <h4 className="font-semibold text-sm">
-                                      Person {personNumber}
-                                    </h4>
-                                    <p className="text-xs text-muted-foreground">
-                                      Equal Share
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 md:gap-3">
-                                  {/* Monthly Share */}
-                                  <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-2 border border-blue-200 dark:border-blue-900">
-                                    <div className="text-[10px] text-muted-foreground mb-0.5">
-                                      Monthly Share
-                                    </div>
-                                    <div className="text-sm md:text-base font-bold text-blue-600 dark:text-blue-400">
-                                      {formatCurrency(perPersonRent)}
-                                    </div>
-                                  </div>
-
-                                  {/* Paid */}
-                                  <div className="bg-green-50 dark:bg-green-950/20 rounded-lg p-2 border border-green-200 dark:border-green-900">
-                                    <div className="text-[10px] text-muted-foreground mb-0.5">
-                                      Paid
-                                    </div>
-                                    <div className="text-sm md:text-base font-bold text-green-600 dark:text-green-400">
-                                      {formatCurrency(perPersonPaid)}
-                                    </div>
-                                    <div className="text-[9px] text-muted-foreground mt-0.5">
-                                      {perPersonPaidCount}{" "}
-                                      {perPersonPaidCount === 1
-                                        ? "bill"
-                                        : "bills"}
-                                    </div>
-                                  </div>
-
-                                  {/* Balance */}
-                                  <div className="bg-amber-50 dark:bg-amber-950/20 rounded-lg p-2 border border-amber-200 dark:border-amber-900">
-                                    <div className="text-[10px] text-muted-foreground mb-0.5">
-                                      Balance
-                                    </div>
-                                    <div className="text-sm md:text-base font-bold text-amber-600 dark:text-amber-400">
-                                      {formatCurrency(perPersonBalance)}
-                                    </div>
-                                    <div className="text-[9px] text-muted-foreground mt-0.5">
-                                      {perPersonPendingCount} pending
-                                    </div>
-                                  </div>
-
-                                  {/* Total Due */}
-                                  <div className="bg-blue-50 dark:bg-blue-950/20 rounded-lg p-2 border border-blue-200 dark:border-blue-900">
-                                    <div className="text-[10px] text-muted-foreground mb-0.5">
-                                      Total Due
-                                    </div>
-                                    <div className="text-sm md:text-base font-bold text-blue-700 dark:text-blue-300">
-                                      {formatCurrency(perPersonTotalDue)}
-                                    </div>
-                                    <div className="text-[9px] text-muted-foreground mt-0.5">
-                                      {billingEntries.length}{" "}
-                                      {billingEntries.length === 1
-                                        ? "period"
-                                        : "periods"}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </CardContent>
-                    </Card>
-                  )}
 
                   <Card className="shadow-sm">
                     <CardContent className="p-4 md:p-6">
@@ -1554,213 +1777,602 @@ export function PropertyDetailsPopup({
                         </div>
                       </div>
 
+                      {/* View Mode Selector for multi-tenant properties */}
+                      {paxCount > 1 && (
+                        <div className="mb-4">
+                          <Label
+                            htmlFor="billing-view"
+                            className="text-xs mb-2 block"
+                          >
+                            View Mode
+                          </Label>
+                          <Select
+                            value={billingViewMode}
+                            onValueChange={setBillingViewMode}
+                          >
+                            <SelectTrigger
+                              id="billing-view"
+                              className="w-full md:w-64 h-9 text-xs"
+                            >
+                              <SelectValue placeholder="Select view mode" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="consolidated">
+                                Consolidated (All Tenants)
+                              </SelectItem>
+                              {activeTenant?.pax_details?.map((person, idx) => (
+                                <SelectItem key={idx} value={`tenant-${idx}`}>
+                                  {person.name || `Tenant ${idx + 1}`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {/* Info banner for multi-tenant payment tracking - only show in consolidated view */}
+                      {paxCount > 1 && billingViewMode === "consolidated" && (
+                        <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
+                          <div className="flex items-start gap-2">
+                            <div className="h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0 mt-0.5">
+                              <User className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-xs font-medium text-blue-900 dark:text-blue-100 mb-1">
+                                Multi-Tenant Payment Tracking Active
+                              </p>
+                              <p className="text-xs text-blue-700 dark:text-blue-300">
+                                This property has {paxCount} tenants. Payments
+                                are tracked individually per tenant. Hover over
+                                the "Paid" amount to see who has paid their
+                                share (₱
+                                {formatCurrency(
+                                  activeTenant?.billing_entries?.[0]?.gross_due
+                                    ? activeTenant.billing_entries[0]
+                                        .gross_due / paxCount
+                                    : 0,
+                                ).replace("₱", "")}{" "}
+                                per person).
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Individual Tenant View Indicator */}
+                      {billingViewMode.startsWith("tenant-") && (
+                        <div className="bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-lg p-3 mb-4">
+                          <div className="flex items-center gap-2">
+                            <div className="h-5 w-5 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center flex-shrink-0">
+                              <User className="h-3 w-3 text-purple-600 dark:text-purple-400" />
+                            </div>
+                            <p className="text-xs font-medium text-purple-900 dark:text-purple-100">
+                              Viewing individual billing for:{" "}
+                              {activeTenant?.pax_details?.[
+                                parseInt(billingViewMode.split("-")[1])
+                              ]?.name ||
+                                `Tenant ${parseInt(billingViewMode.split("-")[1]) + 1}`}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Responsive table with horizontal scrolling for small screens */}
                       <div className="overflow-x-auto -mx-4 sm:-mx-6">
                         <div className="inline-block min-w-full align-middle px-4 sm:px-6">
                           <div className="overflow-hidden border rounded-md">
-                            <table className="min-w-full divide-y divide-border">
-                              <thead className="bg-muted/50">
-                                <tr>
-                                  <th
-                                    scope="col"
-                                    className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                  >
-                                    Period
-                                  </th>
-                                  <th
-                                    scope="col"
-                                    className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                  >
-                                    Due Date
-                                  </th>
-                                  <th
-                                    scope="col"
-                                    className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                  >
-                                    Rent
-                                  </th>
-                                  {activeTenant && (
-                                    <th
-                                      scope="col"
-                                      className="px-3 py-2 text-left text-xs font-medium text-blue-600 dark:text-blue-400"
-                                    >
-                                      <div className="flex items-center gap-1">
-                                        <User className="h-3 w-3" />
-                                        Per Person
-                                      </div>
-                                    </th>
-                                  )}
-                                  <th
-                                    scope="col"
-                                    className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                  >
-                                    Expenses
-                                  </th>
-                                  <th
-                                    scope="col"
-                                    className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                  >
-                                    Total
-                                  </th>
-                                  <th
-                                    scope="col"
-                                    className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                  >
-                                    Paid
-                                  </th>
-                                  <th
-                                    scope="col"
-                                    className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                  >
-                                    Status
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-muted/40 bg-background">
-                                {billingEntries.length > 0 ? (
-                                  billingEntries
-                                    .sort(
-                                      (a, b) =>
-                                        a.billing_period - b.billing_period,
-                                    )
-                                    .map((entry) => {
-                                      // Parse expense items from JSON string
-                                      const expenseItems: ExpenseItem[] =
-                                        entry.expense_items
-                                          ? JSON.parse(entry.expense_items)
-                                          : [
-                                              {
-                                                id: `default-${entry.id}`,
-                                                name: "Miscellaneous",
-                                                amount: entry.other_charges,
-                                              },
-                                            ];
+                            {(() => {
+                              // Determine if we're viewing individual tenant data
+                              const isIndividualView =
+                                billingViewMode.startsWith("tenant-");
+                              const selectedTenantIdx = isIndividualView
+                                ? parseInt(billingViewMode.split("-")[1])
+                                : null;
+                              const selectedTenantName =
+                                selectedTenantIdx !== null
+                                  ? activeTenant?.pax_details?.[
+                                      selectedTenantIdx
+                                    ]?.name || `Tenant ${selectedTenantIdx + 1}`
+                                  : null;
 
-                                      return (
-                                        <tr
-                                          key={entry.id}
-                                          className="hover:bg-muted/30 transition-colors"
+                              // Check if selected tenant slot is vacant
+                              const isVacantSlot =
+                                isIndividualView &&
+                                selectedTenantIdx !== null &&
+                                (!activeTenant?.pax_details?.[selectedTenantIdx]
+                                  ?.name ||
+                                  activeTenant?.pax_details?.[
+                                    selectedTenantIdx
+                                  ]?.name.trim() === "");
+
+                              return (
+                                <table className="min-w-full divide-y divide-border">
+                                  <thead className="bg-muted/50">
+                                    <tr>
+                                      <th
+                                        scope="col"
+                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
+                                      >
+                                        Period
+                                      </th>
+                                      <th
+                                        scope="col"
+                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
+                                      >
+                                        Due Date
+                                      </th>
+                                      <th
+                                        scope="col"
+                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
+                                      >
+                                        {isIndividualView
+                                          ? "Tenant's Share"
+                                          : "Rent"}
+                                      </th>
+                                      <th
+                                        scope="col"
+                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
+                                      >
+                                        {isIndividualView
+                                          ? "Tenant's Expenses"
+                                          : "Expenses"}
+                                      </th>
+                                      <th
+                                        scope="col"
+                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
+                                      >
+                                        {isIndividualView
+                                          ? "Tenant's Total Due"
+                                          : "Total"}
+                                      </th>
+                                      <th
+                                        scope="col"
+                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
+                                      >
+                                        {isIndividualView
+                                          ? "Tenant Paid"
+                                          : "Paid"}
+                                      </th>
+                                      <th
+                                        scope="col"
+                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
+                                      >
+                                        Status
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-muted/40 bg-background">
+                                    {isVacantSlot ? (
+                                      <tr>
+                                        <td
+                                          colSpan={7}
+                                          className="px-3 py-8 text-center"
                                         >
-                                          <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                            <div className="flex items-center">
-                                              <ClipboardCheck className="h-3 w-3 text-muted-foreground mr-1.5 flex-shrink-0" />
-                                              <span>
-                                                {entry.billing_period}
-                                              </span>
-                                            </div>
-                                          </td>
-                                          <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                            {formatDueDate(entry.due_date)}
-                                          </td>
-                                          <td className="px-3 py-2 text-xs font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
-                                            {formatCurrency(entry.rent_due)}
-                                          </td>
-                                          {activeTenant && (
-                                            <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                              <div className="flex flex-col">
-                                                <span className="font-semibold text-blue-600 dark:text-blue-400">
-                                                  {formatCurrency(
-                                                    entry.rent_due / paxCount,
-                                                  )}
-                                                </span>
-                                                <span className="text-[10px] text-muted-foreground">
-                                                  × {paxCount} persons
-                                                </span>
-                                              </div>
-                                            </td>
-                                          )}
-                                          <td className="px-3 py-2 text-xs">
-                                            <div className="relative group inline-block">
-                                              <div className="flex items-center cursor-help gap-1">
-                                                <span>
-                                                  {formatCurrency(
-                                                    entry.other_charges,
-                                                  )}
-                                                </span>
-                                                <span className="text-[10px] bg-muted rounded-full px-1 flex items-center justify-center w-4 h-4">
-                                                  {expenseItems.length}
-                                                </span>
-                                              </div>
+                                          <div className="flex flex-col items-center justify-center text-muted-foreground">
+                                            <FileText className="h-8 w-8 mb-2 opacity-40" />
+                                            <p className="text-sm font-medium">
+                                              No records found
+                                            </p>
+                                            <p className="text-xs mt-1">
+                                              This tenant slot is currently
+                                              vacant
+                                            </p>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    ) : billingEntries.length > 0 ? (
+                                      billingEntries
+                                        .sort(
+                                          (a, b) =>
+                                            new Date(a.due_date).getTime() -
+                                            new Date(b.due_date).getTime(),
+                                        )
+                                        .map((entry) => {
+                                          // Parse expense items from JSON string
+                                          const expenseItems: ExpenseItem[] =
+                                            entry.expense_items
+                                              ? JSON.parse(entry.expense_items)
+                                              : [
+                                                  {
+                                                    id: `default-${entry.id}`,
+                                                    name: "Miscellaneous",
+                                                    amount: entry.other_charges,
+                                                  },
+                                                ];
 
-                                              {/* Hover tooltip for expenses */}
-                                              <div className="hidden group-hover:block absolute left-0 top-full mt-2 bg-popover shadow-lg rounded-md p-2 z-50 min-w-[200px] border">
-                                                <div className="text-xs font-medium mb-1.5">
-                                                  Expenses for Period{" "}
-                                                  {entry.billing_period}:
+                                          // Calculate per-tenant amounts if in individual view
+                                          const tenantShareRent =
+                                            isIndividualView
+                                              ? entry.rent_due / paxCount
+                                              : entry.rent_due;
+                                          const tenantShareExpenses =
+                                            isIndividualView
+                                              ? entry.other_charges / paxCount
+                                              : entry.other_charges;
+                                          const tenantShareTotal =
+                                            isIndividualView
+                                              ? entry.gross_due / paxCount
+                                              : entry.gross_due;
+
+                                          // Get tenant's paid amount from tenant_payments
+                                          let tenantPaidAmount =
+                                            entry.paid_amount || 0;
+                                          let tenantStatus = entry.status;
+
+                                          if (
+                                            isIndividualView &&
+                                            selectedTenantIdx !== null
+                                          ) {
+                                            const tenantPayments: TenantPaymentMap =
+                                              entry.tenant_payments
+                                                ? JSON.parse(
+                                                    entry.tenant_payments,
+                                                  )
+                                                : {};
+                                            tenantPaidAmount =
+                                              tenantPayments[
+                                                selectedTenantIdx.toString()
+                                              ] || 0;
+
+                                            // Calculate tenant-specific status
+                                            const tenantBalance =
+                                              tenantShareTotal -
+                                              tenantPaidAmount;
+                                            if (tenantBalance <= 0.01) {
+                                              tenantStatus = "Paid";
+                                            } else if (tenantPaidAmount > 0) {
+                                              tenantStatus = "Partial";
+                                            } else {
+                                              tenantStatus = entry.status; // Keep original status if not paid
+                                            }
+                                          }
+
+                                          return (
+                                            <tr
+                                              key={entry.id}
+                                              className="hover:bg-muted/30 transition-colors"
+                                            >
+                                              <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                                <div className="flex items-center">
+                                                  <ClipboardCheck className="h-3 w-3 text-muted-foreground mr-1.5 flex-shrink-0" />
+                                                  <span>
+                                                    {entry.billing_period >
+                                                    0 ? (
+                                                      entry.billing_period
+                                                    ) : (
+                                                      <span className="text-muted-foreground italic">
+                                                        —
+                                                      </span>
+                                                    )}
+                                                  </span>
                                                 </div>
-                                                {expenseItems.map((item) => (
-                                                  <div
-                                                    key={item.id}
-                                                    className="flex justify-between text-xs mb-1.5"
-                                                  >
-                                                    <span className="truncate max-w-[150px] pr-4">
-                                                      {item.name}
-                                                    </span>
-                                                    <span className="text-right font-medium">
-                                                      {formatCurrency(
-                                                        item.amount,
-                                                      )}
-                                                    </span>
-                                                  </div>
-                                                ))}
-                                                {expenseItems.length > 1 && (
-                                                  <div className="border-t border-border pt-1.5 mt-1.5 flex justify-between text-xs font-medium">
-                                                    <span>Total Expenses</span>
+                                              </td>
+                                              <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                                {formatDueDate(entry.due_date)}
+                                              </td>
+                                              <td className="px-3 py-2 text-xs font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
+                                                {formatCurrency(
+                                                  tenantShareRent,
+                                                )}
+                                              </td>
+                                              <td className="px-3 py-2 text-xs">
+                                                <div className="group inline-block relative">
+                                                  <div className="flex items-center cursor-help gap-1">
                                                     <span>
                                                       {formatCurrency(
-                                                        entry.other_charges,
+                                                        tenantShareExpenses,
                                                       )}
                                                     </span>
+                                                    {!isIndividualView && (
+                                                      <span className="text-[10px] bg-muted rounded-full px-1 flex items-center justify-center w-4 h-4">
+                                                        {expenseItems.length}
+                                                      </span>
+                                                    )}
                                                   </div>
+
+                                                  {/* Hover tooltip for expenses - wrapper technique */}
+                                                  {expenseItems.length > 0 &&
+                                                    !isIndividualView && (
+                                                      <span className="absolute invisible group-hover:visible z-[100]">
+                                                        <span className="relative block top-full right-0 mt-1 bg-popover shadow-lg rounded-md p-2 min-w-[200px] border">
+                                                          <div className="text-xs font-medium mb-1.5">
+                                                            {entry.billing_period >
+                                                            0
+                                                              ? `Expenses for Period ${entry.billing_period}`
+                                                              : "Additional Charges"}
+                                                            :
+                                                          </div>
+                                                          {expenseItems.map(
+                                                            (item) => (
+                                                              <div
+                                                                key={item.id}
+                                                                className="flex justify-between text-xs mb-1.5"
+                                                              >
+                                                                <span className="truncate max-w-[150px] pr-4">
+                                                                  {item.name}
+                                                                </span>
+                                                                <span className="text-right font-medium">
+                                                                  {formatCurrency(
+                                                                    item.amount,
+                                                                  )}
+                                                                </span>
+                                                              </div>
+                                                            ),
+                                                          )}
+                                                          {expenseItems.length >
+                                                            1 && (
+                                                            <div className="border-t border-border pt-1.5 mt-1.5 flex justify-between text-xs font-medium">
+                                                              <span>
+                                                                Total Expenses
+                                                              </span>
+                                                              <span>
+                                                                {formatCurrency(
+                                                                  entry.other_charges,
+                                                                )}
+                                                              </span>
+                                                            </div>
+                                                          )}
+                                                        </span>
+                                                      </span>
+                                                    )}
+                                                </div>
+                                              </td>
+                                              <td className="px-3 py-2 text-xs font-semibold whitespace-nowrap">
+                                                {formatCurrency(
+                                                  tenantShareTotal,
                                                 )}
-                                              </div>
-                                            </div>
-                                          </td>
-                                          <td className="px-3 py-2 text-xs font-semibold whitespace-nowrap">
-                                            {formatCurrency(entry.gross_due)}
-                                          </td>
-                                          <td className="px-3 py-2 text-xs font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">
-                                            {formatCurrency(
-                                              entry.paid_amount || 0,
-                                            )}
-                                          </td>
-                                          <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                            <Badge
-                                              variant="outline"
-                                              className={`text-[10px] px-1.5 py-0.5 ${getStatusColorClass(
-                                                entry.status,
-                                              )}`}
-                                            >
-                                              {entry.status}
-                                            </Badge>
-                                          </td>
-                                        </tr>
-                                      );
-                                    })
-                                ) : (
-                                  <tr>
-                                    <td
-                                      colSpan={activeTenant ? 8 : 7}
-                                      className="px-3 py-8 text-center"
-                                    >
-                                      <div className="flex flex-col items-center justify-center text-muted-foreground">
-                                        <FileText className="h-8 w-8 mb-2 opacity-40" />
-                                        <p className="text-sm font-medium">
-                                          No billing entries yet
-                                        </p>
-                                        <p className="text-xs mt-1">
-                                          Click "Edit Property" to add billing
-                                          entries
-                                        </p>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </tbody>
-                            </table>
+                                              </td>
+                                              <td className="px-3 py-2 text-xs font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">
+                                                {paxCount > 1 &&
+                                                entry.tenant_payments &&
+                                                !isIndividualView ? (
+                                                  <div className="group inline-block cursor-help relative">
+                                                    <div>
+                                                      {formatCurrency(
+                                                        entry.paid_amount || 0,
+                                                      )}
+                                                    </div>
+                                                    {/* Per-tenant payment breakdown tooltip - wrapper technique */}
+                                                    <span className="absolute invisible group-hover:visible z-[100]">
+                                                      <span className="relative block bottom-full right-0 mb-1 bg-popover shadow-lg rounded-md p-3 min-w-[220px] border">
+                                                        <div className="text-xs font-medium mb-2">
+                                                          Per-Tenant Payments:
+                                                        </div>
+                                                        <div className="space-y-1.5">
+                                                          {(() => {
+                                                            const tenantPayments: TenantPaymentMap =
+                                                              JSON.parse(
+                                                                entry.tenant_payments ||
+                                                                  "{}",
+                                                              );
+                                                            const perPersonShare =
+                                                              entry.gross_due /
+                                                              paxCount;
+                                                            return Array.from(
+                                                              {
+                                                                length:
+                                                                  paxCount,
+                                                              },
+                                                              (_, i) => {
+                                                                const person =
+                                                                  activeTenant
+                                                                    ?.pax_details?.[
+                                                                    i
+                                                                  ];
+                                                                const paid =
+                                                                  tenantPayments[
+                                                                    i.toString()
+                                                                  ] || 0;
+                                                                const isPaid =
+                                                                  paid >=
+                                                                  perPersonShare -
+                                                                    0.01;
+                                                                return (
+                                                                  <div
+                                                                    key={i}
+                                                                    className="flex items-center justify-between text-xs"
+                                                                  >
+                                                                    <div className="flex items-center gap-1.5">
+                                                                      <div
+                                                                        className={`w-2 h-2 rounded-full ${isPaid ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}
+                                                                      />
+                                                                      <span className="truncate max-w-[100px]">
+                                                                        {person?.name ||
+                                                                          `Tenant ${i + 1}`}
+                                                                      </span>
+                                                                    </div>
+                                                                    <span
+                                                                      className={`font-medium ${isPaid ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}
+                                                                    >
+                                                                      {formatCurrency(
+                                                                        paid,
+                                                                      )}
+                                                                    </span>
+                                                                  </div>
+                                                                );
+                                                              },
+                                                            );
+                                                          })()}
+                                                        </div>
+                                                        <div className="border-t border-border mt-2 pt-2 text-xs">
+                                                          <div className="flex justify-between font-medium">
+                                                            <span>
+                                                              Total Paid:
+                                                            </span>
+                                                            <span className="text-green-600 dark:text-green-400">
+                                                              {formatCurrency(
+                                                                entry.paid_amount ||
+                                                                  0,
+                                                              )}
+                                                            </span>
+                                                          </div>
+                                                          <div className="flex justify-between text-muted-foreground mt-1">
+                                                            <span>
+                                                              Per Person:
+                                                            </span>
+                                                            <span>
+                                                              {formatCurrency(
+                                                                entry.gross_due /
+                                                                  paxCount,
+                                                              )}
+                                                            </span>
+                                                          </div>
+                                                        </div>
+                                                      </span>
+                                                    </span>
+                                                  </div>
+                                                ) : (
+                                                  formatCurrency(
+                                                    tenantPaidAmount,
+                                                  )
+                                                )}
+                                              </td>
+                                              <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                                <Badge
+                                                  variant="outline"
+                                                  className={`text-[10px] px-1.5 py-0.5 ${getStatusColorClass(
+                                                    tenantStatus,
+                                                  )}`}
+                                                >
+                                                  {tenantStatus}
+                                                </Badge>
+                                              </td>
+                                            </tr>
+                                          );
+                                        })
+                                    ) : (
+                                      <tr>
+                                        <td
+                                          colSpan={7}
+                                          className="px-3 py-8 text-center"
+                                        >
+                                          <div className="flex flex-col items-center justify-center text-muted-foreground">
+                                            <FileText className="h-8 w-8 mb-2 opacity-40" />
+                                            <p className="text-sm font-medium">
+                                              No billing entries yet
+                                            </p>
+                                            <p className="text-xs mt-1">
+                                              Click "Edit Property" to add
+                                              billing entries
+                                            </p>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </tbody>
+                                </table>
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
+
+                      {/* Per-Tenant Payment Summary */}
+                      {paxCount > 1 && billingEntries.length > 0 && (
+                        <div className="mt-6 border-t pt-6">
+                          <h4 className="text-sm font-semibold mb-3 flex items-center">
+                            <User className="h-4 w-4 mr-2 text-primary" />
+                            Payment Summary by Tenant
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {Array.from({ length: paxCount }, (_, i) => {
+                              const person = activeTenant?.pax_details?.[i];
+                              const tenantKey = i.toString();
+
+                              // Calculate totals for this tenant across all billing entries
+                              let tenantTotalDue = 0;
+                              let tenantTotalPaid = 0;
+
+                              billingEntries.forEach((entry) => {
+                                const perPersonShare =
+                                  entry.gross_due / paxCount;
+                                tenantTotalDue += perPersonShare;
+
+                                if (entry.tenant_payments) {
+                                  try {
+                                    const payments: TenantPaymentMap =
+                                      JSON.parse(entry.tenant_payments);
+                                    tenantTotalPaid += payments[tenantKey] || 0;
+                                  } catch (e) {
+                                    // Ignore parse errors
+                                  }
+                                }
+                              });
+
+                              const tenantBalance =
+                                tenantTotalDue - tenantTotalPaid;
+                              const isPaidUp = tenantBalance <= 0.01;
+
+                              return (
+                                <div
+                                  key={i}
+                                  className={`p-3 rounded-lg border ${
+                                    isPaidUp
+                                      ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
+                                      : "bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <div
+                                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
+                                        isPaidUp
+                                          ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+                                          : "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
+                                      }`}
+                                    >
+                                      <User className="h-4 w-4" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-medium truncate">
+                                        {person?.name || `Tenant ${i + 1}`}
+                                      </p>
+                                      <p
+                                        className={`text-[10px] font-medium ${
+                                          isPaidUp
+                                            ? "text-green-600 dark:text-green-400"
+                                            : "text-orange-600 dark:text-orange-400"
+                                        }`}
+                                      >
+                                        {isPaidUp
+                                          ? "✓ Paid Up"
+                                          : `₱${tenantBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} Due`}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1 text-xs">
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground">
+                                        Total Due:
+                                      </span>
+                                      <span className="font-medium">
+                                        {formatCurrency(tenantTotalDue)}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                      <span className="text-muted-foreground">
+                                        Paid:
+                                      </span>
+                                      <span className="font-medium text-green-600 dark:text-green-400">
+                                        {formatCurrency(tenantTotalPaid)}
+                                      </span>
+                                    </div>
+                                    {!isPaidUp && (
+                                      <div className="flex justify-between pt-1 border-t">
+                                        <span className="font-medium">
+                                          Balance:
+                                        </span>
+                                        <span className="font-bold text-orange-600 dark:text-orange-400">
+                                          {formatCurrency(tenantBalance)}
+                                        </span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 </>
@@ -2052,22 +2664,91 @@ export function PropertyDetailsPopup({
 
       {/* Universal Payment Dialog */}
       <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+        <DialogContent className="max-w-[95vw] sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="space-y-1">
+            <DialogTitle className="text-base sm:text-lg">
               Apply Payment
             </DialogTitle>
-            <DialogDescription>
-              Enter the payment amount and type. Rent will be applied to billing
-              entries. Deposit and Advance Payment will update the tenant's
-              corresponding balances.
+            <DialogDescription className="text-xs sm:text-sm">
+              {paxCount > 1
+                ? "Select tenant and enter payment amount based on their share."
+                : "Enter payment amount and type. Rent applies to billing entries."}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="payment-amount">Payment Amount</Label>
-              <div className="flex gap-2">
+          <div className="space-y-3 py-2">
+            {paxCount > 1 && (
+              <div className="space-y-1.5">
+                <Label htmlFor="tenant-selector" className="text-xs sm:text-sm">
+                  Paying Tenant
+                </Label>
+                <Select
+                  value={selectedTenantIndex?.toString() || ""}
+                  onValueChange={(value) => {
+                    const index = value === "all" ? null : parseInt(value);
+                    setSelectedTenantIndex(index);
+
+                    // Auto-calculate per-person share for rent
+                    if (
+                      index !== null &&
+                      paymentType === "rent" &&
+                      activeTenant?.billing_entries
+                    ) {
+                      // Calculate the person's share of unpaid amount
+                      const totalUnpaid = (
+                        activeTenant.billing_entries || []
+                      ).reduce(
+                        (sum, entry) =>
+                          sum + (entry.gross_due - (entry.paid_amount || 0)),
+                        0,
+                      );
+                      const perPersonShare = Math.ceil(totalUnpaid / paxCount);
+                      setPaymentAmount(perPersonShare);
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    id="tenant-selector"
+                    className="h-8 sm:h-9 text-xs sm:text-sm"
+                  >
+                    <SelectValue placeholder="Select tenant" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs sm:text-sm">
+                      All Tenants (Full Amount)
+                    </SelectItem>
+                    {activeTenant?.pax_details
+                      ?.filter((p) => p.name && p.name.trim() !== "")
+                      .map((person, idx) => (
+                        <SelectItem
+                          key={idx}
+                          value={idx.toString()}
+                          className="text-xs sm:text-sm"
+                        >
+                          {person.name}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                {selectedTenantIndex !== null && (
+                  <p className="text-[10px] sm:text-xs text-muted-foreground">
+                    Payment for{" "}
+                    {activeTenant?.pax_details?.[selectedTenantIndex]?.name} (1/
+                    {paxCount} share)
+                  </p>
+                )}
+                {selectedTenantIndex === null && (
+                  <p className="text-[10px] sm:text-xs text-amber-600 dark:text-amber-400">
+                    ⚠️ Select tenant or "All Tenants"
+                  </p>
+                )}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="payment-amount" className="text-xs sm:text-sm">
+                Payment Amount
+              </Label>
+              <div className="flex gap-1.5">
                 <Input
                   id="payment-amount"
                   type="number"
@@ -2077,116 +2758,145 @@ export function PropertyDetailsPopup({
                     setPaymentAmount(parseInt(value) || 0);
                   }}
                   placeholder="Enter amount"
-                  className="h-10 flex-1"
+                  className="h-8 sm:h-9 flex-1 text-xs sm:text-sm"
                 />
                 <div className="flex gap-1">
                   <Button
                     type="button"
                     variant={paymentAmount >= 0 ? "default" : "outline"}
                     size="icon"
-                    className={`h-10 w-10 ${
+                    className={`h-8 w-8 sm:h-9 sm:w-9 ${
                       paymentAmount >= 0
-                        ? "!bg-emerald-500 hover:!bg-emerald-600 dark:!bg-emerald-700 dark:hover:!bg-emerald-800 !text-white font-bold shadow-lg border-0 !opacity-100"
+                        ? "!bg-emerald-500 hover:!bg-emerald-600 !text-white"
                         : ""
                     }`}
                     onClick={() => setPaymentAmount(Math.abs(paymentAmount))}
                     disabled={paymentAmount >= 0}
                   >
-                    <Plus className="h-5 w-5" />
+                    <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   </Button>
                   <Button
                     type="button"
                     variant={paymentAmount < 0 ? "default" : "outline"}
                     size="icon"
-                    className={`h-10 w-10 ${
+                    className={`h-8 w-8 sm:h-9 sm:w-9 ${
                       paymentAmount < 0
-                        ? "!bg-red-500 hover:!bg-red-600 dark:!bg-red-700 dark:hover:!bg-red-800 !text-white font-bold shadow-lg border-0 !opacity-100"
+                        ? "!bg-red-500 hover:!bg-red-600 !text-white"
                         : ""
                     }`}
                     onClick={() => setPaymentAmount(-Math.abs(paymentAmount))}
                     disabled={paymentAmount <= 0}
                   >
-                    <Minus className="h-5 w-5" />
+                    <Minus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   </Button>
                 </div>
               </div>
+              {paxCount > 1 &&
+                selectedTenantIndex !== null &&
+                paymentType === "rent" &&
+                activeTenant?.billing_entries && (
+                  <p className="text-[10px] sm:text-xs text-green-600 dark:text-green-400">
+                    Auto-calculated: 1/{paxCount} of unpaid balance
+                  </p>
+                )}
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="payment-type">Payment Type</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="payment-type" className="text-xs sm:text-sm">
+                Payment Type
+              </Label>
               <Select value={paymentType} onValueChange={setPaymentType}>
-                <SelectTrigger id="payment-type" className="h-10">
+                <SelectTrigger
+                  id="payment-type"
+                  className="h-8 sm:h-9 text-xs sm:text-sm"
+                >
                   <SelectValue placeholder="Select payment type" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="rent">Rent</SelectItem>
-                  <SelectItem value="deposit">Security Deposit</SelectItem>
-                  <SelectItem value="advance">Advance Payment</SelectItem>
+                  <SelectItem value="rent" className="text-xs sm:text-sm">
+                    Rent
+                  </SelectItem>
+                  <SelectItem value="deposit" className="text-xs sm:text-sm">
+                    Security Deposit
+                  </SelectItem>
+                  <SelectItem value="advance" className="text-xs sm:text-sm">
+                    Advance Payment
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="receipt-date" className="text-sm font-medium">
-                Receipt Date (Optional)
-              </Label>
-              <Input
-                id="receipt-date"
-                type="date"
-                value={receiptDate}
-                onChange={(e) => setReceiptDate(e.target.value)}
-                className="h-10"
-              />
-              <p className="text-xs text-muted-foreground">
-                Use this if the payment date differs from the log date
-              </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="receipt-date" className="text-xs sm:text-sm">
+                  Receipt Date
+                </Label>
+                <Input
+                  id="receipt-date"
+                  type="date"
+                  value={receiptDate}
+                  onChange={(e) => setReceiptDate(e.target.value)}
+                  className="h-8 sm:h-9 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-1">
+                <Label htmlFor="payment-note" className="text-xs sm:text-sm">
+                  Note
+                </Label>
+                <Input
+                  id="payment-note"
+                  value={paymentNote}
+                  onChange={(e) => setPaymentNote(e.target.value)}
+                  placeholder="Optional note..."
+                  className="h-8 sm:h-9 text-xs sm:text-sm"
+                />
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="payment-note" className="text-sm font-medium">
-                Note (Optional)
-              </Label>
-              <textarea
-                id="payment-note"
-                value={paymentNote}
-                onChange={(e) => setPaymentNote(e.target.value)}
-                placeholder="Add a note for this payment (will appear in activity log)..."
-                className="w-full px-3 py-2 text-sm border rounded-md resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                rows={3}
-              />
-            </div>
-
-            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg p-3">
-              <p className="text-xs text-muted-foreground">
+            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded p-2">
+              <p className="text-[10px] sm:text-xs text-muted-foreground leading-relaxed">
                 {paymentType === "deposit" || paymentType === "advance"
-                  ? `This will ${paymentAmount >= 0 ? "add to" : "deduct from"} the tenant's ${paymentType === "deposit" ? "Security Deposit" : "Advance Payment"} balance.`
-                  : `This will ${paymentAmount >= 0 ? "add" : "deduct"} ₱${Math.abs(paymentAmount).toLocaleString()} ${paymentAmount >= 0 ? "to" : "from"} billing entries, applied chronologically starting from the earliest unpaid or partially paid entry.`}
+                  ? `${paymentAmount >= 0 ? "Add to" : "Deduct from"} ${paymentType === "deposit" ? "Security Deposit" : "Advance"} balance.`
+                  : paxCount > 1 && selectedTenantIndex !== null
+                    ? `${activeTenant?.pax_details?.[selectedTenantIndex]?.name}'s share (1/${paxCount}): ₱${Math.abs(paymentAmount).toLocaleString()}`
+                    : `${paymentAmount >= 0 ? "Add" : "Deduct"} ₱${Math.abs(paymentAmount).toLocaleString()} ${paymentAmount >= 0 ? "to" : "from"} billing entries chronologically.`}
               </p>
             </div>
           </div>
 
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 pt-2">
             <Button
               variant="outline"
+              size="sm"
               onClick={() => {
                 setIsPaymentDialogOpen(false);
                 setPaymentAmount(0);
                 setPaymentType("rent");
                 setPaymentNote("");
                 setReceiptDate("");
+                setSelectedTenantIndex(null);
               }}
               disabled={isApplyingPayment}
+              className="h-8 sm:h-9 text-xs sm:text-sm"
             >
               Cancel
             </Button>
             <Button
+              size="sm"
               onClick={handleApplyPayment}
-              disabled={isApplyingPayment || paymentAmount === 0}
-              className="gap-2"
+              disabled={
+                isApplyingPayment ||
+                paymentAmount === 0 ||
+                (paxCount > 1 &&
+                  selectedTenantIndex === null &&
+                  paymentType === "rent")
+              }
+              className="gap-1.5 h-8 sm:h-9 text-xs sm:text-sm"
             >
               {isApplyingPayment ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
                   Applying...
                 </>
               ) : (

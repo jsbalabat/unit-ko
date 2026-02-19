@@ -185,6 +185,10 @@ export function EditPropertyPopup({
           `,
           )
           .eq("id", propertyId)
+          .order("billing_period", {
+            foreignTable: "tenants.billing_entries",
+            ascending: true,
+          })
           .single();
 
         if (error) throw error;

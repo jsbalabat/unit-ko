@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import {
@@ -43,6 +43,11 @@ import {
   Minus,
   ArrowRightLeft,
   User,
+  Pencil,
+  Check,
+  X,
+  Undo,
+  Redo,
 } from "lucide-react";
 import { OtherChargesPopup } from "@/components/other-charges-popup";
 
@@ -120,6 +125,140 @@ export function EditBillingPopup({
   const [receiptDate, setReceiptDate] = useState<string>("");
   const [originalBillingIds, setOriginalBillingIds] = useState<string[]>([]);
   const [tenantPax, setTenantPax] = useState<number>(1);
+  const [tenantOverflow, setTenantOverflow] = useState<number>(0);
+  const [pendingOverflow, setPendingOverflow] = useState<number>(0);
+  const [deletedEntriesPaidAmounts, setDeletedEntriesPaidAmounts] = useState<
+    Record<string, number>
+  >({});
+  const [editingRentIndex, setEditingRentIndex] = useState<number | null>(null);
+  const [editingRentValue, setEditingRentValue] = useState<number>(0);
+  const [editingDateIndex, setEditingDateIndex] = useState<number | null>(null);
+  const [editingDateValue, setEditingDateValue] = useState<string>("");
+
+  // Undo/Redo state using two-stack approach
+  type HistorySnapshot = {
+    formData: BillingFormData;
+    expenseItemsByBillingId: Record<string, ExpenseItem[]>;
+    deletedEntriesPaidAmounts: Record<string, number>;
+    pendingOverflow: number;
+  };
+  const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<HistorySnapshot[]>([]);
+
+  // Save current state to undo stack before making changes
+  const saveToHistory = (overridePendingOverflow?: number) => {
+    if (!formData) return;
+
+    const snapshot: HistorySnapshot = {
+      formData: JSON.parse(JSON.stringify(formData)),
+      expenseItemsByBillingId: JSON.parse(
+        JSON.stringify(expenseItemsByBillingId),
+      ),
+      deletedEntriesPaidAmounts: JSON.parse(
+        JSON.stringify(deletedEntriesPaidAmounts),
+      ),
+      pendingOverflow:
+        overridePendingOverflow !== undefined
+          ? overridePendingOverflow
+          : pendingOverflow,
+    };
+
+    // Push current state to undo stack
+    setUndoStack((prev) => {
+      const newStack = [...prev, snapshot];
+      // Keep only last 50 states to prevent memory issues
+      if (newStack.length > 50) {
+        newStack.shift();
+      }
+      return newStack;
+    });
+
+    // Clear redo stack on new action
+    setRedoStack([]);
+  };
+
+  // Undo function
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0 || !formData) return;
+
+    // Save current state to redo stack
+    const currentSnapshot: HistorySnapshot = {
+      formData: JSON.parse(JSON.stringify(formData)),
+      expenseItemsByBillingId: JSON.parse(
+        JSON.stringify(expenseItemsByBillingId),
+      ),
+      deletedEntriesPaidAmounts: JSON.parse(
+        JSON.stringify(deletedEntriesPaidAmounts),
+      ),
+      pendingOverflow,
+    };
+    setRedoStack((prev) => [...prev, currentSnapshot]);
+
+    // Restore last state from undo stack
+    const previousSnapshot = undoStack[undoStack.length - 1];
+    setFormData(JSON.parse(JSON.stringify(previousSnapshot.formData)));
+    setExpenseItemsByBillingId(
+      JSON.parse(JSON.stringify(previousSnapshot.expenseItemsByBillingId)),
+    );
+    setDeletedEntriesPaidAmounts(
+      JSON.parse(JSON.stringify(previousSnapshot.deletedEntriesPaidAmounts)),
+    );
+    setPendingOverflow(previousSnapshot.pendingOverflow);
+
+    // Remove from undo stack
+    setUndoStack((prev) => prev.slice(0, -1));
+  }, [
+    undoStack,
+    formData,
+    expenseItemsByBillingId,
+    deletedEntriesPaidAmounts,
+    pendingOverflow,
+  ]);
+
+  // Redo function
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0 || !formData) return;
+
+    // Save current state to undo stack
+    const currentSnapshot: HistorySnapshot = {
+      formData: JSON.parse(JSON.stringify(formData)),
+      expenseItemsByBillingId: JSON.parse(
+        JSON.stringify(expenseItemsByBillingId),
+      ),
+      deletedEntriesPaidAmounts: JSON.parse(
+        JSON.stringify(deletedEntriesPaidAmounts),
+      ),
+      pendingOverflow,
+    };
+    setUndoStack((prev) => {
+      const newStack = [...prev, currentSnapshot];
+      // Keep only last 50 states
+      if (newStack.length > 50) {
+        newStack.shift();
+      }
+      return newStack;
+    });
+
+    // Restore state from redo stack
+    const nextSnapshot = redoStack[redoStack.length - 1];
+    setFormData(JSON.parse(JSON.stringify(nextSnapshot.formData)));
+    setExpenseItemsByBillingId(
+      JSON.parse(JSON.stringify(nextSnapshot.expenseItemsByBillingId)),
+    );
+    setDeletedEntriesPaidAmounts(
+      JSON.parse(JSON.stringify(nextSnapshot.deletedEntriesPaidAmounts)),
+    );
+    setPendingOverflow(nextSnapshot.pendingOverflow);
+
+    // Remove from redo stack
+    setRedoStack((prev) => prev.slice(0, -1));
+  }, [
+    redoStack,
+    formData,
+    expenseItemsByBillingId,
+    deletedEntriesPaidAmounts,
+    pendingOverflow,
+  ]);
 
   // Fetch billing data when popup opens
   useEffect(() => {
@@ -128,6 +267,11 @@ export function EditBillingPopup({
 
       setLoading(true);
       setError(null);
+
+      // Reset undo/redo stacks when opening
+      setUndoStack([]);
+      setRedoStack([]);
+      setPendingOverflow(0);
 
       try {
         // Fetch property for rent amount
@@ -144,12 +288,22 @@ export function EditBillingPopup({
           .from("tenants")
           .select("*, billing_entries(*)")
           .eq("id", tenantId)
+          .order("billing_period", {
+            foreignTable: "billing_entries",
+            ascending: true,
+          })
           .single();
 
         if (tenantError) throw tenantError;
 
         // Set tenant pax for per-person billing display
-        setTenantPax(tenantData.pax || 1);
+        // Count only filled-in pax_details entries
+        const filledPaxCount =
+          tenantData.pax_details?.filter(
+            (p: { name: string }) => p.name && p.name.trim() !== "",
+          ).length || 0;
+        setTenantPax(filledPaxCount > 0 ? filledPaxCount : tenantData.pax || 1);
+        setTenantOverflow(tenantData.overflow || 0);
 
         const billingEntries = (tenantData.billing_entries ||
           []) as BillingEntry[];
@@ -198,6 +352,10 @@ export function EditBillingPopup({
         setFormData(initialFormData);
         // Store original billing IDs for tracking deletions
         setOriginalBillingIds(sortedBillingEntries.map((entry) => entry.id));
+        // Reset deleted entries tracking
+        setDeletedEntriesPaidAmounts({});
+
+        // Undo/Redo stacks are already reset above (no initial state needed)
       } catch (err) {
         console.error("Error fetching billing data:", err);
         setError(
@@ -211,6 +369,30 @@ export function EditBillingPopup({
 
     fetchBillingData();
   }, [isOpen, propertyId, tenantId]);
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    if (!isOpen || isLocked) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Z or Cmd+Z for undo
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+      // Ctrl+Y or Ctrl+Shift+Z or Cmd+Shift+Z for redo
+      else if (
+        ((e.ctrlKey || e.metaKey) && e.key === "y") ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z")
+      ) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, isLocked, handleUndo, handleRedo]);
 
   // Recalculate all statuses based on paid amounts vs gross due
   // This ensures carry-over logic: excess payment from one entry flows to the next
@@ -274,9 +456,9 @@ export function EditBillingPopup({
       const epsilon = 0.01;
 
       if (currentPaid >= billing.grossDue - epsilon) {
-        status = "paid";
+        status = "Paid";
       } else if (currentPaid > epsilon) {
-        status = "partial";
+        status = "Partial";
       } else {
         // No payment - check if overdue or not yet due based on current date
         const dueDate = new Date(billing.dueDate);
@@ -358,6 +540,28 @@ export function EditBillingPopup({
     // Handle rent payment - preview mode, doesn't save until "Save Changes"
     let remainingPayment = paymentAmount;
     const updatedSchedule = [...formData.billingSchedule];
+    let newPendingOverflow = pendingOverflow;
+
+    // For negative payments, deduct from overflow FIRST
+    if (paymentAmount < 0) {
+      const totalAvailableOverflow = tenantOverflow + pendingOverflow;
+
+      if (totalAvailableOverflow > 0) {
+        // Deduct from overflow first
+        const deductionFromOverflow = Math.min(
+          Math.abs(remainingPayment),
+          totalAvailableOverflow,
+        );
+
+        // Update pending overflow (negative value to deduct)
+        newPendingOverflow = pendingOverflow - deductionFromOverflow;
+        remainingPayment += deductionFromOverflow; // Make it less negative
+
+        if (Math.abs(remainingPayment) < 0.01) {
+          remainingPayment = 0; // Treat very small values as zero
+        }
+      }
+    }
 
     // Sort by due date: chronologically for positive payments, reverse for negative
     const sortedIndices = updatedSchedule
@@ -395,7 +599,7 @@ export function EditBillingPopup({
           remainingPayment -= paymentToApply;
         }
       } else {
-        // Negative payment - deduct from paid amounts
+        // Negative payment - deduct from billing entries (after overflow is consumed)
         if (currentPaid > 0) {
           // Add negative value (which subtracts)
           const deductionAmount = Math.max(remainingPayment, -currentPaid);
@@ -413,7 +617,18 @@ export function EditBillingPopup({
 
     // Recalculate all statuses with carry-over logic
     const finalSchedule = recalculateAllStatuses(updatedSchedule);
+
+    // Calculate final pending overflow
+    if (paymentAmount > 0 && remainingPayment > 0) {
+      newPendingOverflow = newPendingOverflow + remainingPayment;
+    } else if (paymentAmount < 0 && remainingPayment < 0) {
+      newPendingOverflow = newPendingOverflow + remainingPayment;
+    }
+
+    // Save to history with the new pending overflow value
+    saveToHistory(newPendingOverflow);
     setFormData({ ...formData, billingSchedule: finalSchedule });
+    setPendingOverflow(newPendingOverflow);
 
     // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
     // console.log('Payment note for activity log:', paymentNote);
@@ -423,23 +638,53 @@ export function EditBillingPopup({
     setPaymentNote("");
     setReceiptDate("");
 
-    if (paymentAmount > 0 && remainingPayment > 0) {
-      toast.info(`₱${remainingPayment.toFixed(2)} excess payment remaining`, {
-        description: "Click 'Save Changes' to confirm this payment.",
-      });
-    } else if (paymentAmount < 0 && remainingPayment < 0) {
-      toast.info(
-        `₱${Math.abs(remainingPayment).toFixed(2)} could not be deducted`,
-        {
-          description: "No more paid amounts to deduct from.",
-        },
-      );
-    } else {
-      const action = paymentAmount > 0 ? "applied to" : "deducted from";
-      toast.success(`Payment ${action} billing entries`, {
-        description:
-          "Don't forget to click 'Save Changes' to save this payment.",
-      });
+    // Show appropriate toast for the payment
+    if (paymentAmount > 0) {
+      if (remainingPayment > 0) {
+        toast.info(
+          `₱${remainingPayment.toFixed(2)} excess payment added to overflow`,
+          {
+            description: "Will be applied when you save changes.",
+          },
+        );
+      } else {
+        toast.success("Payment applied to billing entries", {
+          description:
+            "Don't forget to click 'Save Changes' to save this payment.",
+        });
+      }
+    } else if (paymentAmount < 0) {
+      const totalDeduction = Math.abs(paymentAmount);
+      const overflowDeduction = pendingOverflow - newPendingOverflow;
+      const billingDeduction = totalDeduction - overflowDeduction;
+
+      if (billingDeduction > 0 && overflowDeduction > 0) {
+        toast.success(`₱${totalDeduction.toFixed(2)} deducted`, {
+          description: `₱${overflowDeduction.toFixed(2)} from overflow, ₱${billingDeduction.toFixed(2)} from billing entries. Don't forget to save changes.`,
+        });
+      } else if (overflowDeduction > 0) {
+        toast.success(
+          `₱${overflowDeduction.toFixed(2)} deducted from overflow`,
+          {
+            description:
+              "Don't forget to click 'Save Changes' to save this deduction.",
+          },
+        );
+      } else if (billingDeduction > 0) {
+        toast.success("Payment deducted from billing entries", {
+          description:
+            "Don't forget to click 'Save Changes' to save this payment.",
+        });
+      }
+
+      if (remainingPayment < 0) {
+        toast.warning(
+          `₱${Math.abs(remainingPayment).toFixed(2)} could not be deducted`,
+          {
+            description: "No more overflow or paid amounts to deduct from.",
+          },
+        );
+      }
     }
   };
 
@@ -464,11 +709,116 @@ export function EditBillingPopup({
     // Recalculate all statuses with carry-over logic after modifying gross due
     const finalSchedule = recalculateAllStatuses(updatedSchedule);
 
+    saveToHistory();
     setFormData({ ...formData, billingSchedule: finalSchedule });
     setExpenseItemsByBillingId({
       ...expenseItemsByBillingId,
       [billing.id]: expenseItems,
     });
+  };
+
+  // Handle editing rent amount
+  const handleStartEditRent = (index: number, currentRent: number) => {
+    setEditingRentIndex(index);
+    setEditingRentValue(currentRent);
+  };
+
+  const handleSaveRent = (index: number) => {
+    if (!formData || editingRentValue < 0) return;
+
+    const billing = formData.billingSchedule[index];
+    const newGrossDue = editingRentValue + billing.otherCharges;
+
+    const updatedSchedule = [...formData.billingSchedule];
+    updatedSchedule[index] = {
+      ...billing,
+      rentDue: editingRentValue,
+      grossDue: newGrossDue,
+    };
+
+    // Recalculate all statuses with carry-over logic after modifying rent
+    const finalSchedule = recalculateAllStatuses(updatedSchedule);
+
+    saveToHistory();
+    setFormData({ ...formData, billingSchedule: finalSchedule });
+    setEditingRentIndex(null);
+    setEditingRentValue(0);
+
+    toast.success("Rent amount updated", {
+      description: "Don't forget to click 'Save Changes' to save this change.",
+    });
+  };
+
+  const handleCancelEditRent = () => {
+    setEditingRentIndex(null);
+    setEditingRentValue(0);
+  };
+
+  // Handle editing due date
+  const handleStartEditDate = (index: number, currentDate: string) => {
+    setEditingDateIndex(index);
+    // Convert date to YYYY-MM-DD format for input
+    const date = new Date(currentDate);
+    const formattedDate = date.toISOString().split("T")[0];
+    setEditingDateValue(formattedDate);
+  };
+
+  const handleSaveDate = (index: number) => {
+    if (!formData || !editingDateValue) return;
+
+    const schedule = formData.billingSchedule;
+    const newDate = new Date(editingDateValue);
+
+    // Validate with upper and lower limits
+    // First date: no lower limit, upper limit is second date
+    // Middle dates: lower limit is previous date, upper limit is next date
+    // Last date: lower limit is previous date, no upper limit
+
+    if (index > 0) {
+      // Has lower limit (previous date)
+      const previousDate = new Date(schedule[index - 1].dueDate);
+      if (newDate <= previousDate) {
+        toast.error("Invalid date", {
+          description: "Due date must be after the previous billing period.",
+        });
+        return;
+      }
+    }
+
+    if (index < schedule.length - 1) {
+      // Has upper limit (next date)
+      const nextDate = new Date(schedule[index + 1].dueDate);
+      if (newDate >= nextDate) {
+        toast.error("Invalid date", {
+          description: "Due date must be before the next billing period.",
+        });
+        return;
+      }
+    }
+
+    // Update the date
+    const updatedSchedule = [...schedule];
+    updatedSchedule[index] = {
+      ...schedule[index],
+      dueDate: editingDateValue,
+    };
+
+    // Recalculate all statuses after modifying date
+    const finalSchedule = recalculateAllStatuses(updatedSchedule);
+
+    saveToHistory();
+    setFormData({ ...formData, billingSchedule: finalSchedule });
+    setEditingDateIndex(null);
+    setEditingDateValue("");
+
+    toast.success("Due date updated", {
+      description: "Don't forget to click 'Save Changes' to save this change.",
+    });
+  };
+
+  const handleCancelEditDate = () => {
+    setEditingDateIndex(null);
+    setEditingDateValue("");
   };
 
   // Helper function to calculate the proper due date based on dueDay setting
@@ -556,6 +906,7 @@ export function EditBillingPopup({
     };
 
     // Update form data with the new entry
+    saveToHistory();
     setFormData({
       ...formData,
       billingSchedule: [...formData.billingSchedule, newEntry],
@@ -576,6 +927,20 @@ export function EditBillingPopup({
     );
     if (!confirmDelete) return;
 
+    const deletedEntry = formData.billingSchedule[index];
+    const paidAmount = deletedEntry.paidAmount || 0;
+
+    // Save to history before making changes
+    saveToHistory();
+
+    // Track paid amount for this deleted entry (only if it has an original ID, not temp)
+    if (!deletedEntry.id.startsWith("temp-") && paidAmount > 0) {
+      setDeletedEntriesPaidAmounts((prev) => ({
+        ...prev,
+        [deletedEntry.id]: paidAmount,
+      }));
+    }
+
     // Remove the entry from the form data
     const updatedSchedule = formData.billingSchedule.filter(
       (entry, i) => i !== index,
@@ -583,7 +948,67 @@ export function EditBillingPopup({
     setFormData({ ...formData, billingSchedule: updatedSchedule });
 
     toast.success("Billing entry deleted", {
-      description: "The billing entry has been removed.",
+      description:
+        paidAmount > 0
+          ? `The billing entry has been removed. ₱${paidAmount.toLocaleString()} will be returned to overflow when saved.`
+          : "The billing entry has been removed.",
+    });
+  };
+
+  // Insert additional charges row between periods
+  const insertAdditionalChargesRow = (afterIndex: number) => {
+    if (!formData || isLocked) return;
+
+    const currentEntry = formData.billingSchedule[afterIndex];
+    const nextEntry = formData.billingSchedule[afterIndex + 1];
+
+    // Calculate a default due date between the two periods
+    let newDueDate: Date;
+
+    if (nextEntry) {
+      // Insert between two entries - set to midpoint
+      const currentDate = new Date(currentEntry.dueDate);
+      const nextDate = new Date(nextEntry.dueDate);
+      const midpoint = new Date(
+        (currentDate.getTime() + nextDate.getTime()) / 2,
+      );
+      newDueDate = midpoint;
+    } else {
+      // Inserting after the last entry - add 1 day
+      const currentDate = new Date(currentEntry.dueDate);
+      newDueDate = new Date(currentDate);
+      newDueDate.setDate(currentDate.getDate() + 1);
+    }
+
+    // Format the new due date
+    const formattedDueDate = formatDueDate(newDueDate);
+
+    // Create a new additional charges entry (no rent)
+    const newEntry = {
+      id: `temp-additional-${Date.now()}`, // Temporary ID
+      dueDate: formattedDueDate,
+      rentDue: 0, // No rent for additional charges row
+      otherCharges: 0,
+      grossDue: 0,
+      status: "Not Yet Due",
+      paidAmount: 0,
+    };
+
+    // Insert the entry after the specified index
+    const updatedSchedule = [
+      ...formData.billingSchedule.slice(0, afterIndex + 1),
+      newEntry,
+      ...formData.billingSchedule.slice(afterIndex + 1),
+    ];
+
+    saveToHistory();
+    setFormData({
+      ...formData,
+      billingSchedule: updatedSchedule,
+    });
+
+    toast.success("Additional charges row added", {
+      description: "Add charges and set the due date. Don't forget to save.",
     });
   };
 
@@ -618,7 +1043,15 @@ export function EditBillingPopup({
         }
         // For new entries (temp IDs), insert them
         else {
-          const billingPeriod = formData.billingSchedule.indexOf(billing) + 1;
+          // Calculate billing period number
+          // For additional charges (rentDue = 0), use 0 as billing_period
+          // For regular rent entries, count only rent entries up to this point
+          let billingPeriod = 0;
+          if (billing.rentDue > 0) {
+            billingPeriod = formData.billingSchedule
+              .slice(0, formData.billingSchedule.indexOf(billing) + 1)
+              .filter((b) => b.rentDue > 0).length;
+          }
 
           const { error } = await supabase.from("billing_entries").insert({
             property_id: propertyId,
@@ -654,9 +1087,144 @@ export function EditBillingPopup({
 
           if (deleteError) throw deleteError;
         }
+
+        // Calculate total paid amount from deleted entries and update overflow
+        const totalDeletedPaidAmount = Object.values(
+          deletedEntriesPaidAmounts,
+        ).reduce((sum, amount) => sum + amount, 0);
+
+        if (totalDeletedPaidAmount > 0) {
+          const newOverflow = tenantOverflow + totalDeletedPaidAmount;
+
+          const { error: overflowError } = await supabase
+            .from("tenants")
+            .update({ overflow: newOverflow })
+            .eq("id", tenantId);
+
+          if (overflowError) {
+            console.error("Error updating overflow:", overflowError);
+            toast.error("Failed to update overflow", {
+              description:
+                "The paid amounts could not be returned to overflow.",
+            });
+          } else {
+            // Update local overflow state for reallocation
+            setTenantOverflow(newOverflow);
+          }
+        }
       }
 
-      toast.success("Billing updated successfully");
+      // Automatically reallocate overflow to unpaid billing entries
+      let currentOverflow = tenantOverflow;
+
+      // Add any overflow from deleted entries
+      if (deletedEntryIds.length > 0) {
+        const totalDeletedPaidAmount = Object.values(
+          deletedEntriesPaidAmounts,
+        ).reduce((sum, amount) => sum + amount, 0);
+        currentOverflow += totalDeletedPaidAmount;
+      }
+
+      // Add any pending overflow from payments
+      currentOverflow += pendingOverflow;
+
+      if (currentOverflow > 0) {
+        // Get all billing entries sorted by due date
+        const unpaidEntries = formData.billingSchedule
+          .filter((billing) => {
+            const balance = billing.grossDue - (billing.paidAmount || 0);
+            return balance > 0 && !billing.id.startsWith("temp-");
+          })
+          .sort(
+            (a, b) =>
+              new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime(),
+          );
+
+        let remainingOverflow = currentOverflow;
+        const overflowApplications: Array<{
+          id: string;
+          additionalPayment: number;
+        }> = [];
+
+        // Apply overflow to unpaid entries
+        for (const entry of unpaidEntries) {
+          if (remainingOverflow <= 0) break;
+
+          const balance = entry.grossDue - (entry.paidAmount || 0);
+          const paymentToApply = Math.min(remainingOverflow, balance);
+
+          overflowApplications.push({
+            id: entry.id,
+            additionalPayment: paymentToApply,
+          });
+
+          remainingOverflow -= paymentToApply;
+        }
+
+        // Update billing entries with overflow payments
+        for (const application of overflowApplications) {
+          const entry = formData.billingSchedule.find(
+            (b) => b.id === application.id,
+          );
+          if (!entry) continue;
+
+          const newPaidAmount =
+            (entry.paidAmount || 0) + application.additionalPayment;
+          const newStatus =
+            newPaidAmount >= entry.grossDue ? "Paid" : "Partial";
+
+          const { error: updateError } = await supabase
+            .from("billing_entries")
+            .update({
+              paid_amount: newPaidAmount,
+              status: newStatus,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", entry.id);
+
+          if (updateError) {
+            console.error("Error applying overflow:", updateError);
+          }
+        }
+
+        // Update overflow in database with remaining amount
+        const { error: finalOverflowError } = await supabase
+          .from("tenants")
+          .update({ overflow: remainingOverflow })
+          .eq("id", tenantId);
+
+        if (finalOverflowError) {
+          console.error("Error updating final overflow:", finalOverflowError);
+        }
+
+        if (overflowApplications.length > 0) {
+          const totalApplied = currentOverflow - remainingOverflow;
+          toast.success("Billing updated successfully", {
+            description: `₱${totalApplied.toLocaleString()} from overflow automatically applied to unpaid entries.`,
+          });
+        } else {
+          toast.success("Billing updated successfully");
+        }
+      } else if (pendingOverflow !== 0 || deletedEntryIds.length > 0) {
+        // Update overflow even if currentOverflow <= 0 when there's pending overflow or deleted entries
+        const { error: finalOverflowError } = await supabase
+          .from("tenants")
+          .update({ overflow: Math.max(0, currentOverflow) })
+          .eq("id", tenantId);
+
+        if (finalOverflowError) {
+          console.error("Error updating overflow:", finalOverflowError);
+        }
+
+        toast.success("Billing updated successfully");
+      } else {
+        toast.success("Billing updated successfully");
+      }
+
+      // Reset pending overflow and deleted entries after successful save
+      setPendingOverflow(0);
+      setDeletedEntriesPaidAmounts({});
+
       onSuccess?.();
       onClose();
     } catch (err) {
@@ -691,6 +1259,32 @@ export function EditBillingPopup({
           <DialogHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-2 sm:space-y-0">
             <DialogTitle>Edit Billing</DialogTitle>
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Undo Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleUndo}
+                disabled={undoStack.length === 0 || isLocked}
+                className="text-xs h-8 gap-1.5"
+                title="Undo (Ctrl+Z)"
+              >
+                <Undo className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Undo</span>
+              </Button>
+
+              {/* Redo Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRedo}
+                disabled={redoStack.length === 0 || isLocked}
+                className="text-xs h-8 gap-1.5"
+                title="Redo (Ctrl+Y)"
+              >
+                <Redo className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Redo</span>
+              </Button>
+
               {/* Switch to Edit Property Button */}
               {onSwitchToProperty && (
                 <Button
@@ -767,56 +1361,6 @@ export function EditBillingPopup({
             <div className="text-center py-12 text-red-600">{error}</div>
           ) : formData ? (
             <div className="space-y-6">
-              {/* Per-Person Billing Breakdown - Show when pax exists */}
-              {tenantPax >= 1 && (
-                <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 border-blue-200 dark:border-blue-800">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                      <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                      <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100">
-                        Per-Person Billing Breakdown
-                      </h3>
-                      <span className="ml-auto text-xs bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-2 py-1 rounded-full border border-blue-300 dark:border-blue-700">
-                        {tenantPax} Persons
-                      </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="bg-white dark:bg-gray-900/50 rounded-lg p-2 border border-blue-100 dark:border-blue-900">
-                        <div className="text-[10px] text-muted-foreground mb-1">
-                          Monthly Rent (Total)
-                        </div>
-                        <div className="text-base font-bold text-blue-600 dark:text-blue-400">
-                          ₱{formData.rentAmount.toLocaleString()}
-                        </div>
-                      </div>
-                      <div className="bg-white dark:bg-gray-900/50 rounded-lg p-2 border border-blue-100 dark:border-blue-900">
-                        <div className="text-[10px] text-muted-foreground mb-1">
-                          Per Person Share
-                        </div>
-                        <div className="text-base font-bold text-emerald-600 dark:text-emerald-400">
-                          ₱
-                          {(formData.rentAmount / tenantPax).toLocaleString(
-                            undefined,
-                            {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            },
-                          )}
-                        </div>
-                      </div>
-                      <div className="bg-white dark:bg-gray-900/50 rounded-lg p-2 border border-blue-100 dark:border-blue-900">
-                        <div className="text-[10px] text-muted-foreground mb-1">
-                          Billing Mode
-                        </div>
-                        <div className="text-xs font-semibold text-blue-700 dark:text-blue-300 mt-1">
-                          Split Equally
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-
               <Card>
                 <CardContent className="p-6">
                   {/* Universal Payment Field */}
@@ -957,13 +1501,64 @@ export function EditBillingPopup({
                     </div>
                   )}
 
+                  {/* Overflow and Refund Information */}
+                  {(tenantOverflow > 0 ||
+                    pendingOverflow !== 0 ||
+                    Object.keys(deletedEntriesPaidAmounts).length > 0) && (
+                    <div className="mb-3 px-3 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border border-blue-200 dark:border-blue-800 rounded-md flex items-center justify-between gap-4 text-xs">
+                      <div className="flex items-center gap-4">
+                        <DollarSign className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                        {tenantOverflow > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">
+                              Overflow:
+                            </span>
+                            <span className="font-semibold text-blue-700 dark:text-blue-300">
+                              ₱{tenantOverflow.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                        {pendingOverflow !== 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">
+                              Pending Overflow:
+                            </span>
+                            <span className="font-semibold text-emerald-700 dark:text-emerald-300">
+                              {pendingOverflow > 0 ? "+" : ""}₱
+                              {pendingOverflow.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                        {Object.keys(deletedEntriesPaidAmounts).length > 0 && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-muted-foreground">
+                              Pending Refund:
+                            </span>
+                            <span className="font-semibold text-amber-700 dark:text-amber-300">
+                              ₱
+                              {Object.values(deletedEntriesPaidAmounts)
+                                .reduce((sum, amt) => sum + amt, 0)
+                                .toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      {(Object.keys(deletedEntriesPaidAmounts).length > 0 ||
+                        pendingOverflow !== 0) && (
+                        <span className="text-[10px] text-muted-foreground italic">
+                          Apply on save
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {/* Billing Table */}
                   <div className="w-full border rounded-lg overflow-hidden">
                     <table className="w-full table-auto border-collapse">
                       <thead className="bg-muted/50">
                         <tr className="text-left border-b">
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground w-12">
-                            #
+                            Period
                           </th>
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground w-28">
                             Due Date
@@ -971,14 +1566,6 @@ export function EditBillingPopup({
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-right w-24">
                             Rent
                           </th>
-                          {tenantPax >= 1 && (
-                            <th className="px-3 py-3 text-xs font-semibold text-blue-600 dark:text-blue-400 text-center w-24">
-                              <div className="flex items-center justify-center gap-1">
-                                <User className="h-3 w-3" />
-                                Per Person
-                              </div>
-                            </th>
-                          )}
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-center w-32">
                             Other
                           </th>
@@ -997,92 +1584,221 @@ export function EditBillingPopup({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
-                        {formData.billingSchedule.map((billing, index) => (
-                          <tr key={billing.id} className="hover:bg-muted/30">
-                            <td className="px-3 py-3 text-sm font-medium">
-                              {index + 1}
-                            </td>
-                            <td className="px-3 py-3 text-sm">
-                              {new Date(billing.dueDate).toLocaleDateString(
-                                "en-US",
-                                { month: "short", day: "numeric" },
-                              )}
-                            </td>
-                            <td className="px-3 py-3 text-sm text-right font-medium">
-                              ₱{billing.rentDue.toLocaleString()}
-                            </td>
-                            {tenantPax >= 1 && (
-                              <td className="px-3 py-3 text-xs text-center">
-                                <div className="flex flex-col items-center">
-                                  <span className="font-semibold text-blue-600 dark:text-blue-400">
-                                    ₱
-                                    {(
-                                      billing.rentDue / tenantPax
-                                    ).toLocaleString(undefined, {
-                                      minimumFractionDigits: 2,
-                                      maximumFractionDigits: 2,
-                                    })}
+                        {formData.billingSchedule.map((billing, index) => {
+                          // Calculate period number (only for rows with rent)
+                          const periodNumber = formData.billingSchedule
+                            .slice(0, index + 1)
+                            .filter((b) => b.rentDue > 0).length;
+                          const isAdditionalCharges = billing.rentDue === 0;
+
+                          return (
+                            <tr
+                              key={billing.id}
+                              className="hover:bg-muted/30 group/insert"
+                            >
+                              <td className="px-3 py-3 text-sm font-medium relative">
+                                {/* Insert Additional Charges Button - Positioned on the line between rows */}
+                                {!isLocked &&
+                                  index <
+                                    formData.billingSchedule.length - 1 && (
+                                    <div
+                                      className="absolute left-1/2 top-full -translate-x-1/2 -translate-y-1/2 z-10"
+                                      style={{ marginLeft: "600%" }}
+                                    >
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() =>
+                                          insertAdditionalChargesRow(index)
+                                        }
+                                        className="h-5 w-5 opacity-0 group-hover/insert:opacity-100 transition-opacity rounded-full bg-background border border-border hover:bg-muted shadow-sm"
+                                        title="Insert additional charges between periods"
+                                      >
+                                        <Plus className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  )}
+                                {isAdditionalCharges ? (
+                                  <span className="text-muted-foreground italic text-xs">
+                                    —
                                   </span>
-                                  <span className="text-[10px] text-muted-foreground">
-                                    × {tenantPax} persons
-                                  </span>
-                                </div>
+                                ) : (
+                                  periodNumber
+                                )}
                               </td>
-                            )}
-                            <td className="px-3 py-3 text-center">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedBillingIndex(index);
-                                  setIsOtherChargesPopupOpen(true);
-                                }}
-                                disabled={isLocked}
-                                className="text-xs h-8 px-3 mx-auto hover:bg-accent"
-                              >
-                                {billing.otherCharges > 0
-                                  ? `₱${billing.otherCharges.toLocaleString()}`
-                                  : "+"}
-                              </Button>
-                            </td>
-                            <td className="px-3 py-3 text-sm font-semibold text-right">
-                              ₱{billing.grossDue.toLocaleString()}
-                            </td>
-                            <td className="px-3 py-3 text-sm text-right">
-                              ₱{(billing.paidAmount || 0).toLocaleString()}
-                            </td>
-                            <td className="px-3 py-3">
-                              <span
-                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
-                                  billing.status.toLowerCase() === "paid"
-                                    ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                                    : billing.status.toLowerCase() === "partial"
-                                      ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                              <td className="px-3 py-3 text-sm">
+                                {editingDateIndex === index ? (
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      type="date"
+                                      value={editingDateValue}
+                                      onChange={(e) =>
+                                        setEditingDateValue(e.target.value)
+                                      }
+                                      className="h-8 w-32 text-sm"
+                                      autoFocus
+                                    />
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                      onClick={() => handleSaveDate(index)}
+                                    >
+                                      <Check className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                      onClick={handleCancelEditDate}
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2 group">
+                                    <span>
+                                      {new Date(
+                                        billing.dueDate,
+                                      ).toLocaleDateString("en-US", {
+                                        month: "short",
+                                        day: "numeric",
+                                        year: "numeric",
+                                      })}
+                                    </span>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      onClick={() =>
+                                        handleStartEditDate(
+                                          index,
+                                          billing.dueDate,
+                                        )
+                                      }
+                                      disabled={isLocked}
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-sm text-right font-medium">
+                                {isAdditionalCharges ? (
+                                  <span className="text-muted-foreground italic text-xs">
+                                    —
+                                  </span>
+                                ) : editingRentIndex === index ? (
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Input
+                                      type="number"
+                                      value={editingRentValue}
+                                      onChange={(e) =>
+                                        setEditingRentValue(
+                                          parseInt(e.target.value) || 0,
+                                        )
+                                      }
+                                      className="h-8 w-28 text-right text-sm"
+                                      min="0"
+                                      autoFocus
+                                    />
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                      onClick={() => handleSaveRent(index)}
+                                    >
+                                      <Check className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                      onClick={handleCancelEditRent}
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-end gap-2 group">
+                                    <span>
+                                      ₱{billing.rentDue.toLocaleString()}
+                                    </span>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      onClick={() =>
+                                        handleStartEditRent(
+                                          index,
+                                          billing.rentDue,
+                                        )
+                                      }
+                                      disabled={isLocked}
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedBillingIndex(index);
+                                    setIsOtherChargesPopupOpen(true);
+                                  }}
+                                  disabled={isLocked}
+                                  className="text-xs h-8 px-3 mx-auto hover:bg-accent"
+                                >
+                                  {billing.otherCharges > 0
+                                    ? `₱${billing.otherCharges.toLocaleString()}`
+                                    : "+"}
+                                </Button>
+                              </td>
+                              <td className="px-3 py-3 text-sm font-semibold text-right">
+                                ₱{billing.grossDue.toLocaleString()}
+                              </td>
+                              <td className="px-3 py-3 text-sm text-right">
+                                ₱{(billing.paidAmount || 0).toLocaleString()}
+                              </td>
+                              <td className="px-3 py-3">
+                                <span
+                                  className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                    billing.status.toLowerCase() === "paid"
+                                      ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
                                       : billing.status.toLowerCase() ===
-                                          "overdue"
-                                        ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-                                        : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
-                                }`}
-                              >
-                                {billing.status}
-                              </span>
-                            </td>
-                            <td className="px-3 py-3 text-center">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => deleteBillingRow(index)}
-                                disabled={
-                                  isLocked ||
-                                  index !== formData.billingSchedule.length - 1
-                                }
-                                className="h-8 w-8 p-0 hover:bg-destructive hover:text-destructive-foreground"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </td>
-                          </tr>
-                        ))}
+                                          "partial"
+                                        ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                        : billing.status.toLowerCase() ===
+                                            "overdue"
+                                          ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                                          : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
+                                  }`}
+                                >
+                                  {billing.status}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => deleteBillingRow(index)}
+                                  disabled={
+                                    isLocked ||
+                                    (!isAdditionalCharges &&
+                                      index !==
+                                        formData.billingSchedule.length - 1)
+                                  }
+                                  className="h-8 w-8 p-0 hover:bg-destructive hover:text-destructive-foreground"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

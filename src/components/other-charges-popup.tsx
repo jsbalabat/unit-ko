@@ -220,7 +220,7 @@ export function OtherChargesPopup({
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col p-0">
         <DialogHeader className="px-4 sm:px-6 pt-4 sm:pt-6 pb-3">
           <DialogTitle className="flex items-center gap-2 text-lg sm:text-xl">
-            Other Charges - Month {month}
+            Other Charges - Period {month}
           </DialogTitle>
           <DialogDescription className="text-xs sm:text-sm">
             Due Date: {dueDate}

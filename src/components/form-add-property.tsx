@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -75,10 +75,23 @@ interface PropertyFormData {
   tenants: TenantInfo[];
 
   propertyLocation: string;
+  billingType: "pre-organized" | "blank";
   contractMonths: number;
   rentStartDate: string;
   dueDay: string;
   rentAmount: number;
+
+  // Pre-organized billing fields
+  formBasis:
+    | "weekly"
+    | "bi-weekly"
+    | "monthly"
+    | "quarterly"
+    | "semi-annually"
+    | "annually";
+  collectionDay: string; // For weekly: "monday" - "sunday"
+  collectionDates: number[]; // For bi-weekly: [date1, date2], monthly: [date1]
+  rentPerCollection: number;
 
   // Accounting & Monitoring fields
   advancePayment: number;
@@ -121,8 +134,18 @@ interface PropertyPreviewProps {
 }
 
 function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
+  // Count only filled-in tenant entries
+  const filledTenantsCount =
+    formData.tenants?.filter((t) => t.tenantName && t.tenantName.trim() !== "")
+      .length || 0;
   const paxCount =
-    formData.maxTenants > 1 ? formData.maxTenants : formData.tenantName ? 1 : 0;
+    formData.maxTenants > 1
+      ? filledTenantsCount > 0
+        ? filledTenantsCount
+        : formData.maxTenants
+      : formData.tenantName
+        ? 1
+        : 0;
   const perPersonRent =
     formData.rentAmount && paxCount > 1
       ? Math.floor(formData.rentAmount / paxCount)
@@ -308,14 +331,37 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
                 </div>
               )}
 
-              {formData.dueDay && (
+              {formData.billingType === "pre-organized" && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Billing Type</span>
+                    <span className="font-medium capitalize">
+                      Pre-organized
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Frequency</span>
+                    <span className="font-medium capitalize">
+                      {formData.formBasis}
+                    </span>
+                  </div>
+                  {formData.rentPerCollection > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">
+                        Per Collection
+                      </span>
+                      <span className="font-medium text-green-600">
+                        ₱{formData.rentPerCollection.toLocaleString()}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {formData.billingType === "blank" && (
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Due Day</span>
-                  <span className="font-medium">
-                    {formData.dueDay === "last"
-                      ? "Last day of month"
-                      : `Day ${formData.dueDay} of month`}
-                  </span>
+                  <span className="text-muted-foreground">Billing Type</span>
+                  <span className="font-medium">Blank (Custom)</span>
                 </div>
               )}
             </div>
@@ -428,10 +474,15 @@ export function MultiStepPopup({
     maxTenants: 1,
     tenants: [],
     propertyLocation: "",
+    billingType: "pre-organized",
     contractMonths: 6,
     rentStartDate: "",
     dueDay: "15",
     rentAmount: 0,
+    formBasis: "monthly",
+    collectionDay: "monday",
+    collectionDates: [1],
+    rentPerCollection: 0,
     advancePayment: 0,
     securityDeposit: 0,
     billingSchedule: [],
@@ -442,7 +493,127 @@ export function MultiStepPopup({
   >(null);
 
   // Update total steps based on occupancy status
-  const totalSteps = formData.occupancyStatus === "vacant" ? 2 : 4;
+  const totalSteps =
+    formData.occupancyStatus === "vacant"
+      ? 2
+      : formData.billingType === "blank"
+        ? 3
+        : 4;
+
+  // Auto-adjust collectionDates when formBasis changes
+  useEffect(() => {
+    if (
+      formData.formBasis === "bi-weekly" &&
+      formData.collectionDates.length !== 2
+    ) {
+      setFormData((prev) => ({ ...prev, collectionDates: [1, 16] }));
+    } else if (
+      formData.formBasis === "monthly" &&
+      formData.collectionDates.length !== 1
+    ) {
+      setFormData((prev) => ({ ...prev, collectionDates: [1] }));
+    }
+  }, [formData.formBasis, formData.collectionDates.length]);
+
+  // Auto-generate billing schedule when Step 2 fields change
+  useEffect(() => {
+    // Only auto-generate if we're in Step 2 and have the necessary data
+    if (
+      currentStep === 2 &&
+      formData.occupancyStatus === "occupied" &&
+      formData.billingType === "pre-organized" &&
+      formData.contractMonths > 0 &&
+      formData.rentStartDate &&
+      formData.rentPerCollection > 0
+    ) {
+      // Auto-generate the billing schedule silently (without toast notification)
+      const schedule: Array<{
+        dueDate: string;
+        rentDue: number;
+        otherCharges: number;
+        grossDue: number;
+        status: string;
+        expenseItems: Array<{
+          id: string;
+          name: string;
+          amount: number;
+        }>;
+      }> = [];
+
+      const [startYear, startMonth, startDay] = formData.rentStartDate
+        .split("-")
+        .map(Number);
+
+      // Determine the collection day based on formBasis
+      let collectionDay = startDay;
+      if (
+        formData.formBasis === "monthly" &&
+        formData.collectionDates?.length > 0
+      ) {
+        collectionDay = formData.collectionDates[0];
+      }
+
+      for (let i = 0; i < formData.contractMonths; i++) {
+        const dueDate = new Date(startYear, startMonth - 1 + i, startDay);
+        const lastDayOfMonth = new Date(
+          dueDate.getFullYear(),
+          dueDate.getMonth() + 1,
+          0,
+        ).getDate();
+
+        dueDate.setDate(Math.min(collectionDay, lastDayOfMonth));
+
+        const year = dueDate.getFullYear();
+        const month = String(dueDate.getMonth() + 1).padStart(2, "0");
+        const day = String(dueDate.getDate()).padStart(2, "0");
+        const formattedDate = `${year}-${month}-${day}`;
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const status = dueDate < today ? "Overdue" : "Not Yet Due";
+
+        schedule.push({
+          dueDate: formattedDate,
+          rentDue: formData.rentPerCollection,
+          otherCharges: 0,
+          grossDue: formData.rentPerCollection,
+          status: status,
+          expenseItems: [],
+        });
+      }
+
+      setFormData((prev) => ({ ...prev, billingSchedule: schedule }));
+    }
+  }, [
+    currentStep,
+    formData.occupancyStatus,
+    formData.billingType,
+    formData.contractMonths,
+    formData.rentStartDate,
+    formData.rentPerCollection,
+    formData.collectionDates,
+    formData.formBasis,
+  ]);
+
+  // Sync rentPerCollection to rentAmount for occupied properties
+  useEffect(() => {
+    if (
+      formData.occupancyStatus === "occupied" &&
+      formData.billingType === "pre-organized" &&
+      formData.rentPerCollection > 0 &&
+      formData.rentPerCollection !== formData.rentAmount
+    ) {
+      setFormData((prev) => ({
+        ...prev,
+        rentAmount: formData.rentPerCollection,
+      }));
+    }
+  }, [
+    formData.rentPerCollection,
+    formData.occupancyStatus,
+    formData.billingType,
+    formData.rentAmount,
+  ]);
 
   // Validation functions
   const validateStep1 = (): boolean => {
@@ -534,11 +705,13 @@ export function MultiStepPopup({
   const validateStep2 = (): boolean => {
     const newErrors: ValidationErrors = {};
 
-    // Contract Months validation
-    if (!formData.contractMonths || formData.contractMonths < 1) {
-      newErrors.contractMonths = "Contract duration must be at least 1 month";
-    } else if (formData.contractMonths > 24) {
-      newErrors.contractMonths = "Contract duration cannot exceed 24 months";
+    // Contract Months validation (only for pre-organized)
+    if (formData.billingType === "pre-organized") {
+      if (!formData.contractMonths || formData.contractMonths < 1) {
+        newErrors.contractMonths = "Contract duration must be at least 1 month";
+      } else if (formData.contractMonths > 24) {
+        newErrors.contractMonths = "Contract duration cannot exceed 24 months";
+      }
     }
 
     // Rent Start Date validation - only check if it's provided, not the date range
@@ -546,13 +719,37 @@ export function MultiStepPopup({
       newErrors.rentStartDate = "Rent start date is required";
     }
 
-    // Rent Amount validation
-    if (!formData.rentAmount || formData.rentAmount <= 0) {
-      newErrors.rentAmount = "Rent amount must be greater than 0";
-    } else if (formData.rentAmount < 1000) {
-      newErrors.rentAmount = "Default minimum: ₱1,000";
-    } else if (formData.rentAmount > 1000000) {
-      newErrors.rentAmount = "Default maximum: ₱1,000,000";
+    // Blank billing only requires start date
+    if (formData.billingType === "blank") {
+      setErrors(newErrors);
+      return Object.keys(newErrors).length === 0;
+    }
+
+    // Pre-organized billing validation
+    if (formData.billingType === "pre-organized") {
+      // Rent Per Collection validation
+      if (!formData.rentPerCollection || formData.rentPerCollection <= 0) {
+        newErrors.rentAmount = "Rent per collection must be greater than 0";
+      } else if (formData.rentPerCollection < 1000) {
+        newErrors.rentAmount = "Default minimum: ₱1,000";
+      } else if (formData.rentPerCollection > 1000000) {
+        newErrors.rentAmount = "Default maximum: ₱1,000,000";
+      }
+
+      // Collection date validation for bi-weekly
+      if (formData.formBasis === "bi-weekly") {
+        if (!formData.collectionDates[0] || !formData.collectionDates[1]) {
+          newErrors.rentAmount =
+            "Both collection dates are required for bi-weekly";
+        }
+      }
+
+      // Collection date validation for monthly
+      if (formData.formBasis === "monthly") {
+        if (!formData.collectionDates[0]) {
+          newErrors.rentAmount = "Collection date is required for monthly";
+        }
+      }
     }
 
     setErrors(newErrors);
@@ -724,12 +921,28 @@ export function MultiStepPopup({
       if (formData.occupancyStatus === "vacant" && currentStep === 1) {
         setShowConfirmation(true);
       }
-      // For occupied properties, show confirmation after step 3 (billing review)
-      else if (formData.occupancyStatus === "occupied" && currentStep === 3) {
+      // For occupied properties with blank billing, show confirmation after step 2
+      else if (
+        formData.occupancyStatus === "occupied" &&
+        formData.billingType === "blank" &&
+        currentStep === 2
+      ) {
+        setShowConfirmation(true);
+      }
+      // For occupied properties with pre-organized billing, show confirmation after step 3 (billing review)
+      else if (
+        formData.occupancyStatus === "occupied" &&
+        formData.billingType === "pre-organized" &&
+        currentStep === 3
+      ) {
         setShowConfirmation(true);
       }
       // Normal flow for other steps
-      else if (currentStep === 2 && formData.occupancyStatus === "occupied") {
+      else if (
+        currentStep === 2 &&
+        formData.occupancyStatus === "occupied" &&
+        formData.billingType === "pre-organized"
+      ) {
         generateBillingSchedule();
         setCurrentStep(currentStep + 1);
       } else {
@@ -773,6 +986,11 @@ export function MultiStepPopup({
       rentStartDate: "",
       dueDay: "30th/31st - Last Day",
       rentAmount: 0,
+      billingType: "pre-organized",
+      formBasis: "monthly",
+      collectionDay: "monday",
+      collectionDates: [1],
+      rentPerCollection: 0,
       advancePayment: 0,
       securityDeposit: 0,
       billingSchedule: [],
@@ -799,58 +1017,270 @@ export function MultiStepPopup({
       return;
     }
 
+    // Use rentPerCollection for pre-organized billing, falling back to rentAmount for vacant properties
+    const rentAmount = formData.rentPerCollection || formData.rentAmount;
+
+    if (!rentAmount || rentAmount <= 0) {
+      toast.error("Please enter a valid rent amount");
+      return;
+    }
+
     // Parse the start date as local date to avoid timezone issues
     const [startYear, startMonth, startDay] = formData.rentStartDate
       .split("-")
       .map(Number);
-    // const startDate = new Date(startYear, startMonth - 1, startDay);
+    const startDate = new Date(startYear, startMonth - 1, startDay);
 
-    for (let i = 0; i < formData.contractMonths; i++) {
-      // Create a new date for each billing period
-      const dueDate = new Date(startYear, startMonth - 1 + i, startDay);
+    // contractMonths represents the number of payment periods, not duration in months
+    const numberOfPeriods = formData.contractMonths;
 
-      if (formData.dueDay === "last") {
-        dueDate.setMonth(dueDate.getMonth() + 1, 0);
-      } else {
-        const dueDay = parseInt(formData.dueDay) || 1;
-        const lastDayOfMonth = new Date(
-          dueDate.getFullYear(),
-          dueDate.getMonth() + 1,
-          0,
-        ).getDate();
+    // Helper function to format date as YYYY-MM-DD
+    const formatDate = (date: Date): string => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    };
 
-        dueDate.setDate(Math.min(dueDay, lastDayOfMonth));
-      }
-
-      const year = dueDate.getFullYear();
-      const month = String(dueDate.getMonth() + 1).padStart(2, "0");
-      const day = String(dueDate.getDate()).padStart(2, "0");
-      const formattedDate = `${year}-${month}-${day}`;
-
-      const otherCharges = 0;
-      const expenseItems: Array<{
-        id: string;
-        name: string;
-        amount: number;
-      }> = [];
-
-      // Determine initial status based on due date
+    // Helper function to get status based on due date
+    const getStatus = (dueDate: Date): string => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const status = dueDate < today ? "Overdue" : "Not Yet Due";
+      return dueDate < today ? "Overdue" : "Not Yet Due";
+    };
 
+    // Helper function to add billing entry
+    const addBillingEntry = (dueDate: Date) => {
       schedule.push({
-        dueDate: formattedDate,
-        rentDue: formData.rentAmount,
-        otherCharges: otherCharges,
-        grossDue: formData.rentAmount + otherCharges,
-        status: status,
-        expenseItems: expenseItems,
+        dueDate: formatDate(dueDate),
+        rentDue: rentAmount,
+        otherCharges: 0,
+        grossDue: rentAmount,
+        status: getStatus(dueDate),
+        expenseItems: [],
       });
+    };
+
+    // Helper function to get next occurrence of a day of week
+    const getNextDayOfWeek = (fromDate: Date, dayName: string): Date => {
+      const days = [
+        "sunday",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+      ];
+      const targetDay = days.indexOf(dayName.toLowerCase());
+      const currentDay = fromDate.getDay();
+      const daysUntilTarget = (targetDay - currentDay + 7) % 7;
+      const nextDate = new Date(fromDate);
+      nextDate.setDate(
+        fromDate.getDate() + (daysUntilTarget === 0 ? 7 : daysUntilTarget),
+      );
+      return nextDate;
+    };
+
+    // Generate billing schedule based on formBasis
+    switch (formData.formBasis) {
+      case "weekly": {
+        // Generate exactly numberOfPeriods weekly billing entries
+        let currentDate = getNextDayOfWeek(
+          new Date(startDate.getTime() - 24 * 60 * 60 * 1000),
+          formData.collectionDay,
+        );
+
+        // If the first collection date is the same as start date, skip to next week
+        if (currentDate.getTime() === startDate.getTime()) {
+          currentDate = new Date(currentDate);
+          currentDate.setDate(currentDate.getDate() + 7);
+        }
+
+        for (let i = 0; i < numberOfPeriods; i++) {
+          addBillingEntry(currentDate);
+          currentDate = new Date(currentDate);
+          currentDate.setDate(currentDate.getDate() + 7);
+        }
+        break;
+      }
+
+      case "bi-weekly": {
+        // Generate exactly numberOfPeriods bi-weekly billing entries
+        if (
+          !formData.collectionDates ||
+          formData.collectionDates.length !== 2
+        ) {
+          toast.error(
+            "Please select two collection dates for bi-weekly billing",
+          );
+          return;
+        }
+
+        const [date1, date2] = formData.collectionDates.sort((a, b) => a - b);
+        let currentMonth = new Date(startDate);
+        currentMonth.setDate(1);
+        let periodCount = 0;
+
+        // Determine which date to start with in the first month
+        const firstDateInStartMonth = new Date(
+          currentMonth.getFullYear(),
+          currentMonth.getMonth(),
+          date1,
+        );
+        const secondDateInStartMonth = new Date(
+          currentMonth.getFullYear(),
+          currentMonth.getMonth(),
+          date2,
+        );
+
+        // Skip the first date if it's before or equal to startDate
+        let useFirstDate = firstDateInStartMonth > startDate;
+        let useSecondDate = secondDateInStartMonth > startDate;
+
+        // If both dates in the start month have passed or equal startDate, move to next month
+        if (!useFirstDate && !useSecondDate) {
+          currentMonth.setMonth(currentMonth.getMonth() + 1);
+          useFirstDate = true;
+          useSecondDate = true;
+        }
+
+        while (periodCount < numberOfPeriods) {
+          const year = currentMonth.getFullYear();
+          const month = currentMonth.getMonth();
+          const lastDay = new Date(year, month + 1, 0).getDate();
+
+          // Add first date if we should use it
+          if (useFirstDate && periodCount < numberOfPeriods) {
+            const dueDate = new Date(year, month, Math.min(date1, lastDay));
+            addBillingEntry(dueDate);
+            periodCount++;
+          }
+
+          // Add second date if we should use it
+          if (useSecondDate && periodCount < numberOfPeriods) {
+            const dueDate = new Date(year, month, Math.min(date2, lastDay));
+            addBillingEntry(dueDate);
+            periodCount++;
+          }
+
+          // Move to next month and reset both dates to be used
+          currentMonth.setMonth(currentMonth.getMonth() + 1);
+          useFirstDate = true;
+          useSecondDate = true;
+        }
+        break;
+      }
+
+      case "monthly": {
+        // Generate exactly numberOfPeriods monthly billing entries
+        if (
+          !formData.collectionDates ||
+          formData.collectionDates.length === 0
+        ) {
+          toast.error("Please select a collection date for monthly billing");
+          return;
+        }
+
+        const collectionDay = formData.collectionDates[0];
+
+        // Check if the collection day in the start month has already passed or equals startDate
+        const firstPossibleDate = new Date(
+          startYear,
+          startMonth - 1,
+          collectionDay,
+        );
+        let monthOffset = 0;
+
+        // If the collection date in the start month is before or equal to startDate, skip to next month
+        if (firstPossibleDate <= startDate) {
+          monthOffset = 1;
+        }
+
+        for (let i = 0; i < numberOfPeriods; i++) {
+          const dueDate = new Date(
+            startYear,
+            startMonth - 1 + monthOffset + i,
+            1,
+          );
+
+          // Get last day of this month
+          const lastDayOfMonth = new Date(
+            dueDate.getFullYear(),
+            dueDate.getMonth() + 1,
+            0,
+          ).getDate();
+
+          // Set the collection day, adjusting for shorter months
+          dueDate.setDate(Math.min(collectionDay, lastDayOfMonth));
+
+          addBillingEntry(dueDate);
+        }
+        break;
+      }
+
+      case "quarterly": {
+        // Generate exactly numberOfPeriods quarterly billing entries (every 3 months)
+        let currentDate = new Date(startDate);
+
+        // If the first collection date equals start date, move to next quarter
+        currentDate.setMonth(currentDate.getMonth() + 3);
+
+        for (let i = 0; i < numberOfPeriods; i++) {
+          addBillingEntry(currentDate);
+          currentDate = new Date(currentDate);
+          currentDate.setMonth(currentDate.getMonth() + 3);
+        }
+        break;
+      }
+
+      case "semi-annually": {
+        // Generate exactly numberOfPeriods semi-annual billing entries (every 6 months)
+        let currentDate = new Date(startDate);
+
+        // If the first collection date equals start date, move to next semi-annual period
+        currentDate.setMonth(currentDate.getMonth() + 6);
+
+        for (let i = 0; i < numberOfPeriods; i++) {
+          addBillingEntry(currentDate);
+          currentDate = new Date(currentDate);
+          currentDate.setMonth(currentDate.getMonth() + 6);
+        }
+        break;
+      }
+
+      case "annually": {
+        // Generate exactly numberOfPeriods annual billing entries (every 12 months)
+        let currentDate = new Date(startDate);
+
+        // If the first collection date equals start date, move to next year
+        currentDate.setMonth(currentDate.getMonth() + 12);
+
+        for (let i = 0; i < numberOfPeriods; i++) {
+          addBillingEntry(currentDate);
+          currentDate = new Date(currentDate);
+          currentDate.setMonth(currentDate.getMonth() + 12);
+        }
+        break;
+      }
+
+      default:
+        toast.error("Invalid billing frequency selected");
+        return;
     }
 
+    // Sort schedule by date
+    schedule.sort(
+      (a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime(),
+    );
+
     setFormData((prev) => ({ ...prev, billingSchedule: schedule }));
-    toast.success("Billing schedule generated successfully");
+
+    const frequencyLabel =
+      formData.formBasis.charAt(0).toUpperCase() + formData.formBasis.slice(1);
+    toast.success(`${frequencyLabel} billing schedule generated`, {
+      description: `${schedule.length} billing entries created`,
+    });
   };
 
   const handleComplete = async () => {
@@ -880,10 +1310,15 @@ export function MultiStepPopup({
           maxTenants: 1,
           tenants: [],
           propertyLocation: "",
+          billingType: "pre-organized",
           contractMonths: 0,
           rentStartDate: "",
           dueDay: "30th/31st - Last Day",
           rentAmount: 0,
+          formBasis: "monthly",
+          collectionDay: "monday",
+          collectionDates: [1],
+          rentPerCollection: 0,
           advancePayment: 0,
           securityDeposit: 0,
           billingSchedule: [],
@@ -1573,257 +2008,511 @@ export function MultiStepPopup({
                   <Card className="shadow-sm border">
                     <CardContent className="p-3 md:p-5">
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                          <Label
-                            htmlFor="contractMonths"
-                            className="text-sm font-medium flex items-center gap-1.5"
-                          >
-                            <Clock className="h-3.5 w-3.5 text-purple-600" />
-                            Contract Duration (Months) *
-                          </Label>
-                          <Input
-                            id="contractMonths"
-                            type="number"
-                            min="0"
-                            value={formData.contractMonths}
-                            onChange={(e) =>
-                              updateFormData(
-                                "contractMonths",
-                                e.target.value === ""
-                                  ? ""
-                                  : parseInt(e.target.value) || "",
-                              )
-                            }
-                            className={`h-9 text-sm ${
-                              errors.contractMonths ? "border-destructive" : ""
-                            }`}
-                          />
-                          {errors.contractMonths && (
-                            <p className="text-xs text-destructive">
-                              {errors.contractMonths}
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            Typically 6-12 months for residential
-                          </p>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label
-                            htmlFor="rentStartDate"
-                            className="text-sm font-medium flex items-center gap-1.5"
-                          >
-                            <Calendar className="h-3.5 w-3.5 text-purple-600" />
-                            Rent Agreement Date *
-                          </Label>
-                          <Input
-                            id="rentStartDate"
-                            type="date"
-                            value={formData.rentStartDate}
-                            onChange={(e) =>
-                              updateFormData("rentStartDate", e.target.value)
-                            }
-                            className={`h-9 text-sm ${
-                              errors.rentStartDate ? "border-destructive" : ""
-                            }`}
-                          />
-                          {errors.rentStartDate && (
-                            <p className="text-xs text-destructive">
-                              {errors.rentStartDate}
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            First billing cycle date
-                          </p>
-                        </div>
-
                         <div className="space-y-2 md:col-span-2">
-                          <Label
-                            htmlFor="dueDay"
-                            className="text-sm font-medium flex items-center gap-1.5"
-                          >
-                            <Calendar className="h-3.5 w-3.5 text-purple-600" />
-                            Payment Due Day of Month *
+                          <Label className="text-sm font-medium">
+                            Billing Type *
                           </Label>
-
-                          {/* Quick Selection Buttons */}
-                          <div className="grid grid-cols-3 gap-2 mb-2">
-                            <Button
+                          <div className="grid grid-cols-2 gap-2 max-w-sm">
+                            <button
                               type="button"
-                              variant={
-                                formData.dueDay === "1" ? "default" : "outline"
+                              onClick={() =>
+                                updateFormData("billingType", "pre-organized")
                               }
-                              size="sm"
-                              onClick={() => updateFormData("dueDay", "1")}
-                              className="h-8 text-xs"
+                              className={cn(
+                                "h-9 px-3 text-sm font-medium rounded-md border transition-all",
+                                formData.billingType === "pre-organized"
+                                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                  : "bg-background border-input hover:bg-muted",
+                              )}
                             >
-                              1st - First Day
-                            </Button>
-                            <Button
+                              Pre-organized
+                            </button>
+                            <button
                               type="button"
-                              variant={
-                                formData.dueDay === "15" ? "default" : "outline"
+                              onClick={() =>
+                                updateFormData("billingType", "blank")
                               }
-                              size="sm"
-                              onClick={() => updateFormData("dueDay", "15")}
-                              className="h-8 text-xs"
+                              className={cn(
+                                "h-9 px-3 text-sm font-medium rounded-md border transition-all",
+                                formData.billingType === "blank"
+                                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                  : "bg-background border-input hover:bg-muted",
+                              )}
                             >
-                              15th - Mid Month
-                            </Button>
-                            <Button
-                              type="button"
-                              variant={
-                                formData.dueDay === "last"
-                                  ? "default"
-                                  : "outline"
-                              }
-                              size="sm"
-                              onClick={() => updateFormData("dueDay", "last")}
-                              className="h-8 text-xs"
-                            >
-                              Last Day
-                            </Button>
+                              Blank
+                            </button>
                           </div>
-
-                          {/* Custom Day Input */}
-                          <div className="flex items-center gap-2">
-                            <Input
-                              id="dueDay"
-                              type="number"
-                              min="0"
-                              value={
-                                formData.dueDay === "last"
-                                  ? ""
-                                  : formData.dueDay
-                              }
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                if (
-                                  value === "" ||
-                                  (parseInt(value) >= 1 &&
-                                    parseInt(value) <= 31)
-                                ) {
-                                  updateFormData(
-                                    "dueDay",
-                                    value === "" ? "" : parseInt(value) || "",
-                                  );
-                                }
-                              }}
-                              placeholder="Or enter custom day (1-31)"
-                              className="h-9 text-sm flex-1"
-                              disabled={formData.dueDay === "last"}
-                            />
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">
-                              day of month
-                            </span>
-                          </div>
-
                           <p className="text-xs text-muted-foreground">
-                            Select a preset or enter a custom day (1-31). Note:
-                            Day 31 will adjust to last day for shorter months.
+                            Choose billing structure type
                           </p>
                         </div>
 
-                        <div className="space-y-2 md:col-span-2">
-                          <Label
-                            htmlFor="rentAmount"
-                            className="text-sm font-medium flex items-center gap-1.5"
-                          >
-                            Monthly Rent Amount (₱) *
-                          </Label>
-                          <Input
-                            id="rentAmount"
-                            type="number"
-                            min="0"
-                            value={formData.rentAmount}
-                            onChange={(e) =>
-                              updateFormData(
-                                "rentAmount",
-                                e.target.value === ""
-                                  ? ""
-                                  : parseInt(e.target.value) || "",
-                              )
-                            }
-                            placeholder="25000"
-                            className={`h-9 text-sm ${
-                              errors.rentAmount ? "border-destructive" : ""
-                            }`}
-                          />
-                          {errors.rentAmount && (
-                            <p className="text-xs text-destructive">
-                              {errors.rentAmount}
-                            </p>
-                          )}
-                          <p className="text-xs text-muted-foreground">
-                            Base monthly rental fee
-                          </p>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  {/* Preview Panel */}
-                  <Card className="bg-muted/20 border-dashed">
-                    <CardContent className="p-3 md:p-5">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-medium">Billing Preview</h3>
-                        <div className="text-xs text-muted-foreground">
-                          {formData.contractMonths} months from{" "}
-                          {formData.rentStartDate
-                            ? new Date(
-                                formData.rentStartDate,
-                              ).toLocaleDateString()
-                            : "agreement date"}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {Array.from(
-                          {
-                            length: Math.min(formData.contractMonths || 0, 12),
-                          },
-                          (_, i) => {
-                            const date = formData.rentStartDate
-                              ? new Date(formData.rentStartDate)
-                              : new Date();
-                            date.setMonth(date.getMonth() + i);
-
-                            // Set the due day based on selection
-                            if (formData.dueDay === "last") {
-                              date.setMonth(date.getMonth() + 1);
-                              date.setDate(0); // Last day of month
-                            } else {
-                              const dueDay = parseInt(formData.dueDay) || 1;
-                              const lastDayOfMonth = new Date(
-                                date.getFullYear(),
-                                date.getMonth() + 1,
-                                0,
-                              ).getDate();
-                              date.setDate(Math.min(dueDay, lastDayOfMonth));
-                            }
-
-                            return (
-                              <div
-                                key={i}
-                                className="px-2 py-1 bg-background text-xs rounded border flex items-center gap-1.5"
+                        {/* Pre-organized Billing Fields */}
+                        {formData.billingType === "pre-organized" && (
+                          <>
+                            <div className="space-y-2">
+                              <Label
+                                htmlFor="contractMonths"
+                                className="text-sm font-medium flex items-center gap-1.5"
                               >
-                                <Calendar className="h-3 w-3 text-purple-500" />
-                                {date.toLocaleDateString("default", {
-                                  month: "short",
-                                  day: "numeric",
-                                  year: "numeric",
-                                })}
+                                <Clock className="h-3.5 w-3.5 text-purple-600" />
+                                Contract Duration (Period) *
+                              </Label>
+                              <Input
+                                id="contractMonths"
+                                type="number"
+                                min="0"
+                                value={formData.contractMonths}
+                                onChange={(e) =>
+                                  updateFormData(
+                                    "contractMonths",
+                                    e.target.value === ""
+                                      ? ""
+                                      : parseInt(e.target.value) || "",
+                                  )
+                                }
+                                className={`h-9 text-sm ${
+                                  errors.contractMonths
+                                    ? "border-destructive"
+                                    : ""
+                                }`}
+                              />
+                              {errors.contractMonths && (
+                                <p className="text-xs text-destructive">
+                                  {errors.contractMonths}
+                                </p>
+                              )}
+                              <p className="text-xs text-muted-foreground">
+                                Typically 6-12 months for residential
+                              </p>
+                            </div>
+
+                            <div className="space-y-2">
+                              <Label
+                                htmlFor="rentStartDate"
+                                className="text-sm font-medium flex items-center gap-1.5"
+                              >
+                                <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                                Start Rent Date *
+                              </Label>
+                              <Input
+                                id="rentStartDate"
+                                type="date"
+                                value={formData.rentStartDate}
+                                onChange={(e) =>
+                                  updateFormData(
+                                    "rentStartDate",
+                                    e.target.value,
+                                  )
+                                }
+                                className={`h-9 text-sm ${
+                                  errors.rentStartDate
+                                    ? "border-destructive"
+                                    : ""
+                                }`}
+                              />
+                              {errors.rentStartDate && (
+                                <p className="text-xs text-destructive">
+                                  {errors.rentStartDate}
+                                </p>
+                              )}
+                              <p className="text-xs text-muted-foreground">
+                                When rent collection begins
+                              </p>
+                            </div>
+
+                            <div className="space-y-2 md:col-span-2">
+                              <Label className="text-sm font-medium flex items-center gap-1.5">
+                                <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                                Frequency Basis *
+                              </Label>
+                              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                                {[
+                                  "weekly",
+                                  "bi-weekly",
+                                  "monthly",
+                                  "quarterly",
+                                  "semi-annually",
+                                  "annually",
+                                ].map((basis) => (
+                                  <button
+                                    key={basis}
+                                    type="button"
+                                    onClick={() =>
+                                      updateFormData("formBasis", basis as any)
+                                    }
+                                    className={cn(
+                                      "h-9 px-2 text-xs font-medium rounded-md border transition-all",
+                                      formData.formBasis === basis
+                                        ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                        : "bg-background border-input hover:bg-muted",
+                                    )}
+                                  >
+                                    {basis.charAt(0).toUpperCase() +
+                                      basis.slice(1)}
+                                  </button>
+                                ))}
                               </div>
-                            );
-                          },
+                              <p className="text-xs text-muted-foreground">
+                                Select billing frequency
+                              </p>
+                            </div>
+
+                            {/* Collection Day/Date Fields */}
+                            {formData.formBasis === "weekly" && (
+                              <div className="space-y-2 md:col-span-2">
+                                <Label className="text-sm font-medium flex items-center gap-1.5">
+                                  <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                                  Collection Day *
+                                </Label>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                                  {[
+                                    "monday",
+                                    "tuesday",
+                                    "wednesday",
+                                    "thursday",
+                                    "friday",
+                                    "saturday",
+                                    "sunday",
+                                  ].map((day) => (
+                                    <button
+                                      key={day}
+                                      type="button"
+                                      onClick={() =>
+                                        updateFormData("collectionDay", day)
+                                      }
+                                      className={cn(
+                                        "h-9 px-2 text-xs font-medium rounded-md border transition-all",
+                                        formData.collectionDay === day
+                                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                          : "bg-background border-input hover:bg-muted",
+                                      )}
+                                    >
+                                      {day.charAt(0).toUpperCase() +
+                                        day.slice(1, 3)}
+                                    </button>
+                                  ))}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  Which day of the week to collect rent
+                                </p>
+                              </div>
+                            )}
+
+                            {formData.formBasis === "bi-weekly" && (
+                              <div className="space-y-4 md:col-span-2">
+                                <Label className="text-sm font-medium flex items-center gap-1.5">
+                                  <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                                  Collection Dates (Select 2 dates per month) *
+                                </Label>
+
+                                {/* Day 1 (1-15) */}
+                                <div className="space-y-2">
+                                  <div className="text-xs font-medium text-muted-foreground">
+                                    Day 1 (1-15){" "}
+                                    {formData.collectionDates[0]
+                                      ? `[${formData.collectionDates[0]}]`
+                                      : "[None]"}
+                                  </div>
+                                  <div className="grid grid-cols-10 sm:grid-cols-15 lg:grid-cols-16 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24">
+                                    {Array.from(
+                                      { length: 15 },
+                                      (_, i) => i + 1,
+                                    ).map((date) => {
+                                      const isSelected =
+                                        formData.collectionDates[0] === date;
+                                      return (
+                                        <button
+                                          key={date}
+                                          type="button"
+                                          onClick={() => {
+                                            const newDates = [
+                                              ...formData.collectionDates,
+                                            ];
+                                            newDates[0] = date;
+                                            // Ensure we always have 2 elements
+                                            if (newDates.length === 1) {
+                                              newDates.push(16);
+                                            }
+                                            updateFormData(
+                                              "collectionDates",
+                                              newDates,
+                                            );
+                                          }}
+                                          className={cn(
+                                            "h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all",
+                                            isSelected
+                                              ? "bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-300"
+                                              : "bg-background border-input hover:bg-muted",
+                                          )}
+                                        >
+                                          {date}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                {/* Day 2 (16-31) */}
+                                <div className="space-y-2">
+                                  <div className="text-xs font-medium text-muted-foreground">
+                                    Day 2 (16-31){" "}
+                                    {formData.collectionDates[1]
+                                      ? `[${formData.collectionDates[1]}]`
+                                      : "[None]"}
+                                  </div>
+                                  <div className="grid grid-cols-10 sm:grid-cols-15 lg:grid-cols-16 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24">
+                                    {Array.from(
+                                      { length: 16 },
+                                      (_, i) => i + 16,
+                                    ).map((date) => {
+                                      const isSelected =
+                                        formData.collectionDates[1] === date;
+                                      return (
+                                        <button
+                                          key={date}
+                                          type="button"
+                                          onClick={() => {
+                                            const newDates = [
+                                              ...formData.collectionDates,
+                                            ];
+                                            newDates[1] = date;
+                                            // Ensure we always have 2 elements
+                                            if (newDates.length < 2) {
+                                              newDates[0] = newDates[0] || 1;
+                                            }
+                                            updateFormData(
+                                              "collectionDates",
+                                              newDates,
+                                            );
+                                          }}
+                                          className={cn(
+                                            "h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all",
+                                            isSelected
+                                              ? "bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-300"
+                                              : "bg-background border-input hover:bg-muted",
+                                          )}
+                                        >
+                                          {date}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
+                                <p className="text-xs text-muted-foreground">
+                                  Selected: Day 1 ={" "}
+                                  {formData.collectionDates[0] || "None"}, Day 2
+                                  = {formData.collectionDates[1] || "None"} •
+                                  Dates adjust to last day for shorter months
+                                </p>
+                              </div>
+                            )}
+
+                            {formData.formBasis === "monthly" && (
+                              <div className="space-y-2 md:col-span-2">
+                                <Label className="text-sm font-medium flex items-center gap-1.5">
+                                  <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                                  Collection Date (Day of Month) *
+                                </Label>
+                                <div className="grid grid-cols-10 sm:grid-cols-15 lg:grid-cols-16 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24">
+                                  {Array.from(
+                                    { length: 31 },
+                                    (_, i) => i + 1,
+                                  ).map((date) => {
+                                    const isSelected =
+                                      formData.collectionDates[0] === date;
+                                    return (
+                                      <button
+                                        key={date}
+                                        type="button"
+                                        onClick={() => {
+                                          updateFormData("collectionDates", [
+                                            date,
+                                          ]);
+                                        }}
+                                        className={cn(
+                                          "h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all",
+                                          isSelected
+                                            ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                            : "bg-background border-input hover:bg-muted",
+                                        )}
+                                      >
+                                        {date}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                  Selected: Day{" "}
+                                  {formData.collectionDates[0] || "None"} • Date
+                                  adjusts to last day for shorter months
+                                </p>
+                              </div>
+                            )}
+
+                            {[
+                              "quarterly",
+                              "semi-annually",
+                              "annually",
+                            ].includes(formData.formBasis) && (
+                              <div className="space-y-2 md:col-span-2">
+                                <div className="bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg border border-blue-100 dark:border-blue-900/50">
+                                  <p className="text-sm text-blue-800 dark:text-blue-300">
+                                    <strong>Collection Date:</strong> Based on
+                                    Start Rent Date
+                                  </p>
+                                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                    {formData.formBasis === "quarterly" &&
+                                      "Every 3 months from start date"}
+                                    {formData.formBasis === "semi-annually" &&
+                                      "Every 6 months from start date"}
+                                    {formData.formBasis === "annually" &&
+                                      "Every 12 months from start date"}
+                                  </p>
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="space-y-2 md:col-span-2">
+                              <Label
+                                htmlFor="rentPerCollection"
+                                className="text-sm font-medium flex items-center gap-1.5"
+                              >
+                                <DollarSign className="h-3.5 w-3.5 text-green-600" />
+                                Rent per Tenant per Collection Date (₱) *
+                              </Label>
+                              <Input
+                                id="rentPerCollection"
+                                type="number"
+                                min="0"
+                                value={formData.rentPerCollection}
+                                onChange={(e) =>
+                                  updateFormData(
+                                    "rentPerCollection",
+                                    e.target.value === ""
+                                      ? ""
+                                      : parseInt(e.target.value) || "",
+                                  )
+                                }
+                                placeholder="Enter amount"
+                                className="h-9 text-sm"
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Amount to collect on each {formData.formBasis}{" "}
+                                rent date
+                              </p>
+                            </div>
+                          </>
                         )}
-                        {formData.contractMonths > 12 && (
-                          <div className="px-2 py-1 bg-background text-xs rounded border">
-                            +{formData.contractMonths - 12} more
+
+                        {/* Blank Billing - Only Start Rent Date */}
+                        {formData.billingType === "blank" && (
+                          <div className="space-y-2 md:col-span-2">
+                            <Label
+                              htmlFor="rentStartDate"
+                              className="text-sm font-medium flex items-center gap-1.5"
+                            >
+                              <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                              Start Rent Date *
+                            </Label>
+                            <Input
+                              id="rentStartDate"
+                              type="date"
+                              value={formData.rentStartDate}
+                              onChange={(e) =>
+                                updateFormData("rentStartDate", e.target.value)
+                              }
+                              className={`h-9 text-sm max-w-xs ${
+                                errors.rentStartDate ? "border-destructive" : ""
+                              }`}
+                            />
+                            {errors.rentStartDate && (
+                              <p className="text-xs text-destructive">
+                                {errors.rentStartDate}
+                              </p>
+                            )}
+                            <p className="text-xs text-muted-foreground">
+                              When rent collection begins. Billing schedule will
+                              be managed manually.
+                            </p>
                           </div>
                         )}
                       </div>
                     </CardContent>
                   </Card>
+
+                  {/* Preview Panel - Only for Pre-organized */}
+                  {formData.billingType === "pre-organized" &&
+                    formData.rentStartDate && (
+                      <Card className="bg-muted/20 border-dashed">
+                        <CardContent className="p-3 md:p-5">
+                          <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-sm font-medium">
+                              Collection Schedule Preview
+                            </h3>
+                            <div className="text-xs text-muted-foreground">
+                              {formData.formBasis.charAt(0).toUpperCase() +
+                                formData.formBasis.slice(1)}{" "}
+                              basis
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">
+                                Frequency:
+                              </span>
+                              <span className="font-medium">
+                                {formData.formBasis.charAt(0).toUpperCase() +
+                                  formData.formBasis.slice(1)}
+                              </span>
+                            </div>
+                            {formData.formBasis === "weekly" && (
+                              <div className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">
+                                  Collection Day:
+                                </span>
+                                <span className="font-medium">
+                                  {formData.collectionDay
+                                    .charAt(0)
+                                    .toUpperCase() +
+                                    formData.collectionDay.slice(1)}
+                                </span>
+                              </div>
+                            )}
+                            {formData.formBasis === "bi-weekly" && (
+                              <div className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">
+                                  Collection Dates:
+                                </span>
+                                <span className="font-medium">
+                                  Day {formData.collectionDates[0]} &{" "}
+                                  {formData.collectionDates[1]}
+                                </span>
+                              </div>
+                            )}
+                            {formData.formBasis === "monthly" && (
+                              <div className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">
+                                  Collection Date:
+                                </span>
+                                <span className="font-medium">
+                                  Day {formData.collectionDates[0]} of month
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex justify-between text-xs border-t pt-2">
+                              <span className="text-muted-foreground">
+                                Amount per Collection:
+                              </span>
+                              <span className="font-semibold text-green-600">
+                                ₱{formData.rentPerCollection.toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
                 </div>
               )}
 
