@@ -153,8 +153,8 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
               .from('profiles')
               .insert({
                 email: firstTenant.email,
-                full_name: mainTenant.name,
-                phone: mainTenant.phone,
+                full_name: firstTenant.name,
+                phone: firstTenant.phone,
                 role: 'tenant',
                 tenant_id: tenantData.id,
                 created_at: new Date().toISOString(),
