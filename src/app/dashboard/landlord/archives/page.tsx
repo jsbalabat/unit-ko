@@ -79,11 +79,27 @@ function ArchivesPage() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
+
+    return `${monthNames[month]} ${day}, ${year}`;
   };
 
   const formatCurrency = (amount: number) => {

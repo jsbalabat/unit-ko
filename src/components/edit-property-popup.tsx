@@ -378,11 +378,26 @@ export function EditPropertyPopup({
   };
 
   const formatDueDate = (date: Date): string => {
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
+
+    return `${monthNames[month]} ${day}, ${year}`;
   };
 
   const handleChange = (

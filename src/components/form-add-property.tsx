@@ -33,6 +33,10 @@ import {
   Clock,
   X,
   AlertCircle,
+  Plus,
+  Trash2,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -76,7 +80,7 @@ interface PropertyFormData {
 
   propertyLocation: string;
   billingType: "pre-organized" | "blank";
-  contractMonths: number;
+  contractMonths: number; // Number of billing periods (not necessarily months - depends on formBasis: weekly, monthly, quarterly, etc.)
   rentStartDate: string;
   dueDay: string;
   rentAmount: number;
@@ -126,6 +130,58 @@ interface ValidationErrors {
   rentAmount?: string;
   [key: string]: string | undefined; // Allow dynamic keys for tenant validation
 }
+
+// Deterministic date formatting to prevent hydration mismatches
+const formatDate = (dateString: string): string => {
+  if (!dateString) return "";
+
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+
+  const date = new Date(dateString);
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const day = date.getDate();
+
+  return `${monthNames[month]} ${day}, ${year}`;
+};
+
+const formatMonthYear = (dateString: string): string => {
+  if (!dateString) return "";
+
+  const monthNames = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+
+  const date = new Date(dateString);
+  const year = date.getFullYear();
+  const month = date.getMonth();
+
+  return `${monthNames[month]} ${year}`;
+};
 
 // Property Preview Component
 interface PropertyPreviewProps {
@@ -310,14 +366,7 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Start Date</span>
                   <span className="font-medium">
-                    {new Date(formData.rentStartDate).toLocaleDateString(
-                      "en-US",
-                      {
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      },
-                    )}
+                    {formatDate(formData.rentStartDate)}
                   </span>
                 </div>
               )}
@@ -326,7 +375,9 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Duration</span>
                   <span className="font-medium">
-                    {formData.contractMonths} months
+                    {formData.contractMonths}{" "}
+                    {formData.contractMonths === 1 ? "period" : "periods"}
+                    {formData.formBasis && ` (${formData.formBasis})`}
                   </span>
                 </div>
               )}
@@ -424,12 +475,7 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
                   key={idx}
                   className="flex justify-between items-center text-xs py-1 px-2 bg-muted/30 rounded"
                 >
-                  <span>
-                    {new Date(bill.dueDate).toLocaleDateString("en-US", {
-                      month: "short",
-                      year: "numeric",
-                    })}
-                  </span>
+                  <span>{formatMonthYear(bill.dueDate)}</span>
                   <span className="font-medium">
                     ₱{bill.grossDue.toLocaleString()}
                   </span>
@@ -491,14 +537,13 @@ export function MultiStepPopup({
   const [selectedBillingIndex, setSelectedBillingIndex] = useState<
     number | null
   >(null);
+  const [editingRentIndex, setEditingRentIndex] = useState<number | null>(null);
+  const [editingRentValue, setEditingRentValue] = useState<number>(0);
+  const [editingDateIndex, setEditingDateIndex] = useState<number | null>(null);
+  const [editingDateValue, setEditingDateValue] = useState<string>("");
 
   // Update total steps based on occupancy status
-  const totalSteps =
-    formData.occupancyStatus === "vacant"
-      ? 2
-      : formData.billingType === "blank"
-        ? 3
-        : 4;
+  const totalSteps = formData.occupancyStatus === "vacant" ? 2 : 4;
 
   // Auto-adjust collectionDates when formBasis changes
   useEffect(() => {
@@ -705,12 +750,14 @@ export function MultiStepPopup({
   const validateStep2 = (): boolean => {
     const newErrors: ValidationErrors = {};
 
-    // Contract Months validation (only for pre-organized)
+    // Contract Periods validation (only for pre-organized)
     if (formData.billingType === "pre-organized") {
       if (!formData.contractMonths || formData.contractMonths < 1) {
-        newErrors.contractMonths = "Contract duration must be at least 1 month";
-      } else if (formData.contractMonths > 24) {
-        newErrors.contractMonths = "Contract duration cannot exceed 24 months";
+        newErrors.contractMonths =
+          "Contract duration must be at least 1 period";
+      } else if (formData.contractMonths > 100) {
+        newErrors.contractMonths =
+          "Contract duration cannot exceed 100 periods";
       }
     }
 
@@ -757,7 +804,12 @@ export function MultiStepPopup({
   };
 
   const validateBillingSchedule = (): boolean => {
-    // Billing schedule validation (if needed in the future)
+    const newErrors: ValidationErrors = {};
+
+    // Allow empty billing schedules for blank billing
+    // No validation needed - user can proceed with or without entries
+
+    setErrors(newErrors);
     return true;
   };
 
@@ -893,6 +945,76 @@ export function MultiStepPopup({
     });
   };
 
+  // Handle editing rent amount
+  const handleStartEditRent = (index: number, currentRent: number) => {
+    setEditingRentIndex(index);
+    setEditingRentValue(currentRent);
+  };
+
+  const handleSaveRent = (index: number) => {
+    if (!formData || editingRentValue < 0) return;
+
+    const billing = formData.billingSchedule[index];
+    const newGrossDue = editingRentValue + billing.otherCharges;
+
+    const updatedSchedule = [...formData.billingSchedule];
+    updatedSchedule[index] = {
+      ...billing,
+      rentDue: editingRentValue,
+      grossDue: newGrossDue,
+    };
+
+    setFormData({ ...formData, billingSchedule: updatedSchedule });
+    setEditingRentIndex(null);
+    setEditingRentValue(0);
+
+    toast.success("Rent amount updated");
+  };
+
+  const handleCancelEditRent = () => {
+    setEditingRentIndex(null);
+    setEditingRentValue(0);
+  };
+
+  // Handle editing due date
+  const handleStartEditDate = (index: number, currentDate: string) => {
+    setEditingDateIndex(index);
+    setEditingDateValue(currentDate);
+  };
+
+  const handleSaveDate = (index: number) => {
+    if (!formData || !editingDateValue) return;
+
+    const updatedSchedule = [...formData.billingSchedule];
+    updatedSchedule[index] = {
+      ...formData.billingSchedule[index],
+      dueDate: editingDateValue,
+      status: calculateStatus(editingDateValue),
+    };
+
+    setFormData({ ...formData, billingSchedule: updatedSchedule });
+    setEditingDateIndex(null);
+    setEditingDateValue("");
+
+    toast.success("Due date updated");
+  };
+
+  const handleCancelEditDate = () => {
+    setEditingDateIndex(null);
+    setEditingDateValue("");
+  };
+
+  // Helper function to calculate status based on due date
+  const calculateStatus = (dueDate: string): string => {
+    if (!dueDate) return "Not Yet Due";
+
+    const due = new Date(dueDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return due < today ? "Overdue" : "Not Yet Due";
+  };
+
   const handleNext = () => {
     let isValid = true;
 
@@ -917,28 +1039,8 @@ export function MultiStepPopup({
     }
 
     if (currentStep < totalSteps) {
-      // For vacant properties, show confirmation after step 1
-      if (formData.occupancyStatus === "vacant" && currentStep === 1) {
-        setShowConfirmation(true);
-      }
-      // For occupied properties with blank billing, show confirmation after step 2
-      else if (
-        formData.occupancyStatus === "occupied" &&
-        formData.billingType === "blank" &&
-        currentStep === 2
-      ) {
-        setShowConfirmation(true);
-      }
-      // For occupied properties with pre-organized billing, show confirmation after step 3 (billing review)
-      else if (
-        formData.occupancyStatus === "occupied" &&
-        formData.billingType === "pre-organized" &&
-        currentStep === 3
-      ) {
-        setShowConfirmation(true);
-      }
-      // Normal flow for other steps
-      else if (
+      // Normal flow for all steps - no confirmation dialogs during navigation
+      if (
         currentStep === 2 &&
         formData.occupancyStatus === "occupied" &&
         formData.billingType === "pre-organized"
@@ -952,9 +1054,14 @@ export function MultiStepPopup({
     }
   };
 
-  const handleConfirmSubmit = () => {
+  const handleCompleteClick = () => {
+    // Show confirmation dialog at the final step
+    setShowConfirmation(true);
+  };
+
+  const handleConfirmSubmit = async () => {
     setShowConfirmation(false);
-    setCurrentStep(totalSteps); // Go to final completion step
+    await handleComplete(); // Actually submit the property
   };
 
   const handleCancelConfirmation = () => {
@@ -1393,7 +1500,10 @@ export function MultiStepPopup({
           return {
             icon: <CreditCard className="h-5 w-5 md:h-7 md:w-7" />,
             title: "Billing Schedule",
-            description: "Review and confirm generated billing table",
+            description:
+              formData.billingType === "blank"
+                ? "Create custom billing entries and set accounting details"
+                : "Review and confirm generated billing table",
             color: "text-orange-600 dark:text-orange-400",
             bgColor: "bg-orange-50 dark:bg-orange-950/30",
             borderColor: "border-orange-200 dark:border-orange-800",
@@ -1401,8 +1511,8 @@ export function MultiStepPopup({
         case 4:
           return {
             icon: <CheckCircle className="h-5 w-5 md:h-7 md:w-7" />,
-            title: "Complete",
-            description: "Property successfully added to your portfolio",
+            title: "Ready to Add",
+            description: "Review details and add property to your portfolio",
             color: "text-green-600 dark:text-green-400",
             bgColor: "bg-green-50 dark:bg-green-950/30",
             borderColor: "border-green-200 dark:border-green-800",
@@ -2061,7 +2171,8 @@ export function MultiStepPopup({
                               <Input
                                 id="contractMonths"
                                 type="number"
-                                min="0"
+                                min="1"
+                                max="100"
                                 value={formData.contractMonths}
                                 onChange={(e) =>
                                   updateFormData(
@@ -2083,7 +2194,8 @@ export function MultiStepPopup({
                                 </p>
                               )}
                               <p className="text-xs text-muted-foreground">
-                                Typically 6-12 months for residential
+                                Number of billing periods based on frequency
+                                below (e.g., 12 monthly periods = 1 year)
                               </p>
                             </div>
 
@@ -2525,7 +2637,8 @@ export function MultiStepPopup({
                         <CreditCard className="h-3.5 w-3.5 text-orange-600" />
                       </div>
                       <div className="text-sm font-medium text-orange-800 dark:text-orange-300">
-                        Review billing schedule for{" "}
+                        {formData.billingType === "blank" ? "Create" : "Review"}{" "}
+                        billing schedule for{" "}
                         <span className="font-semibold">
                           {formData.tenantName}
                         </span>
@@ -2648,105 +2761,163 @@ export function MultiStepPopup({
 
                   <Card className="shadow-sm border overflow-hidden">
                     <CardContent className="p-3 md:p-5 pb-0">
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="p-1.5 rounded-full bg-orange-100 dark:bg-orange-950/50">
-                          <CreditCard className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-full bg-orange-100 dark:bg-orange-950/50">
+                            <CreditCard className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                          </div>
+                          <div>
+                            <h3 className="text-base md:text-lg font-semibold text-foreground">
+                              {formData.billingType === "blank"
+                                ? "Custom Billing Schedule"
+                                : "Billing Schedule"}
+                            </h3>
+                            {formData.billingType === "blank" && (
+                              <p className="text-xs text-muted-foreground">
+                                Add and customize billing entries as needed
+                              </p>
+                            )}
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="text-base md:text-lg font-semibold text-foreground">
-                            Billing Schedule
-                          </h3>
-                        </div>
+                        {formData.billingType === "blank" && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              const newEntry = {
+                                dueDate: "",
+                                rentDue: 0,
+                                otherCharges: 0,
+                                grossDue: 0,
+                                status: "Not Yet Due",
+                                expenseItems: [],
+                              };
+                              setFormData((prev) => ({
+                                ...prev,
+                                billingSchedule: [
+                                  ...prev.billingSchedule,
+                                  newEntry,
+                                ],
+                              }));
+                            }}
+                            className="text-xs"
+                          >
+                            <Plus className="h-3.5 w-3.5 mr-1" />
+                            Add Entry
+                          </Button>
+                        )}
                       </div>
                     </CardContent>
 
                     {/* Mobile: Stack layout, Desktop: Table layout */}
                     <div className="block sm:hidden">
                       {/* Mobile Card Layout */}
-                      <div className="divide-y">
-                        {formData.billingSchedule.map((bill, index) => (
-                          <div key={index} className="p-3">
-                            <div className="flex justify-between items-center mb-2">
-                              <h4 className="text-xs font-medium">
-                                {index + 1}
-                              </h4>
-                              <span className="text-xs bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded-full">
-                                {bill.dueDate}
-                              </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                              <div>
-                                <div className="text-muted-foreground">
-                                  Rent
-                                </div>
-                                <div className="font-medium text-green-600">
-                                  ₱{bill.rentDue.toLocaleString()}
-                                </div>
-                              </div>
-                              <div>
-                                <div className="text-muted-foreground">
-                                  Other Charges
-                                </div>
-                                <button
-                                  onClick={() => handleOtherChargesClick(index)}
-                                  className="flex items-center gap-1 text-blue-600 font-medium"
-                                >
-                                  ₱{bill.otherCharges.toLocaleString()}
-                                  <EditIcon className="h-3 w-3" />
-                                </button>
-                              </div>
-                              <div>
-                                <div className="text-muted-foreground">
-                                  Total
-                                </div>
-                                <div className="font-bold">
-                                  ₱{bill.grossDue.toLocaleString()}
-                                </div>
-                              </div>
-                              <div className="col-span-2">
-                                <div className="text-muted-foreground">
-                                  Status
-                                </div>
-                                <div className="text-xs font-medium px-2 py-1 rounded bg-muted inline-block">
-                                  {bill.status}
-                                </div>
-                              </div>
-                            </div>
+                      {formData.billingSchedule.length === 0 &&
+                      formData.billingType === "blank" ? (
+                        <div className="p-8 text-center text-muted-foreground">
+                          <div className="flex flex-col items-center gap-2">
+                            <Calendar className="h-8 w-8 opacity-50" />
+                            <p className="text-sm">No billing entries yet</p>
+                            <p className="text-xs">
+                              Tap \"Add Entry\" to create custom billing periods
+                            </p>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Desktop Table Layout */}
-                    <div className="hidden sm:block">
-                      <div className="overflow-x-auto">
-                        <table className="w-full">
-                          <thead>
-                            <tr className="bg-muted/50 text-xs font-medium">
-                              <th className="text-left p-2">Period</th>
-                              <th className="text-left p-2">Due Date</th>
-                              <th className="text-left p-2">Rent</th>
-                              <th className="text-left p-2">Other Charges</th>
-                              <th className="text-left p-2">Total Due</th>
-                              <th className="text-left p-2">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody className="text-sm">
-                            {formData.billingSchedule.map((bill, index) => (
-                              <tr
-                                key={index}
-                                className={`border-b hover:bg-muted/30 ${
-                                  index % 2 === 0
-                                    ? "bg-background"
-                                    : "bg-muted/10"
-                                }`}
-                              >
-                                <td className="p-2 text-xs">{index + 1}</td>
-                                <td className="p-2 text-xs">{bill.dueDate}</td>
-                                <td className="p-2 text-xs font-medium text-green-600">
-                                  ₱{bill.rentDue.toLocaleString()}
-                                </td>
-                                <td className="p-2 text-xs">
+                        </div>
+                      ) : (
+                        <div className="divide-y">
+                          {formData.billingSchedule.map((bill, index) => (
+                            <div key={index} className="p-3">
+                              <div className="flex justify-between items-center mb-2">
+                                <h4 className="text-xs font-medium">
+                                  {index + 1}
+                                </h4>
+                                {formData.billingType === "blank" ? (
+                                  <div className="flex gap-2 items-center">
+                                    <Input
+                                      type="date"
+                                      value={bill.dueDate}
+                                      onChange={(e) => {
+                                        const updated = [
+                                          ...formData.billingSchedule,
+                                        ];
+                                        updated[index].dueDate = e.target.value;
+                                        updated[index].status = calculateStatus(
+                                          e.target.value,
+                                        );
+                                        setFormData({
+                                          ...formData,
+                                          billingSchedule: updated,
+                                        });
+                                      }}
+                                      className="h-6 text-xs w-28"
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => {
+                                        const updated =
+                                          formData.billingSchedule.filter(
+                                            (_, i) => i !== index,
+                                          );
+                                        setFormData({
+                                          ...formData,
+                                          billingSchedule: updated,
+                                        });
+                                      }}
+                                      disabled={
+                                        index !==
+                                        formData.billingSchedule.length - 1
+                                      }
+                                      className="h-6 px-2 text-red-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                    >
+                                      <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300 px-1.5 py-0.5 rounded-full">
+                                    {bill.dueDate}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div>
+                                  <div className="text-muted-foreground">
+                                    Rent
+                                  </div>
+                                  {formData.billingType === "blank" ? (
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      value={bill.rentDue}
+                                      onChange={(e) => {
+                                        const updated = [
+                                          ...formData.billingSchedule,
+                                        ];
+                                        const rentDue =
+                                          parseInt(e.target.value) || 0;
+                                        updated[index].rentDue = rentDue;
+                                        updated[index].grossDue =
+                                          rentDue + updated[index].otherCharges;
+                                        setFormData({
+                                          ...formData,
+                                          billingSchedule: updated,
+                                        });
+                                      }}
+                                      className="h-6 text-xs font-medium text-green-600"
+                                      placeholder="Rent"
+                                    />
+                                  ) : (
+                                    <div className="font-medium text-green-600">
+                                      ₱{bill.rentDue.toLocaleString()}
+                                    </div>
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="text-muted-foreground">
+                                    Other Charges
+                                  </div>
                                   <button
                                     onClick={() =>
                                       handleOtherChargesClick(index)
@@ -2754,22 +2925,292 @@ export function MultiStepPopup({
                                     className="flex items-center gap-1 text-blue-600 font-medium"
                                   >
                                     ₱{bill.otherCharges.toLocaleString()}
-                                    <span className="ml-1 text-[10px] bg-blue-50 text-blue-700 px-1 py-0.5 rounded">
-                                      {bill.expenseItems.length}
-                                    </span>
                                     <EditIcon className="h-3 w-3" />
                                   </button>
-                                </td>
-                                <td className="p-2 text-xs font-semibold">
-                                  ₱{bill.grossDue.toLocaleString()}
-                                </td>
-                                <td className="p-2 text-xs">
-                                  <span className="inline-block px-2 py-1 rounded bg-muted text-xs font-medium">
+                                </div>
+                                <div>
+                                  <div className="text-muted-foreground">
+                                    Total
+                                  </div>
+                                  <div className="font-bold">
+                                    ₱{bill.grossDue.toLocaleString()}
+                                  </div>
+                                </div>
+                                <div className="col-span-2">
+                                  <div className="text-muted-foreground">
+                                    Status
+                                  </div>
+                                  <span
+                                    className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                      bill.status.toLowerCase() === "paid"
+                                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                        : bill.status.toLowerCase() ===
+                                            "partial"
+                                          ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                          : bill.status.toLowerCase() ===
+                                              "overdue"
+                                            ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                                            : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
+                                    }`}
+                                  >
                                     {bill.status}
                                   </span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Desktop Table Layout */}
+                    <div className="hidden sm:block">
+                      <div className="w-full border rounded-lg overflow-hidden">
+                        <table className="w-full table-auto border-collapse">
+                          <thead className="bg-muted/50">
+                            <tr className="text-left border-b">
+                              <th className="px-3 py-3 text-xs font-semibold text-muted-foreground w-12">
+                                Period
+                              </th>
+                              <th className="px-3 py-3 text-xs font-semibold text-muted-foreground w-30">
+                                Due Date
+                              </th>
+                              <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-center w-24">
+                                Rent
+                              </th>
+                              <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-center w-32">
+                                Other
+                              </th>
+                              <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-right w-24">
+                                Total
+                              </th>
+                              <th className="px-3 py-3 text-xs font-semibold text-muted-foreground w-28">
+                                Status
+                              </th>
+                              {formData.billingType === "blank" && (
+                                <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-center w-20">
+                                  Action
+                                </th>
+                              )}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {formData.billingSchedule.length === 0 &&
+                            formData.billingType === "blank" ? (
+                              <tr>
+                                <td
+                                  colSpan={7}
+                                  className="p-8 text-center text-muted-foreground"
+                                >
+                                  <div className="flex flex-col items-center gap-2">
+                                    <Calendar className="h-8 w-8 opacity-50" />
+                                    <p className="text-sm">
+                                      No billing entries yet
+                                    </p>
+                                    <p className="text-xs">
+                                      Click "Add Entry" to create custom billing
+                                      periods
+                                    </p>
+                                  </div>
                                 </td>
                               </tr>
-                            ))}
+                            ) : (
+                              formData.billingSchedule.map((bill, index) => (
+                                <tr key={index} className="hover:bg-muted/30">
+                                  <td className="px-3 py-3 text-sm font-medium">
+                                    {index + 1}
+                                  </td>
+                                  <td className="px-3 py-3 text-sm">
+                                    {formData.billingType === "blank" ? (
+                                      editingDateIndex === index ? (
+                                        <div className="flex items-center gap-1">
+                                          <Input
+                                            type="date"
+                                            value={editingDateValue}
+                                            onChange={(e) =>
+                                              setEditingDateValue(
+                                                e.target.value,
+                                              )
+                                            }
+                                            className="h-8 w-38 text-sm"
+                                            autoFocus
+                                          />
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                            onClick={() =>
+                                              handleSaveDate(index)
+                                            }
+                                          >
+                                            <Check className="h-4 w-4" />
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                            onClick={handleCancelEditDate}
+                                          >
+                                            <X className="h-4 w-4" />
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-2 group">
+                                          <span>
+                                            {bill.dueDate
+                                              ? formatDate(bill.dueDate)
+                                              : "Not set"}
+                                          </span>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            onClick={() =>
+                                              handleStartEditDate(
+                                                index,
+                                                bill.dueDate,
+                                              )
+                                            }
+                                          >
+                                            <Pencil className="h-3 w-3" />
+                                          </Button>
+                                        </div>
+                                      )
+                                    ) : (
+                                      <span>{formatDate(bill.dueDate)}</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-3 text-sm text-right font-medium">
+                                    {formData.billingType === "blank" ? (
+                                      editingRentIndex === index ? (
+                                        <div className="flex items-center justify-end gap-1">
+                                          <Input
+                                            type="number"
+                                            value={editingRentValue}
+                                            onChange={(e) =>
+                                              setEditingRentValue(
+                                                parseInt(e.target.value) || 0,
+                                              )
+                                            }
+                                            className="h-8 w-28 text-right text-sm"
+                                            min="0"
+                                            autoFocus
+                                          />
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
+                                            onClick={() =>
+                                              handleSaveRent(index)
+                                            }
+                                          >
+                                            <Check className="h-4 w-4" />
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                            onClick={handleCancelEditRent}
+                                          >
+                                            <X className="h-4 w-4" />
+                                          </Button>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center justify-end gap-2 group">
+                                          <span>
+                                            ₱{bill.rentDue.toLocaleString()}
+                                          </span>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            onClick={() =>
+                                              handleStartEditRent(
+                                                index,
+                                                bill.rentDue,
+                                              )
+                                            }
+                                          >
+                                            <Pencil className="h-3 w-3" />
+                                          </Button>
+                                        </div>
+                                      )
+                                    ) : (
+                                      <span>
+                                        ₱{bill.rentDue.toLocaleString()}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-3 text-center">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() =>
+                                        handleOtherChargesClick(index)
+                                      }
+                                      className="text-xs h-8 px-3 mx-auto hover:bg-accent"
+                                    >
+                                      {bill.otherCharges > 0
+                                        ? `₱${bill.otherCharges.toLocaleString()}`
+                                        : "+"}
+                                    </Button>
+                                  </td>
+                                  <td className="px-3 py-3 text-sm font-semibold text-right">
+                                    ₱{bill.grossDue.toLocaleString()}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <span
+                                      className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${
+                                        bill.status.toLowerCase() === "paid"
+                                          ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                          : bill.status.toLowerCase() ===
+                                              "partial"
+                                            ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                            : bill.status.toLowerCase() ===
+                                                "overdue"
+                                              ? "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                                              : "bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400"
+                                      }`}
+                                    >
+                                      {bill.status}
+                                    </span>
+                                  </td>
+                                  {formData.billingType === "blank" && (
+                                    <td className="px-3 py-3 text-center">
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                          const updated =
+                                            formData.billingSchedule.filter(
+                                              (_, i) => i !== index,
+                                            );
+                                          setFormData({
+                                            ...formData,
+                                            billingSchedule: updated,
+                                          });
+                                        }}
+                                        disabled={
+                                          index !==
+                                          formData.billingSchedule.length - 1
+                                        }
+                                        className="h-8 w-8 p-0 hover:bg-destructive hover:text-destructive-foreground disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </Button>
+                                    </td>
+                                  )}
+                                </tr>
+                              ))
+                            )}
                           </tbody>
                         </table>
                       </div>
@@ -2786,14 +3227,16 @@ export function MultiStepPopup({
                             {formData.billingSchedule.length}
                           </span>
                         </div>
-                        <div>
-                          <span className="text-muted-foreground">
-                            Monthly:
-                          </span>{" "}
-                          <span className="font-medium text-green-600">
-                            ₱{formData.rentAmount.toLocaleString()}
-                          </span>
-                        </div>
+                        {formData.billingType !== "blank" && (
+                          <div>
+                            <span className="text-muted-foreground">
+                              Monthly:
+                            </span>{" "}
+                            <span className="font-medium text-green-600">
+                              ₱{formData.rentAmount.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
                       </div>
                       <div className="text-xs">
                         <span className="text-muted-foreground">
@@ -2886,7 +3329,12 @@ export function MultiStepPopup({
                                 Duration
                               </span>
                               <span className="text-sm">
-                                {formData.contractMonths} months
+                                {formData.contractMonths}{" "}
+                                {formData.contractMonths === 1
+                                  ? "period"
+                                  : "periods"}
+                                {formData.formBasis &&
+                                  ` (${formData.formBasis})`}
                               </span>
                             </div>
                           </>
@@ -2964,20 +3412,13 @@ export function MultiStepPopup({
               </Button>
             ) : (
               <Button
-                onClick={handleComplete}
+                onClick={handleCompleteClick}
                 size="sm"
                 variant="default"
                 disabled={isSubmitting}
                 className="text-xs px-3 bg-green-600 hover:bg-green-700"
               >
-                {isSubmitting ? (
-                  <>
-                    <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
-                    Saving...
-                  </>
-                ) : (
-                  "Complete ✓"
-                )}
+                Complete ✓
               </Button>
             )}
           </div>
@@ -3048,8 +3489,17 @@ export function MultiStepPopup({
               disabled={isSubmitting}
               className="text-xs bg-green-600 hover:bg-green-700"
             >
-              <CheckCircle className="h-3.5 w-3.5 mr-1" />
-              Add Property
+              {isSubmitting ? (
+                <>
+                  <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="h-3.5 w-3.5 mr-1" />
+                  Add Property
+                </>
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

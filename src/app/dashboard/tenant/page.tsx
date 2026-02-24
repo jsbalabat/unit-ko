@@ -224,14 +224,24 @@ function TenantDashboard() {
                   <div>
                     <p className="text-sm font-medium">Rent Agreement Date</p>
                     <p className="text-sm text-muted-foreground">
-                      {new Date(tenant.rent_start_date).toLocaleDateString(
-                        "en-US",
-                        {
-                          year: "numeric",
-                          month: "long",
-                          day: "numeric",
-                        },
-                      )}
+                      {(() => {
+                        const monthNames = [
+                          "January",
+                          "February",
+                          "March",
+                          "April",
+                          "May",
+                          "June",
+                          "July",
+                          "August",
+                          "September",
+                          "October",
+                          "November",
+                          "December",
+                        ];
+                        const date = new Date(tenant.rent_start_date);
+                        return `${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+                      })()}
                     </p>
                   </div>
                 </div>
@@ -413,14 +423,24 @@ function TenantDashboard() {
                         </div>
                         <p className="text-sm text-muted-foreground">
                           Due:{" "}
-                          {new Date(entry.due_date).toLocaleDateString(
-                            "en-US",
-                            {
-                              year: "numeric",
-                              month: "long",
-                              day: "numeric",
-                            },
-                          )}
+                          {(() => {
+                            const monthNames = [
+                              "January",
+                              "February",
+                              "March",
+                              "April",
+                              "May",
+                              "June",
+                              "July",
+                              "August",
+                              "September",
+                              "October",
+                              "November",
+                              "December",
+                            ];
+                            const date = new Date(entry.due_date);
+                            return `${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+                          })()}
                         </p>
                       </div>
                       <div className="text-right">
@@ -491,14 +511,24 @@ function TenantDashboard() {
                   </div>
                   <p className="text-xs text-muted-foreground pt-1">
                     Due Date:{" "}
-                    {new Date(selectedBilling.due_date).toLocaleDateString(
-                      "en-US",
-                      {
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                      },
-                    )}
+                    {(() => {
+                      const monthNames = [
+                        "January",
+                        "February",
+                        "March",
+                        "April",
+                        "May",
+                        "June",
+                        "July",
+                        "August",
+                        "September",
+                        "October",
+                        "November",
+                        "December",
+                      ];
+                      const date = new Date(selectedBilling.due_date);
+                      return `${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+                    })()}
                   </p>
                 </CardContent>
               </Card>

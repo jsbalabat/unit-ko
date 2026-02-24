@@ -855,11 +855,26 @@ export function EditBillingPopup({
   };
 
   const formatDueDate = (date: Date): string => {
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
+
+    return `${monthNames[month]} ${day}, ${year}`;
   };
 
   // Add new billing month
@@ -1243,11 +1258,27 @@ export function EditBillingPopup({
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
+
+    return `${monthNames[month]} ${day}, ${year}`;
   };
 
   if (!isOpen) return null;
@@ -1657,15 +1688,7 @@ export function EditBillingPopup({
                                   </div>
                                 ) : (
                                   <div className="flex items-center gap-2 group">
-                                    <span>
-                                      {new Date(
-                                        billing.dueDate,
-                                      ).toLocaleDateString("en-US", {
-                                        month: "short",
-                                        day: "numeric",
-                                        year: "numeric",
-                                      })}
-                                    </span>
+                                    <span>{formatDate(billing.dueDate)}</span>
                                     <Button
                                       variant="ghost"
                                       size="sm"

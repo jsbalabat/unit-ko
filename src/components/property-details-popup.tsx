@@ -107,10 +107,12 @@ interface Tenant {
   id: string;
   property_id: string;
   tenant_name: string;
+  email?: string;
   contact_number: string;
   pax?: number;
   pax_details?: PersonDetail[];
-  contract_months: number;
+  tenant_slot?: number;
+  contract_months: number; // Number of billing periods (weekly, monthly, quarterly, etc.)
   rent_start_date: string;
   due_day: string;
   is_active: boolean;
@@ -129,6 +131,8 @@ interface Property {
   occupancy_status: "occupied" | "vacant";
   property_location: string;
   rent_amount: number;
+  max_tenants?: number; // Bed space support
+  bed_space_billing_mode?: string; // 'unified' or 'per_tenant'
   amenities?: string; // JSON string array of amenity IDs
   created_at: string;
   updated_at: string;
@@ -323,39 +327,41 @@ export function PropertyDetailsPopup({
       return dateString;
     }
 
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
     // Handle ISO date string (YYYY-MM-DD)
     if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
       const [year, month, day] = dateString.split("-").map(Number);
-      const date = new Date(year, month - 1, day);
-
-      return date.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
+      return `${monthNames[month - 1]} ${day}, ${year}`;
     }
 
     // Handle full ISO datetime strings (with T or Z)
     if (dateString.includes("T") || dateString.includes("Z")) {
       const date = new Date(dateString);
-      return date.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
+      const year = date.getFullYear();
+      const month = date.getMonth();
+      const day = date.getDate();
+      return `${monthNames[month]} ${day}, ${year}`;
     }
 
     // Fallback: try to parse and handle as local date
     const parts = dateString.split("-");
     if (parts.length === 3) {
       const [year, month, day] = parts.map(Number);
-      const date = new Date(year, month - 1, day);
-
-      return date.toLocaleDateString("en-US", {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
+      return `${monthNames[month - 1]} ${day}, ${year}`;
     }
 
     // Last resort fallback
@@ -369,6 +375,21 @@ export function PropertyDetailsPopup({
     if (dateString.includes(",")) {
       return dateString;
     }
+
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
 
     // Parse the date string manually to avoid timezone conversion
     let year: number, month: number, day: number;
@@ -384,14 +405,40 @@ export function PropertyDetailsPopup({
       return dateString;
     }
 
-    // Create date in local timezone
-    const date = new Date(year, month - 1, day);
+    return `${monthNames[month - 1]} ${day}, ${year}`;
+  };
 
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+  const formatDateTime = (dateString: string): string => {
+    if (!dateString) return "";
+
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+
+    // Format to 12-hour time with AM/PM
+    const period = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    const displayMinutes = minutes.toString().padStart(2, "0");
+
+    return `${monthNames[month]} ${day}, ${year}, ${displayHours}:${displayMinutes} ${period}`;
   };
 
   // Calculate days until due
@@ -1212,7 +1259,10 @@ export function PropertyDetailsPopup({
                               Contract Duration
                             </span>
                             <span className="font-medium text-xs md:text-sm">
-                              {activeTenant.contract_months} months
+                              {activeTenant.contract_months}{" "}
+                              {activeTenant.contract_months === 1
+                                ? "period"
+                                : "periods"}
                             </span>
                           </div>
                           <div className="grid grid-cols-2 items-center">
@@ -2428,16 +2478,7 @@ export function PropertyDetailsPopup({
                               {log.description}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {new Date(log.created_at).toLocaleString(
-                                "en-US",
-                                {
-                                  year: "numeric",
-                                  month: "short",
-                                  day: "numeric",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                },
-                              )}
+                              {formatDateTime(log.created_at)}
                             </p>
                           </div>
                         </div>

@@ -258,11 +258,27 @@ export function UserProfile() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
+    const monthNames = [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ];
+
+    const date = new Date(dateString);
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const day = date.getDate();
+
+    return `${monthNames[month]} ${day}, ${year}`;
   };
 
   if (loading) {

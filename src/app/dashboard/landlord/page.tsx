@@ -28,7 +28,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
 import { PropertyFilterBar } from "@/components/property-filter-bar";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 
 function LandlordDashboard() {
   const [isAddPopupOpen, setIsAddPopupOpen] = useState(false);
@@ -50,13 +49,7 @@ function LandlordDashboard() {
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState("name-asc");
 
-  const handlePropertyComplete = (data: { unitName?: string } | unknown) => {
-    const propertyName =
-      typeof data === "object" && data && "unitName" in data
-        ? data.unitName
-        : "New property";
-
-    toast.success(`Successfully added property: ${propertyName}`);
+  const handlePropertyComplete = () => {
     refetch();
   };
 

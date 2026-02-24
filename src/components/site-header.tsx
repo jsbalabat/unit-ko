@@ -126,19 +126,38 @@ export function SiteHeader() {
 
   // Format date and time
   const formatDateTime = (date: Date) => {
+    const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const monthNames = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
+    const weekday = weekdayNames[date.getDay()];
+    const month = monthNames[date.getMonth()];
+    const day = date.getDate();
+    const year = date.getFullYear();
+
+    const hours = date.getHours();
+    const minutes = date.getMinutes();
+    const seconds = date.getSeconds();
+    const period = hours >= 12 ? "PM" : "AM";
+    const displayHours = hours % 12 || 12;
+    const displayMinutes = minutes.toString().padStart(2, "0");
+    const displaySeconds = seconds.toString().padStart(2, "0");
+
     return {
-      date: date.toLocaleDateString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      }),
-      time: date.toLocaleTimeString("en-US", {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: true,
-      }),
+      date: `${weekday}, ${month} ${day}, ${year}`,
+      time: `${displayHours}:${displayMinutes}:${displaySeconds} ${period}`,
     };
   };
 
