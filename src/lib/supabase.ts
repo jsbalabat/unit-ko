@@ -31,11 +31,19 @@ export interface Tenant {
   email: string
   contact_number: string
   pax?: number
+  pax_details?: Array<{
+    name: string
+    email: string
+    phone: string
+  }> // JSONB array of individual person details
   tenant_slot?: number // Bed space slot number
-  contract_months: number
+  contract_months: number // Number of billing periods (can be weekly, monthly, quarterly, semi-annually, or annually)
   rent_start_date: string
   due_day: string
   is_active: boolean
+  advance_payment?: number // Accounting field
+  security_deposit?: number // Accounting field
+  overflow?: number // Payment overflow/credit
   created_at: string
   updated_at: string
 }
@@ -62,6 +70,9 @@ export interface BillingEntry {
   gross_due: number
   status: string
   billing_period: number
+  paid_amount?: number // Amount already paid for this entry
+  expense_items?: string // JSON string of expense breakdown
+  tenant_payments?: string // JSON string of per-tenant payment tracking
   created_at: string
   updated_at: string
 }

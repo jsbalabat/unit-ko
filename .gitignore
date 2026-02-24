@@ -42,3 +42,8 @@ next-env.d.ts
 
 # local environment variables
 .env.local
+
+*.sql
+
+# temporary markdown files
+*.md

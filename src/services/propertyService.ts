@@ -21,7 +21,7 @@ interface PropertyFormData {
   maxTenants: number
   tenants: TenantInfo[]
   propertyLocation: string
-  contractMonths: number
+  contractMonths: number // Number of billing periods (not necessarily months - can be weeks, quarters, etc.)
   rentStartDate: string
   dueDay: string
   rentAmount: number
@@ -123,6 +123,7 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
           .insert({
             property_id: property.id,
             tenant_name: firstTenant.name,
+            email: firstTenant.email || '',
             contact_number: firstTenant.phone || '',
             pax: paxDetails.length,
             pax_details: paxDetails,
