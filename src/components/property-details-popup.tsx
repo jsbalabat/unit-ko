@@ -2997,6 +2997,22 @@ export function PropertyDetailsPopup({
             <DialogDescription className="text-xs sm:text-sm">
               Enter payment amount and type. Rent applies to billing entries.
             </DialogDescription>
+            {selectedTenantIndex !== null &&
+              activeTenant?.pax_details?.[selectedTenantIndex] && (
+                <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-2 mt-2">
+                  <div className="flex items-center gap-2">
+                    <div className="h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0">
+                      <User className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <p className="text-xs text-blue-900 dark:text-blue-100">
+                      <span className="font-medium">Applying to: </span>
+                      <span className="font-semibold">
+                        {activeTenant.pax_details[selectedTenantIndex].name}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+              )}
           </DialogHeader>
 
           <div className="space-y-3 py-2">
@@ -3057,7 +3073,7 @@ export function PropertyDetailsPopup({
                 <Select value={paymentType} onValueChange={setPaymentType}>
                   <SelectTrigger
                     id="payment-type"
-                    className="h-8 sm:h-9 text-xs sm:text-sm"
+                    className="h-8 sm:h-9 text-xs sm:text-sm w-full"
                   >
                     <SelectValue placeholder="Choose Type" />
                   </SelectTrigger>
