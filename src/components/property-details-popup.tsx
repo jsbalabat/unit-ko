@@ -1,5 +1,38 @@
 "use client";
 
+/**
+ * MULTI-TENANT BILLING ARCHITECTURE
+ * =================================
+ *
+ * Individual Billing Accounts:
+ * - Each tenant in a multi-tenant property has their own billing account
+ * - Individual accounts add up to the total property rent/payables
+ * - Currently implemented as equal shares (total rent ÷ number of tenants)
+ * - Future enhancement: Store custom individual amounts per tenant
+ *
+ * View Modes:
+ * 1. Consolidated View: Shows sum of all tenant accounts
+ *    - Displays total amounts across all tenants
+ *    - Edit Billing button is DISABLED (prevents accidental bulk edits)
+ *    - Payment breakdown visible on hover
+ *
+ * 2. Individual Tenant View: Shows single tenant's account
+ *    - Displays only that tenant's portion
+ *    - Edit Billing button is ENABLED (edits only this tenant's billing)
+ *    - Allows tenant-specific payment tracking
+ *
+ * Payment Tracking:
+ * - tenant_payments JSON field tracks individual payments: {"0": 1500, "1": 1500}
+ * - Payments are applied to individual tenant accounts
+ * - Status calculated per tenant (Paid/Partial/Overdue)
+ *
+ * Data Model:
+ * - Property.rent_amount: Total property rent
+ * - BillingEntry.gross_due: Total amount for all tenants
+ * - BillingEntry.tenant_payments: Individual payment breakdown (JSON)
+ * - Individual amounts calculated: gross_due ÷ paxCount
+ */
+
 import { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
@@ -85,6 +118,8 @@ interface BillingEntry {
   updated_at: string;
   expense_items?: string; // Add this field for the JSON string of expense items
   tenant_payments?: string; // JSON string of per-tenant payments: {"0": 1500, "1": 1500}
+  tenant_rent_amounts?: string; // JSON string of per-tenant rent: {"0": 5000, "1": 6000}
+  tenant_other_charges?: string; // JSON string of per-tenant charges: {"0": 200, "1": 300}
 }
 
 interface TenantPaymentMap {
@@ -185,8 +220,41 @@ export function PropertyDetailsPopup({
   const [selectedTenantIndex, setSelectedTenantIndex] = useState<number | null>(
     null,
   );
-  const [billingViewMode, setBillingViewMode] =
-    useState<string>("consolidated");
+
+  // Store view mode per property ID in localStorage
+  const getStoredViewMode = (propId: string): string => {
+    try {
+      const stored = localStorage.getItem("propertyViewModes");
+      if (stored) {
+        const viewModes = JSON.parse(stored);
+        return viewModes[propId] || "consolidated";
+      }
+    } catch (e) {
+      console.error("Error reading stored view modes:", e);
+    }
+    return "consolidated";
+  };
+
+  const setStoredViewMode = (propId: string, mode: string) => {
+    try {
+      const stored = localStorage.getItem("propertyViewModes");
+      const viewModes = stored ? JSON.parse(stored) : {};
+      viewModes[propId] = mode;
+      localStorage.setItem("propertyViewModes", JSON.stringify(viewModes));
+    } catch (e) {
+      console.error("Error storing view mode:", e);
+    }
+  };
+
+  const [billingViewMode, setBillingViewMode] = useState<string>(() =>
+    getStoredViewMode(propertyId),
+  );
+
+  // Update stored view mode when it changes
+  const updateBillingViewMode = (mode: string) => {
+    setBillingViewMode(mode);
+    setStoredViewMode(propertyId, mode);
+  };
 
   // Wrap fetchPropertyDetails in useCallback to prevent recreation on every render
   const fetchPropertyDetails = useCallback(async () => {
@@ -245,6 +313,14 @@ export function PropertyDetailsPopup({
     fetchPropertyDetails();
   }, [fetchPropertyDetails]);
 
+  // Update view mode when property changes
+  useEffect(() => {
+    if (isOpen && propertyId) {
+      const storedMode = getStoredViewMode(propertyId);
+      setBillingViewMode(storedMode);
+    }
+  }, [propertyId, isOpen]);
+
   // Re-fetch data when edit popup closes
   useEffect(() => {
     if (!isEditPopupOpen && !isEditBillingPopupOpen && isOpen) {
@@ -285,6 +361,11 @@ export function PropertyDetailsPopup({
       lowerStatus.includes("upcoming")
     ) {
       return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800/50";
+    }
+
+    // Not Yet Set - Light Gray/Muted
+    if (lowerStatus.includes("not yet set")) {
+      return "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/50 dark:text-slate-400 dark:border-slate-700/50";
     }
 
     // Default / Neutral - Gray
@@ -602,8 +683,9 @@ export function PropertyDetailsPopup({
 
       // For POSITIVE payments: First use overflow to pay billing entries, then add excess to overflow
       if (paymentAmount > 0) {
-        // Step 1: Use existing overflow to pay off billing entries first
-        if (newOverflow > 0) {
+        // Step 1: Use existing overflow to pay off billing entries first (only if not in individual tenant mode)
+        // Skip overflow distribution when paying for a specific tenant
+        if (newOverflow > 0 && !isPerPersonPayment) {
           for (const entry of sortedEntries) {
             if (newOverflow <= 0) break;
 
@@ -688,13 +770,43 @@ export function PropertyDetailsPopup({
           let paymentToApply: number;
 
           if (isPerPersonPayment && selectedTenantIndex !== null) {
-            // Individual tenant payment - check their specific share
+            // Individual tenant payment - apply full payment to specific tenant only
             const tenantKey = selectedTenantIndex.toString();
             const tenantPaid = tenantPaymentsMap[tenantKey] || 0;
-            const tenantShare = perPersonShare;
-            const tenantDue = tenantShare - tenantPaid;
 
-            if (tenantDue > 0) {
+            // Get the tenant's actual billing amounts from JSON fields
+            let tenantActualRent = 0;
+            let tenantActualCharges = 0;
+
+            try {
+              const tenantRentAmounts = entry.tenant_rent_amounts
+                ? JSON.parse(entry.tenant_rent_amounts)
+                : {};
+              tenantActualRent =
+                tenantKey in tenantRentAmounts
+                  ? tenantRentAmounts[tenantKey]
+                  : entry.rent_due / paxCount;
+            } catch (e) {
+              tenantActualRent = entry.rent_due / paxCount;
+            }
+
+            try {
+              const tenantOtherCharges = entry.tenant_other_charges
+                ? JSON.parse(entry.tenant_other_charges)
+                : {};
+              tenantActualCharges =
+                tenantKey in tenantOtherCharges
+                  ? tenantOtherCharges[tenantKey]
+                  : entry.other_charges / paxCount;
+            } catch (e) {
+              tenantActualCharges = entry.other_charges / paxCount;
+            }
+
+            const tenantActualTotal = tenantActualRent + tenantActualCharges;
+            const tenantDue = Math.max(0, tenantActualTotal - tenantPaid);
+
+            // Apply as much payment as possible to this entry, limited by tenant's actual amount due
+            if (remainingPayment > 0 && tenantDue > 0) {
               paymentToApply = Math.min(remainingPayment, tenantDue);
               tenantPaymentsMap[tenantKey] = tenantPaid + paymentToApply;
               const newTotalPaid = Object.values(tenantPaymentsMap).reduce(
@@ -706,12 +818,29 @@ export function PropertyDetailsPopup({
               let newStatus = "Partial";
               const epsilon = 0.01;
 
-              // Check if all tenants have paid their shares
+              // Check if all tenants have paid their actual shares (using custom amounts)
+              const tenantRentAmounts = entry.tenant_rent_amounts
+                ? JSON.parse(entry.tenant_rent_amounts)
+                : {};
+              const tenantOtherChargesAmounts = entry.tenant_other_charges
+                ? JSON.parse(entry.tenant_other_charges)
+                : {};
+
               const allTenantsPaid = Array.from(
                 { length: paxCount },
                 (_, i) => {
-                  const paid = tenantPaymentsMap[i.toString()] || 0;
-                  return paid >= perPersonShare - epsilon;
+                  const key = i.toString();
+                  const paid = tenantPaymentsMap[key] || 0;
+                  const rent =
+                    key in tenantRentAmounts
+                      ? tenantRentAmounts[key]
+                      : entry.rent_due / paxCount;
+                  const charges =
+                    key in tenantOtherChargesAmounts
+                      ? tenantOtherChargesAmounts[key]
+                      : entry.other_charges / paxCount;
+                  const tenantTotal = rent + charges;
+                  return paid >= tenantTotal - epsilon;
                 },
               ).every(Boolean);
 
@@ -802,8 +931,8 @@ export function PropertyDetailsPopup({
       } else {
         // For NEGATIVE payments (refunds): Deduct from overflow FIRST (highest priority), then from billing entries
 
-        // Step 1: Deduct from overflow first
-        if (remainingPayment < 0 && newOverflow > 0) {
+        // Step 1: Deduct from overflow first (only if not in individual tenant mode)
+        if (remainingPayment < 0 && newOverflow > 0 && !isPerPersonPayment) {
           const deductFromOverflow = Math.min(
             Math.abs(remainingPayment),
             newOverflow,
@@ -1810,8 +1939,27 @@ export function PropertyDetailsPopup({
                         <div className="flex gap-2">
                           <Button
                             size="sm"
-                            onClick={() => setIsPaymentDialogOpen(true)}
+                            onClick={() => {
+                              // Auto-select tenant based on current view mode
+                              if (billingViewMode.startsWith("tenant-")) {
+                                const tenantIdx = parseInt(
+                                  billingViewMode.split("-")[1],
+                                );
+                                setSelectedTenantIndex(tenantIdx);
+                              } else {
+                                setSelectedTenantIndex(null);
+                              }
+                              setIsPaymentDialogOpen(true);
+                            }}
+                            disabled={
+                              paxCount > 1 && billingViewMode === "consolidated"
+                            }
                             className="text-xs h-8 gap-1.5"
+                            title={
+                              paxCount > 1 && billingViewMode === "consolidated"
+                                ? "Switch to individual tenant view to apply payment"
+                                : ""
+                            }
                           >
                             Apply Payment
                           </Button>
@@ -1819,7 +1967,15 @@ export function PropertyDetailsPopup({
                             size="sm"
                             variant="outline"
                             onClick={() => setIsEditBillingPopupOpen(true)}
+                            disabled={
+                              paxCount > 1 && billingViewMode === "consolidated"
+                            }
                             className="text-xs h-8 gap-1.5"
+                            title={
+                              paxCount > 1 && billingViewMode === "consolidated"
+                                ? "Switch to individual tenant view to edit billing"
+                                : ""
+                            }
                           >
                             <Pencil className="h-3.5 w-3.5" />
                             Edit Billing
@@ -1838,7 +1994,7 @@ export function PropertyDetailsPopup({
                           </Label>
                           <Select
                             value={billingViewMode}
-                            onValueChange={setBillingViewMode}
+                            onValueChange={updateBillingViewMode}
                           >
                             <SelectTrigger
                               id="billing-view"
@@ -1869,20 +2025,20 @@ export function PropertyDetailsPopup({
                             </div>
                             <div className="flex-1">
                               <p className="text-xs font-medium text-blue-900 dark:text-blue-100 mb-1">
-                                Multi-Tenant Payment Tracking Active
+                                Consolidated View - All {paxCount} Tenant
+                                Accounts
                               </p>
                               <p className="text-xs text-blue-700 dark:text-blue-300">
-                                This property has {paxCount} tenants. Payments
-                                are tracked individually per tenant. Hover over
-                                the "Paid" amount to see who has paid their
-                                share (₱
-                                {formatCurrency(
-                                  activeTenant?.billing_entries?.[0]?.gross_due
-                                    ? activeTenant.billing_entries[0]
-                                        .gross_due / paxCount
-                                    : 0,
-                                ).replace("₱", "")}{" "}
-                                per person).
+                                Each tenant has their own billing account. Total
+                                amounts shown are the sum of all individual
+                                accounts. To edit billing or view detailed
+                                breakdowns, select a specific tenant from the
+                                dropdown above.
+                              </p>
+                              <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1.5 italic">
+                                Each tenant can have their own custom rent and
+                                charges. Use "Edit Billing" to modify individual
+                                amounts.
                               </p>
                             </div>
                           </div>
@@ -1892,17 +2048,25 @@ export function PropertyDetailsPopup({
                       {/* Individual Tenant View Indicator */}
                       {billingViewMode.startsWith("tenant-") && (
                         <div className="bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-lg p-3 mb-4">
-                          <div className="flex items-center gap-2">
-                            <div className="h-5 w-5 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center flex-shrink-0">
+                          <div className="flex items-start gap-2">
+                            <div className="h-5 w-5 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center flex-shrink-0 mt-0.5">
                               <User className="h-3 w-3 text-purple-600 dark:text-purple-400" />
                             </div>
-                            <p className="text-xs font-medium text-purple-900 dark:text-purple-100">
-                              Viewing individual billing for:{" "}
-                              {activeTenant?.pax_details?.[
-                                parseInt(billingViewMode.split("-")[1])
-                              ]?.name ||
-                                `Tenant ${parseInt(billingViewMode.split("-")[1]) + 1}`}
-                            </p>
+                            <div className="flex-1">
+                              <p className="text-xs font-medium text-purple-900 dark:text-purple-100 mb-1">
+                                Individual Account View:{" "}
+                                {activeTenant?.pax_details?.[
+                                  parseInt(billingViewMode.split("-")[1])
+                                ]?.name ||
+                                  `Tenant ${parseInt(billingViewMode.split("-")[1]) + 1}`}
+                              </p>
+                              <p className="text-xs text-purple-700 dark:text-purple-300">
+                                Viewing this tenant's individual billing
+                                account. Amounts shown are specific to this
+                                tenant only. You can edit this tenant's billing
+                                using the "Edit Billing" button.
+                              </p>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -1956,38 +2120,40 @@ export function PropertyDetailsPopup({
                                         className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                       >
                                         {isIndividualView
-                                          ? "Tenant's Share"
-                                          : "Rent"}
+                                          ? "Account Rent"
+                                          : "Total Rent"}
                                       </th>
                                       <th
                                         scope="col"
                                         className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                       >
                                         {isIndividualView
-                                          ? "Tenant's Expenses"
-                                          : "Expenses"}
+                                          ? "Account Expenses"
+                                          : "Total Expenses"}
                                       </th>
                                       <th
                                         scope="col"
                                         className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                       >
                                         {isIndividualView
-                                          ? "Tenant's Total Due"
-                                          : "Total"}
+                                          ? "Account Total"
+                                          : "Total Amount"}
                                       </th>
                                       <th
                                         scope="col"
                                         className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                       >
                                         {isIndividualView
-                                          ? "Tenant Paid"
-                                          : "Paid"}
+                                          ? "Account Paid"
+                                          : "Total Paid"}
                                       </th>
                                       <th
                                         scope="col"
                                         className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                       >
-                                        Status
+                                        {isIndividualView
+                                          ? "Account Status"
+                                          : "Status"}
                                       </th>
                                     </tr>
                                   </thead>
@@ -2031,46 +2197,114 @@ export function PropertyDetailsPopup({
                                                 ];
 
                                           // Calculate per-tenant amounts if in individual view
-                                          const tenantShareRent =
-                                            isIndividualView
-                                              ? entry.rent_due / paxCount
-                                              : entry.rent_due;
-                                          const tenantShareExpenses =
-                                            isIndividualView
-                                              ? entry.other_charges / paxCount
-                                              : entry.other_charges;
-                                          const tenantShareTotal =
-                                            isIndividualView
-                                              ? entry.gross_due / paxCount
-                                              : entry.gross_due;
+                                          let tenantShareRent = entry.rent_due;
+                                          let tenantShareExpenses =
+                                            entry.other_charges;
+                                          let tenantShareTotal =
+                                            entry.gross_due;
+
+                                          if (
+                                            isIndividualView &&
+                                            selectedTenantIdx !== null
+                                          ) {
+                                            const tenantKey =
+                                              selectedTenantIdx.toString();
+
+                                            // Get individual rent from tenant_rent_amounts JSON
+                                            try {
+                                              const tenantRentAmounts =
+                                                entry.tenant_rent_amounts
+                                                  ? JSON.parse(
+                                                      entry.tenant_rent_amounts,
+                                                    )
+                                                  : {};
+                                              tenantShareRent =
+                                                tenantKey in tenantRentAmounts
+                                                  ? tenantRentAmounts[tenantKey]
+                                                  : entry.rent_due / paxCount;
+                                            } catch (e) {
+                                              console.error(
+                                                "Error parsing tenant_rent_amounts:",
+                                                e,
+                                              );
+                                              tenantShareRent =
+                                                entry.rent_due / paxCount;
+                                            }
+
+                                            // Get individual charges from tenant_other_charges JSON
+                                            try {
+                                              const tenantOtherCharges =
+                                                entry.tenant_other_charges
+                                                  ? JSON.parse(
+                                                      entry.tenant_other_charges,
+                                                    )
+                                                  : {};
+                                              tenantShareExpenses =
+                                                tenantKey in tenantOtherCharges
+                                                  ? tenantOtherCharges[
+                                                      tenantKey
+                                                    ]
+                                                  : entry.other_charges /
+                                                    paxCount;
+                                            } catch (e) {
+                                              console.error(
+                                                "Error parsing tenant_other_charges:",
+                                                e,
+                                              );
+                                              tenantShareExpenses =
+                                                entry.other_charges / paxCount;
+                                            }
+
+                                            // Calculate total from individual amounts
+                                            tenantShareTotal =
+                                              tenantShareRent +
+                                              tenantShareExpenses;
+                                          }
 
                                           // Get tenant's paid amount from tenant_payments
                                           let tenantPaidAmount =
                                             entry.paid_amount || 0;
-                                          let tenantStatus = entry.status;
-
+                                          
+                                          // If in individual view, get the specific tenant's paid amount
                                           if (
                                             isIndividualView &&
                                             selectedTenantIdx !== null
                                           ) {
                                             const tenantPayments: TenantPaymentMap =
                                               entry.tenant_payments
-                                                ? JSON.parse(
-                                                    entry.tenant_payments,
-                                                  )
+                                                ? JSON.parse(entry.tenant_payments)
                                                 : {};
                                             tenantPaidAmount =
                                               tenantPayments[
                                                 selectedTenantIdx.toString()
                                               ] || 0;
+                                          }
 
+                                          let tenantStatus = entry.status;
+
+                                          // Check for "Not Yet Set" status first (applies to both views)
+                                          const epsilon = 0.01;
+                                          const relevantTotal =
+                                            isIndividualView &&
+                                            selectedTenantIdx !== null
+                                              ? tenantShareTotal
+                                              : entry.gross_due;
+
+                                          if (relevantTotal < epsilon) {
+                                            tenantStatus = "Not Yet Set";
+                                          } else if (
+                                            isIndividualView &&
+                                            selectedTenantIdx !== null
+                                          ) {
                                             // Calculate tenant-specific status
                                             const tenantBalance =
                                               tenantShareTotal -
                                               tenantPaidAmount;
-                                            if (tenantBalance <= 0.01) {
+                                            if (tenantBalance <= epsilon) {
                                               tenantStatus = "Paid";
-                                            } else if (tenantPaidAmount > 0) {
+                                            } else if (
+                                              tenantPaidAmount > epsilon
+                                            ) {
                                               tenantStatus = "Partial";
                                             } else {
                                               tenantStatus = entry.status; // Keep original status if not paid
@@ -2186,7 +2420,8 @@ export function PropertyDetailsPopup({
                                                     <span className="absolute invisible group-hover:visible z-[100]">
                                                       <span className="relative block bottom-full right-0 mb-1 bg-popover shadow-lg rounded-md p-3 min-w-[220px] border">
                                                         <div className="text-xs font-medium mb-2">
-                                                          Per-Tenant Payments:
+                                                          Individual Account
+                                                          Payments:
                                                         </div>
                                                         <div className="space-y-1.5">
                                                           {(() => {
@@ -2334,8 +2569,39 @@ export function PropertyDetailsPopup({
                               let tenantTotalPaid = 0;
 
                               billingEntries.forEach((entry) => {
+                                // Get individual tenant's amounts from JSON fields
+                                let tenantRent = 0;
+                                let tenantCharges = 0;
+
+                                try {
+                                  const tenantRentAmounts =
+                                    entry.tenant_rent_amounts
+                                      ? JSON.parse(entry.tenant_rent_amounts)
+                                      : {};
+                                  tenantRent =
+                                    tenantKey in tenantRentAmounts
+                                      ? tenantRentAmounts[tenantKey]
+                                      : entry.rent_due / paxCount;
+                                } catch (e) {
+                                  tenantRent = entry.rent_due / paxCount;
+                                }
+
+                                try {
+                                  const tenantOtherCharges =
+                                    entry.tenant_other_charges
+                                      ? JSON.parse(entry.tenant_other_charges)
+                                      : {};
+                                  tenantCharges =
+                                    tenantKey in tenantOtherCharges
+                                      ? tenantOtherCharges[tenantKey]
+                                      : entry.other_charges / paxCount;
+                                } catch (e) {
+                                  tenantCharges =
+                                    entry.other_charges / paxCount;
+                                }
+
                                 const perPersonShare =
-                                  entry.gross_due / paxCount;
+                                  tenantRent + tenantCharges;
                                 tenantTotalDue += perPersonShare;
 
                                 if (entry.tenant_payments) {
@@ -2351,23 +2617,29 @@ export function PropertyDetailsPopup({
 
                               const tenantBalance =
                                 tenantTotalDue - tenantTotalPaid;
-                              const isPaidUp = tenantBalance <= 0.01;
+                              const isNotYetSet = tenantTotalDue <= 0.01;
+                              const isPaidUp =
+                                !isNotYetSet && tenantBalance <= 0.01;
 
                               return (
                                 <div
                                   key={i}
                                   className={`p-3 rounded-lg border ${
-                                    isPaidUp
-                                      ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
-                                      : "bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800"
+                                    isNotYetSet
+                                      ? "bg-gray-50 dark:bg-gray-950/20 border-gray-200 dark:border-gray-800"
+                                      : isPaidUp
+                                        ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
+                                        : "bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800"
                                   }`}
                                 >
                                   <div className="flex items-center gap-2 mb-2">
                                     <div
                                       className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                                        isPaidUp
-                                          ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
-                                          : "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
+                                        isNotYetSet
+                                          ? "bg-gray-100 dark:bg-gray-900/40 text-gray-700 dark:text-gray-300"
+                                          : isPaidUp
+                                            ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+                                            : "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
                                       }`}
                                     >
                                       <User className="h-4 w-4" />
@@ -2378,14 +2650,18 @@ export function PropertyDetailsPopup({
                                       </p>
                                       <p
                                         className={`text-[10px] font-medium ${
-                                          isPaidUp
-                                            ? "text-green-600 dark:text-green-400"
-                                            : "text-orange-600 dark:text-orange-400"
+                                          isNotYetSet
+                                            ? "text-gray-600 dark:text-gray-400"
+                                            : isPaidUp
+                                              ? "text-green-600 dark:text-green-400"
+                                              : "text-orange-600 dark:text-orange-400"
                                         }`}
                                       >
-                                        {isPaidUp
-                                          ? "✓ Paid Up"
-                                          : `₱${tenantBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} Due`}
+                                        {isNotYetSet
+                                          ? "Not Yet Set"
+                                          : isPaidUp
+                                            ? "✓ Paid Up"
+                                            : `₱${tenantBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} Due`}
                                       </p>
                                     </div>
                                   </div>
@@ -2585,6 +2861,12 @@ export function PropertyDetailsPopup({
         <EditBillingPopup
           propertyId={propertyId}
           tenantId={activeTenant.id}
+          tenantIndex={
+            billingViewMode.startsWith("tenant-")
+              ? parseInt(billingViewMode.split("-")[1])
+              : undefined
+          }
+          paxCount={paxCount}
           isOpen={isEditBillingPopupOpen}
           onClose={() => setIsEditBillingPopupOpen(false)}
           onSuccess={() => {
@@ -2711,80 +2993,11 @@ export function PropertyDetailsPopup({
               Apply Payment
             </DialogTitle>
             <DialogDescription className="text-xs sm:text-sm">
-              {paxCount > 1
-                ? "Select tenant and enter payment amount based on their share."
-                : "Enter payment amount and type. Rent applies to billing entries."}
+              Enter payment amount and type. Rent applies to billing entries.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3 py-2">
-            {paxCount > 1 && (
-              <div className="space-y-1.5">
-                <Label htmlFor="tenant-selector" className="text-xs sm:text-sm">
-                  Paying Tenant
-                </Label>
-                <Select
-                  value={selectedTenantIndex?.toString() || ""}
-                  onValueChange={(value) => {
-                    const index = value === "all" ? null : parseInt(value);
-                    setSelectedTenantIndex(index);
-
-                    // Auto-calculate per-person share for rent
-                    if (
-                      index !== null &&
-                      paymentType === "rent" &&
-                      activeTenant?.billing_entries
-                    ) {
-                      // Calculate the person's share of unpaid amount
-                      const totalUnpaid = (
-                        activeTenant.billing_entries || []
-                      ).reduce(
-                        (sum, entry) =>
-                          sum + (entry.gross_due - (entry.paid_amount || 0)),
-                        0,
-                      );
-                      const perPersonShare = Math.ceil(totalUnpaid / paxCount);
-                      setPaymentAmount(perPersonShare);
-                    }
-                  }}
-                >
-                  <SelectTrigger
-                    id="tenant-selector"
-                    className="h-8 sm:h-9 text-xs sm:text-sm"
-                  >
-                    <SelectValue placeholder="Select tenant" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all" className="text-xs sm:text-sm">
-                      All Tenants (Full Amount)
-                    </SelectItem>
-                    {activeTenant?.pax_details
-                      ?.filter((p) => p.name && p.name.trim() !== "")
-                      .map((person, idx) => (
-                        <SelectItem
-                          key={idx}
-                          value={idx.toString()}
-                          className="text-xs sm:text-sm"
-                        >
-                          {person.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-                {selectedTenantIndex !== null && (
-                  <p className="text-[10px] sm:text-xs text-muted-foreground">
-                    Payment for{" "}
-                    {activeTenant?.pax_details?.[selectedTenantIndex]?.name} (1/
-                    {paxCount} share)
-                  </p>
-                )}
-                {selectedTenantIndex === null && (
-                  <p className="text-[10px] sm:text-xs text-amber-600 dark:text-amber-400">
-                    ⚠️ Select tenant or "All Tenants"
-                  </p>
-                )}
-              </div>
-            )}
             <div className="space-y-1.5">
               <Label htmlFor="payment-amount" className="text-xs sm:text-sm">
                 Payment Amount
@@ -2832,14 +3045,6 @@ export function PropertyDetailsPopup({
                   </Button>
                 </div>
               </div>
-              {paxCount > 1 &&
-                selectedTenantIndex !== null &&
-                paymentType === "rent" &&
-                activeTenant?.billing_entries && (
-                  <p className="text-[10px] sm:text-xs text-green-600 dark:text-green-400">
-                    Auto-calculated: 1/{paxCount} of unpaid balance
-                  </p>
-                )}
             </div>
 
             <div className="space-y-1.5">
@@ -2894,16 +3099,6 @@ export function PropertyDetailsPopup({
                 />
               </div>
             </div>
-
-            <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded p-2">
-              <p className="text-[10px] sm:text-xs text-muted-foreground leading-relaxed">
-                {paymentType === "deposit" || paymentType === "advance"
-                  ? `${paymentAmount >= 0 ? "Add to" : "Deduct from"} ${paymentType === "deposit" ? "Security Deposit" : "Advance"} balance.`
-                  : paxCount > 1 && selectedTenantIndex !== null
-                    ? `${activeTenant?.pax_details?.[selectedTenantIndex]?.name}'s share (1/${paxCount}): ₱${Math.abs(paymentAmount).toLocaleString()}`
-                    : `${paymentAmount >= 0 ? "Add" : "Deduct"} ₱${Math.abs(paymentAmount).toLocaleString()} ${paymentAmount >= 0 ? "to" : "from"} billing entries chronologically.`}
-              </p>
-            </div>
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -2926,13 +3121,7 @@ export function PropertyDetailsPopup({
             <Button
               size="sm"
               onClick={handleApplyPayment}
-              disabled={
-                isApplyingPayment ||
-                paymentAmount === 0 ||
-                (paxCount > 1 &&
-                  selectedTenantIndex === null &&
-                  paymentType === "rent")
-              }
+              disabled={isApplyingPayment || paymentAmount === 0}
               className="gap-1.5 h-8 sm:h-9 text-xs sm:text-sm"
             >
               {isApplyingPayment ? (

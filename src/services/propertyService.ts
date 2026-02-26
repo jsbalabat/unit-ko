@@ -170,19 +170,43 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
         // 4. Insert Billing Entries (only if occupied and has billing schedule)
         if (formData.billingSchedule.length > 0) {
           // Create billing entries for the single tenant record
-          const billingRows = formData.billingSchedule.map((bill, index) => ({
-            property_id: property.id,
-            tenant_id: tenantData.id,
-            due_date: new Date(bill.dueDate).toISOString().split('T')[0],
-            rent_due: bill.rentDue,
-            other_charges: bill.otherCharges,
-            gross_due: bill.grossDue,
-            status: bill.status,
-            expense_items: JSON.stringify(bill.expenseItems || []),
-            billing_period: index + 1,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          }))
+          const paxCount = paxDetails.length;
+          
+          const billingRows = formData.billingSchedule.map((bill, index) => {
+            // Initialize per-tenant JSON fields for multi-tenant properties
+            let tenant_rent_amounts = null;
+            let tenant_other_charges = null;
+            
+            if (paxCount > 1) {
+              // Multi-tenant: initialize all tenants with 0, must be explicitly assigned via Edit Billing
+              const rentAmounts: Record<string, number> = {};
+              const chargeAmounts: Record<string, number> = {};
+              
+              for (let i = 0; i < paxCount; i++) {
+                rentAmounts[i.toString()] = 0;
+                chargeAmounts[i.toString()] = 0;
+              }
+              
+              tenant_rent_amounts = JSON.stringify(rentAmounts);
+              tenant_other_charges = JSON.stringify(chargeAmounts);
+            }
+            
+            return {
+              property_id: property.id,
+              tenant_id: tenantData.id,
+              due_date: new Date(bill.dueDate).toISOString().split('T')[0],
+              rent_due: bill.rentDue,
+              other_charges: bill.otherCharges,
+              gross_due: bill.grossDue,
+              status: (paxCount > 1 && bill.grossDue === 0) ? 'Not Yet Set' : (paxCount > 1 ? 'Not Yet Due' : bill.status),
+              expense_items: JSON.stringify(bill.expenseItems || []),
+              billing_period: index + 1,
+              tenant_rent_amounts,
+              tenant_other_charges,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            };
+          })
 
           const { data: billingData, error: billingError } = await supabase
             .from('billing_entries')

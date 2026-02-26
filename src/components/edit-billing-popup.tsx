@@ -64,6 +64,9 @@ interface BillingEntry {
   billing_period: number;
   paid_amount?: number;
   expense_items?: string;
+  tenant_payments?: string; // JSON string of per-tenant payments: {"0": 1500, "1": 1500}
+  tenant_rent_amounts?: string; // JSON string of per-tenant rent: {"0": 5000, "1": 5000}
+  tenant_other_charges?: string; // JSON string of per-tenant charges: {"0": 200, "1": 150}
   created_at: string;
   updated_at: string;
 }
@@ -92,6 +95,8 @@ interface BillingFormData {
 interface EditBillingPopupProps {
   propertyId: string;
   tenantId: string;
+  tenantIndex?: number; // Index in pax_details array for individual tenant billing
+  paxCount?: number; // Total number of tenants in the property
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
@@ -101,6 +106,8 @@ interface EditBillingPopupProps {
 export function EditBillingPopup({
   propertyId,
   tenantId,
+  tenantIndex,
+  paxCount = 1,
   isOpen,
   onClose,
   onSuccess,
@@ -134,6 +141,8 @@ export function EditBillingPopup({
   const [editingRentValue, setEditingRentValue] = useState<number>(0);
   const [editingDateIndex, setEditingDateIndex] = useState<number | null>(null);
   const [editingDateValue, setEditingDateValue] = useState<string>("");
+  const [tenantName, setTenantName] = useState<string>("");
+  const [propertyTotalRent, setPropertyTotalRent] = useState<number>(0);
 
   // Undo/Redo state using two-stack approach
   type HistorySnapshot = {
@@ -283,6 +292,9 @@ export function EditBillingPopup({
 
         if (propertyError) throw propertyError;
 
+        // Store property total rent for later use
+        setPropertyTotalRent(propertyData.rent_amount);
+
         // Fetch tenant with billing entries
         const { data: tenantData, error: tenantError } = await supabase
           .from("tenants")
@@ -305,6 +317,12 @@ export function EditBillingPopup({
         setTenantPax(filledPaxCount > 0 ? filledPaxCount : tenantData.pax || 1);
         setTenantOverflow(tenantData.overflow || 0);
 
+        // Store tenant name for individual mode banner
+        if (tenantIndex !== undefined && tenantData.pax_details) {
+          const person = tenantData.pax_details[tenantIndex];
+          setTenantName(person?.name || `Tenant ${tenantIndex + 1}`);
+        }
+
         const billingEntries = (tenantData.billing_entries ||
           []) as BillingEntry[];
 
@@ -315,19 +333,132 @@ export function EditBillingPopup({
           return dateA - dateB;
         });
 
+        // Determine if we're in individual tenant mode
+        const isIndividualMode = tenantIndex !== undefined;
+
+        // Calculate individual tenant's rent amount if in individual mode
+        let individualRentAmount = propertyData.rent_amount;
+        if (isIndividualMode && sortedBillingEntries.length > 0) {
+          const tenantKey = tenantIndex.toString();
+          // Get the first billing entry to determine this tenant's base rent
+          const firstEntry = sortedBillingEntries[0];
+          try {
+            const tenantRentAmounts = firstEntry.tenant_rent_amounts
+              ? JSON.parse(firstEntry.tenant_rent_amounts)
+              : {};
+            // Only fall back to equal division if the key doesn't exist
+            individualRentAmount =
+              tenantKey in tenantRentAmounts
+                ? tenantRentAmounts[tenantKey]
+                : firstEntry.rent_due / paxCount;
+          } catch (e) {
+            console.error("Error parsing tenant_rent_amounts:", e);
+            individualRentAmount = firstEntry.rent_due / paxCount;
+          }
+        } else if (isIndividualMode) {
+          // No billing entries exist, use equal division
+          individualRentAmount = propertyData.rent_amount / paxCount;
+        }
+
         const initialFormData: BillingFormData = {
-          rentAmount: propertyData.rent_amount,
+          rentAmount: individualRentAmount,
           dueDay: tenantData.due_day || "30th/31st - Last Day",
           rentStartDate: tenantData.rent_start_date || "",
-          billingSchedule: sortedBillingEntries.map((entry) => ({
-            id: entry.id,
-            dueDate: entry.due_date,
-            rentDue: entry.rent_due,
-            otherCharges: entry.other_charges,
-            grossDue: entry.gross_due,
-            status: entry.status,
-            paidAmount: entry.paid_amount || 0,
-          })),
+          billingSchedule: sortedBillingEntries.map((entry) => {
+            // For individual tenant mode, extract their specific amounts
+            let individualRent = 0;
+            let individualCharges = 0;
+            let individualPaid = 0;
+
+            if (isIndividualMode) {
+              const tenantKey = tenantIndex.toString();
+
+              // Get individual rent amount
+              try {
+                const tenantRentAmounts = entry.tenant_rent_amounts
+                  ? JSON.parse(entry.tenant_rent_amounts)
+                  : {};
+                // Only fall back to equal division if the key doesn't exist
+                individualRent =
+                  tenantKey in tenantRentAmounts
+                    ? tenantRentAmounts[tenantKey]
+                    : entry.rent_due / paxCount;
+              } catch (e) {
+                console.error("Error parsing tenant_rent_amounts:", e);
+                individualRent = entry.rent_due / paxCount;
+              }
+
+              // Get individual other charges
+              try {
+                const tenantOtherCharges = entry.tenant_other_charges
+                  ? JSON.parse(entry.tenant_other_charges)
+                  : {};
+                // Only fall back to equal division if the key doesn't exist
+                individualCharges =
+                  tenantKey in tenantOtherCharges
+                    ? tenantOtherCharges[tenantKey]
+                    : entry.other_charges / paxCount;
+              } catch (e) {
+                console.error("Error parsing tenant_other_charges:", e);
+                individualCharges = entry.other_charges / paxCount;
+              }
+
+              // Get individual paid amount
+              try {
+                const tenantPayments = entry.tenant_payments
+                  ? JSON.parse(entry.tenant_payments)
+                  : {};
+                // Check if tenant has a payment entry, default to 0 if not
+                individualPaid =
+                  tenantKey in tenantPayments ? tenantPayments[tenantKey] : 0;
+              } catch (e) {
+                console.error("Error parsing tenant_payments:", e);
+                individualPaid = (entry.paid_amount || 0) / paxCount;
+              }
+            } else {
+              individualRent = entry.rent_due;
+              individualCharges = entry.other_charges;
+              individualPaid = entry.paid_amount || 0;
+            }
+
+            // Calculate gross due for this tenant
+            const grossDue = individualRent + individualCharges;
+
+            // Recalculate status based on individual amounts
+            let calculatedStatus: string;
+            const epsilon = 0.01;
+
+            if (grossDue < epsilon) {
+              // Account total is 0 - not yet set
+              calculatedStatus = "Not Yet Set";
+            } else if (individualPaid >= grossDue - epsilon) {
+              calculatedStatus = "Paid";
+            } else if (individualPaid > epsilon) {
+              calculatedStatus = "Partial";
+            } else {
+              // No payment - check if overdue or not yet due
+              const dueDate = new Date(entry.due_date);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              dueDate.setHours(0, 0, 0, 0);
+
+              if (dueDate < today) {
+                calculatedStatus = "overdue";
+              } else {
+                calculatedStatus = "Not Yet Due";
+              }
+            }
+
+            return {
+              id: entry.id,
+              dueDate: entry.due_date,
+              rentDue: individualRent,
+              otherCharges: individualCharges,
+              grossDue: grossDue,
+              status: calculatedStatus,
+              paidAmount: individualPaid,
+            };
+          }),
         };
 
         // Initialize expense items
@@ -455,7 +586,10 @@ export function EditBillingPopup({
       // Use a small epsilon for floating point comparison
       const epsilon = 0.01;
 
-      if (currentPaid >= billing.grossDue - epsilon) {
+      if (billing.grossDue < epsilon) {
+        // Account total is 0 - not yet set
+        status = "Not Yet Set";
+      } else if (currentPaid >= billing.grossDue - epsilon) {
         status = "Paid";
       } else if (currentPaid > epsilon) {
         status = "Partial";
@@ -1034,24 +1168,168 @@ export function EditBillingPopup({
     setSubmitting(true);
 
     try {
+      // Determine if we're in individual tenant mode
+      const isIndividualMode = tenantIndex !== undefined;
+
       // Update billing entries
       for (const billing of formData.billingSchedule) {
         const expenseItems = expenseItemsByBillingId[billing.id] || [];
 
         // For existing entries, update them
         if (!billing.id.startsWith("temp-")) {
+          // Prepare update data
+          let updateData: any = {
+            expense_items:
+              expenseItems.length > 0 ? JSON.stringify(expenseItems) : null,
+            updated_at: new Date().toISOString(),
+          };
+
+          if (isIndividualMode) {
+            // Individual tenant mode: update only this tenant's data in JSON fields
+            // First fetch the current entry to get existing data
+            const { data: currentEntry, error: fetchError } = await supabase
+              .from("billing_entries")
+              .select(
+                "tenant_payments, tenant_rent_amounts, tenant_other_charges, paid_amount, rent_due, other_charges, gross_due",
+              )
+              .eq("id", billing.id)
+              .single();
+
+            if (fetchError) throw fetchError;
+
+            const tenantKey = tenantIndex.toString();
+
+            // Parse and update tenant_rent_amounts
+            let tenantRentAmounts: Record<string, number> = {};
+            try {
+              tenantRentAmounts = currentEntry.tenant_rent_amounts
+                ? JSON.parse(currentEntry.tenant_rent_amounts)
+                : {};
+            } catch (e) {
+              console.error("Error parsing tenant_rent_amounts:", e);
+              tenantRentAmounts = {};
+            }
+
+            // Initialize missing tenant entries
+            const existingTenantCount = Object.keys(tenantRentAmounts).length;
+            if (existingTenantCount === 0) {
+              // First time editing - initialize all tenants with 0
+              for (let i = 0; i < paxCount; i++) {
+                tenantRentAmounts[i.toString()] = 0;
+              }
+            } else if (existingTenantCount < paxCount) {
+              // New tenant(s) added - initialize new entries with 0
+              for (let i = 0; i < paxCount; i++) {
+                if (!(i.toString() in tenantRentAmounts)) {
+                  tenantRentAmounts[i.toString()] = 0;
+                }
+              }
+            }
+
+            // Update only this specific tenant's rent
+            tenantRentAmounts[tenantKey] = billing.rentDue;
+
+            // Parse and update tenant_other_charges
+            let tenantOtherCharges: Record<string, number> = {};
+            try {
+              tenantOtherCharges = currentEntry.tenant_other_charges
+                ? JSON.parse(currentEntry.tenant_other_charges)
+                : {};
+            } catch (e) {
+              console.error("Error parsing tenant_other_charges:", e);
+              tenantOtherCharges = {};
+            }
+
+            // Initialize missing tenant entries
+            const existingChargeCount = Object.keys(tenantOtherCharges).length;
+            if (existingChargeCount === 0) {
+              // First time editing - initialize all tenants with 0
+              for (let i = 0; i < paxCount; i++) {
+                tenantOtherCharges[i.toString()] = 0;
+              }
+            } else if (existingChargeCount < paxCount) {
+              // New tenant(s) added - initialize new entries with 0
+              for (let i = 0; i < paxCount; i++) {
+                if (!(i.toString() in tenantOtherCharges)) {
+                  tenantOtherCharges[i.toString()] = 0;
+                }
+              }
+            }
+
+            // Update only this specific tenant's charges
+            tenantOtherCharges[tenantKey] = billing.otherCharges;
+
+            // Parse and update tenant_payments
+            let tenantPaymentsMap: Record<string, number> = {};
+            try {
+              tenantPaymentsMap = currentEntry.tenant_payments
+                ? JSON.parse(currentEntry.tenant_payments)
+                : {};
+            } catch (e) {
+              console.error("Error parsing tenant_payments:", e);
+              tenantPaymentsMap = {};
+            }
+            tenantPaymentsMap[tenantKey] = billing.paidAmount || 0;
+
+            // Calculate totals from all tenants
+            const totalRent = Object.values(tenantRentAmounts).reduce(
+              (sum, amount) => sum + amount,
+              0,
+            );
+            const totalCharges = Object.values(tenantOtherCharges).reduce(
+              (sum, amount) => sum + amount,
+              0,
+            );
+            const totalPaid = Object.values(tenantPaymentsMap).reduce(
+              (sum, amount) => sum + amount,
+              0,
+            );
+            const totalGross = totalRent + totalCharges;
+
+            // Update with totals and individual tracking
+            updateData.rent_due = totalRent;
+            updateData.other_charges = totalCharges;
+            updateData.gross_due = totalGross;
+            updateData.paid_amount = totalPaid;
+            updateData.tenant_rent_amounts = JSON.stringify(tenantRentAmounts);
+            updateData.tenant_other_charges =
+              JSON.stringify(tenantOtherCharges);
+            updateData.tenant_payments = JSON.stringify(tenantPaymentsMap);
+
+            // Recalculate status based on total paid vs total gross due
+            const epsilon = 0.01;
+            if (totalGross < epsilon) {
+              // Account total is 0 - not yet set
+              updateData.status = "Not Yet Set";
+            } else if (totalPaid >= totalGross - epsilon) {
+              updateData.status = "Paid";
+            } else if (totalPaid > epsilon) {
+              updateData.status = "Partial";
+            } else {
+              // No payment - check if overdue or not yet due
+              const dueDate = new Date(billing.dueDate);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              dueDate.setHours(0, 0, 0, 0);
+
+              if (dueDate < today) {
+                updateData.status = "overdue";
+              } else {
+                updateData.status = "Not Yet Due";
+              }
+            }
+          } else {
+            // Consolidated mode: update normally
+            updateData.rent_due = billing.rentDue;
+            updateData.other_charges = billing.otherCharges;
+            updateData.gross_due = billing.grossDue;
+            updateData.status = billing.status;
+            updateData.paid_amount = billing.paidAmount || 0;
+          }
+
           const { error } = await supabase
             .from("billing_entries")
-            .update({
-              rent_due: billing.rentDue,
-              other_charges: billing.otherCharges,
-              gross_due: billing.grossDue,
-              status: billing.status,
-              paid_amount: billing.paidAmount || 0,
-              expense_items:
-                expenseItems.length > 0 ? JSON.stringify(expenseItems) : null,
-              updated_at: new Date().toISOString(),
-            })
+            .update(updateData)
             .eq("id", billing.id);
 
           if (error) throw error;
@@ -1059,28 +1337,158 @@ export function EditBillingPopup({
         // For new entries (temp IDs), insert them
         else {
           // Calculate billing period number
-          // For additional charges (rentDue = 0), use 0 as billing_period
-          // For regular rent entries, count only rent entries up to this point
+          // For additional charges rows (temp-additional-*), use 0 as billing_period
+          // For regular rent entries, count all non-additional entries up to this point
           let billingPeriod = 0;
-          if (billing.rentDue > 0) {
+          if (!billing.id.startsWith("temp-additional-")) {
+            // Count all non-additional charge entries up to and including this one
             billingPeriod = formData.billingSchedule
               .slice(0, formData.billingSchedule.indexOf(billing) + 1)
-              .filter((b) => b.rentDue > 0).length;
+              .filter((b) => !b.id.startsWith("temp-additional-")).length;
           }
 
-          const { error } = await supabase.from("billing_entries").insert({
+          let insertData: any = {
             property_id: propertyId,
             tenant_id: tenantId,
             due_date: billing.dueDate,
-            rent_due: billing.rentDue,
-            other_charges: billing.otherCharges,
-            gross_due: billing.grossDue,
-            status: billing.status,
-            paid_amount: billing.paidAmount || 0,
             billing_period: billingPeriod,
             expense_items:
               expenseItems.length > 0 ? JSON.stringify(expenseItems) : null,
-          });
+          };
+
+          if (isIndividualMode) {
+            // Individual tenant mode: initialize JSON fields with this tenant's data
+            const tenantKey = tenantIndex.toString();
+
+            // For other tenants, try to get their amounts from the last billing entry
+            // If not available, use equal division of property total rent
+            let baseRentsForOtherTenants: Record<string, number> = {};
+            let baseChargesForOtherTenants: Record<string, number> = {};
+
+            // Try to get amounts from the most recent billing entry
+            const lastBillingEntry = formData.billingSchedule
+              .filter((b) => !b.id.startsWith("temp-"))
+              .slice(-1)[0];
+
+            if (lastBillingEntry) {
+              // Fetch the last entry's tenant amounts from the database
+              try {
+                const { data: lastEntry } = await supabase
+                  .from("billing_entries")
+                  .select("tenant_rent_amounts, tenant_other_charges")
+                  .eq("id", lastBillingEntry.id)
+                  .single();
+
+                if (lastEntry?.tenant_rent_amounts) {
+                  baseRentsForOtherTenants = JSON.parse(
+                    lastEntry.tenant_rent_amounts,
+                  );
+                }
+                if (lastEntry?.tenant_other_charges) {
+                  baseChargesForOtherTenants = JSON.parse(
+                    lastEntry.tenant_other_charges,
+                  );
+                }
+              } catch (e) {
+                console.error("Error fetching last entry amounts:", e);
+              }
+            }
+
+            // Initialize tenant amounts
+            const tenantRentAmounts: Record<string, number> = {};
+            const tenantOtherCharges: Record<string, number> = {};
+            const tenantPaymentsMap: Record<string, number> = {};
+
+            // Determine if we have any previous tenant amounts
+            const hasPreviousAmounts =
+              Object.keys(baseRentsForOtherTenants).length > 0;
+
+            for (let i = 0; i < paxCount; i++) {
+              const key = i.toString();
+              if (i === tenantIndex) {
+                // This tenant gets the entered amounts
+                tenantRentAmounts[key] = billing.rentDue;
+                tenantOtherCharges[key] = billing.otherCharges;
+                tenantPaymentsMap[key] = billing.paidAmount || 0;
+              } else {
+                // Other tenants:
+                // - If they exist in previous entry, use their amount
+                // - Otherwise set to 0 (whether newly added or first time setup)
+                if (key in baseRentsForOtherTenants) {
+                  tenantRentAmounts[key] = baseRentsForOtherTenants[key];
+                } else {
+                  // Set to 0 - must be explicitly assigned
+                  tenantRentAmounts[key] = 0;
+                }
+
+                if (key in baseChargesForOtherTenants) {
+                  tenantOtherCharges[key] = baseChargesForOtherTenants[key];
+                } else {
+                  // Set to 0 - must be explicitly assigned
+                  tenantOtherCharges[key] = 0;
+                }
+
+                tenantPaymentsMap[key] = 0;
+              }
+            }
+
+            // Calculate totals
+            const totalRent = Object.values(tenantRentAmounts).reduce(
+              (sum, amt) => sum + amt,
+              0,
+            );
+            const totalCharges = Object.values(tenantOtherCharges).reduce(
+              (sum, amt) => sum + amt,
+              0,
+            );
+            const totalPaid = Object.values(tenantPaymentsMap).reduce(
+              (sum, amt) => sum + amt,
+              0,
+            );
+            const totalGross = totalRent + totalCharges;
+
+            insertData.rent_due = totalRent;
+            insertData.other_charges = totalCharges;
+            insertData.gross_due = totalGross;
+            insertData.paid_amount = totalPaid;
+            insertData.tenant_rent_amounts = JSON.stringify(tenantRentAmounts);
+            insertData.tenant_other_charges =
+              JSON.stringify(tenantOtherCharges);
+            insertData.tenant_payments = JSON.stringify(tenantPaymentsMap);
+
+            // Set status based on total paid vs total due
+            const epsilon = 0.01;
+            if (totalGross < epsilon) {
+              // Account total is 0 - not yet set
+              insertData.status = "Not Yet Set";
+            } else if (totalPaid >= totalGross - epsilon) {
+              insertData.status = "Paid";
+            } else if (totalPaid > epsilon) {
+              insertData.status = "Partial";
+            } else {
+              const dueDate = new Date(billing.dueDate);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              dueDate.setHours(0, 0, 0, 0);
+
+              if (dueDate < today) {
+                insertData.status = "overdue";
+              } else {
+                insertData.status = "Not Yet Due";
+              }
+            }
+          } else {
+            // Consolidated mode: insert normally
+            insertData.rent_due = billing.rentDue;
+            insertData.other_charges = billing.otherCharges;
+            insertData.gross_due = billing.grossDue;
+            insertData.status = billing.status;
+            insertData.paid_amount = billing.paidAmount || 0;
+          }
+
+          const { error } = await supabase
+            .from("billing_entries")
+            .insert(insertData);
 
           if (error) throw error;
         }
@@ -1392,13 +1800,34 @@ export function EditBillingPopup({
             <div className="text-center py-12 text-red-600">{error}</div>
           ) : formData ? (
             <div className="space-y-6">
+              {/* Individual Tenant Mode Indicator */}
+              {tenantIndex !== undefined && (
+                <div className="bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="h-6 w-6 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <User className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-purple-900 dark:text-purple-100 mb-1">
+                        Editing Individual Account: {tenantName}
+                      </p>
+                      <p className="text-xs text-purple-700 dark:text-purple-300">
+                        You are editing billing for{" "}
+                        <span className="font-medium">{tenantName}</span> only.
+                        This is one of {paxCount} tenant accounts. Changes will
+                        only affect this individual's billing record.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <Card>
                 <CardContent className="p-6">
                   {/* Universal Payment Field */}
                   {formData.billingSchedule.length > 0 && (
                     <div className="mb-6 p-5 bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900 rounded-lg">
                       <Label className="text-sm font-medium flex items-center gap-1.5 mb-3">
-                        <DollarSign className="h-4 w-4 text-blue-600" />
                         Apply Payment
                       </Label>
                       <div className="flex items-end gap-3">
@@ -1482,7 +1911,6 @@ export function EditBillingPopup({
                           className="h-10 px-4 whitespace-nowrap"
                           disabled={isLocked || paymentAmount === 0}
                         >
-                          <DollarSign className="h-4 w-4 mr-2" />
                           Apply Payment
                         </Button>
                       </div>
@@ -1616,11 +2044,14 @@ export function EditBillingPopup({
                       </thead>
                       <tbody className="divide-y divide-border">
                         {formData.billingSchedule.map((billing, index) => {
-                          // Calculate period number (only for rows with rent)
+                          // Calculate period number (exclude temp-additional entries)
                           const periodNumber = formData.billingSchedule
                             .slice(0, index + 1)
-                            .filter((b) => b.rentDue > 0).length;
-                          const isAdditionalCharges = billing.rentDue === 0;
+                            .filter(
+                              (b) => !b.id.startsWith("temp-additional-"),
+                            ).length;
+                          const isAdditionalCharges =
+                            billing.id.startsWith("temp-additional-");
 
                           return (
                             <tr

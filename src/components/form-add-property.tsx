@@ -202,9 +202,22 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
       : formData.tenantName
         ? 1
         : 0;
+
+  // For pre-organized billing, rentPerCollection is per-tenant
+  // For others, calculate per-person from total
   const perPersonRent =
-    formData.rentAmount && paxCount > 1
-      ? Math.floor(formData.rentAmount / paxCount)
+    formData.billingType === "pre-organized" && formData.rentPerCollection > 0
+      ? formData.rentPerCollection
+      : formData.rentAmount && paxCount > 1
+        ? Math.floor(formData.rentAmount / paxCount)
+        : formData.rentAmount;
+
+  // Total property rent
+  const totalRent =
+    formData.billingType === "pre-organized" &&
+    formData.rentPerCollection > 0 &&
+    paxCount > 0
+      ? formData.rentPerCollection * paxCount
       : formData.rentAmount;
 
   return (
@@ -256,15 +269,17 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">
-                Monthly Rent
+                {formData.billingType === "pre-organized" && paxCount > 1
+                  ? "Total Property Rent"
+                  : "Monthly Rent"}
               </span>
               <div className="text-right">
                 <div className="text-sm font-semibold text-green-600">
-                  ₱{formData.rentAmount.toLocaleString() || "0"}/month
+                  ₱{totalRent.toLocaleString() || "0"}/month
                 </div>
-                {paxCount > 1 && (
+                {paxCount > 1 && perPersonRent > 0 && (
                   <div className="text-xs text-muted-foreground">
-                    ₱{perPersonRent.toLocaleString()} per person
+                    ₱{perPersonRent.toLocaleString()} per tenant
                   </div>
                 )}
               </div>
@@ -397,14 +412,33 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
                     </span>
                   </div>
                   {formData.rentPerCollection > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">
-                        Per Collection
-                      </span>
-                      <span className="font-medium text-green-600">
-                        ₱{formData.rentPerCollection.toLocaleString()}
-                      </span>
-                    </div>
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          Per Tenant
+                        </span>
+                        <span className="font-medium text-green-600">
+                          ₱{formData.rentPerCollection.toLocaleString()}
+                        </span>
+                      </div>
+                      {formData.maxTenants > 1 && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            Total Property
+                          </span>
+                          <span className="font-medium text-green-700 dark:text-green-400">
+                            ₱
+                            {(
+                              formData.rentPerCollection *
+                              (formData.tenants?.filter(
+                                (t) =>
+                                  t.tenantName && t.tenantName.trim() !== "",
+                              ).length || formData.maxTenants)
+                            ).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -641,23 +675,41 @@ export function MultiStepPopup({
   ]);
 
   // Sync rentPerCollection to rentAmount for occupied properties
+  // rentAmount is the total property rent (rentPerCollection * numberOfTenants)
   useEffect(() => {
     if (
       formData.occupancyStatus === "occupied" &&
       formData.billingType === "pre-organized" &&
-      formData.rentPerCollection > 0 &&
-      formData.rentPerCollection !== formData.rentAmount
+      formData.rentPerCollection > 0
     ) {
-      setFormData((prev) => ({
-        ...prev,
-        rentAmount: formData.rentPerCollection,
-      }));
+      // Count filled tenants or use maxTenants
+      const filledTenantsCount =
+        formData.tenants?.filter(
+          (t) => t.tenantName && t.tenantName.trim() !== "",
+        ).length || 0;
+      const numberOfTenants =
+        formData.maxTenants > 1
+          ? filledTenantsCount > 0
+            ? filledTenantsCount
+            : formData.maxTenants
+          : 1;
+
+      const totalPropertyRent = formData.rentPerCollection * numberOfTenants;
+
+      if (totalPropertyRent !== formData.rentAmount) {
+        setFormData((prev) => ({
+          ...prev,
+          rentAmount: totalPropertyRent,
+        }));
+      }
     }
   }, [
     formData.rentPerCollection,
     formData.occupancyStatus,
     formData.billingType,
     formData.rentAmount,
+    formData.maxTenants,
+    formData.tenants,
   ]);
 
   // Validation functions
@@ -774,13 +826,31 @@ export function MultiStepPopup({
 
     // Pre-organized billing validation
     if (formData.billingType === "pre-organized") {
-      // Rent Per Collection validation
+      // Rent Per Collection validation (per tenant amount)
       if (!formData.rentPerCollection || formData.rentPerCollection <= 0) {
-        newErrors.rentAmount = "Rent per collection must be greater than 0";
-      } else if (formData.rentPerCollection < 1000) {
-        newErrors.rentAmount = "Default minimum: ₱1,000";
+        newErrors.rentAmount = "Rent per tenant must be greater than 0";
+      } else if (formData.rentPerCollection < 500) {
+        newErrors.rentAmount = "Per-tenant rent seems too low (minimum ₱500)";
       } else if (formData.rentPerCollection > 1000000) {
-        newErrors.rentAmount = "Default maximum: ₱1,000,000";
+        newErrors.rentAmount =
+          "Per-tenant rent seems too high (maximum ₱1,000,000)";
+      }
+
+      // Validate total property rent as well
+      const filledCount =
+        formData.tenants?.filter(
+          (t) => t.tenantName && t.tenantName.trim() !== "",
+        ).length || 0;
+      const tenantCount =
+        formData.maxTenants > 1
+          ? filledCount > 0
+            ? filledCount
+            : formData.maxTenants
+          : 1;
+      const totalRent = formData.rentPerCollection * tenantCount;
+
+      if (totalRent > 1000000) {
+        newErrors.rentAmount = `Total property rent (₱${totalRent.toLocaleString()}) exceeds maximum of ₱1,000,000`;
       }
 
       // Collection date validation for bi-weekly
@@ -1124,8 +1194,24 @@ export function MultiStepPopup({
       return;
     }
 
-    // Use rentPerCollection for pre-organized billing, falling back to rentAmount for vacant properties
-    const rentAmount = formData.rentPerCollection || formData.rentAmount;
+    // For pre-organized billing: calculate total property rent from per-tenant amount
+    // Count filled tenants or use maxTenants
+    const filledTenantsCount =
+      formData.tenants?.filter(
+        (t) => t.tenantName && t.tenantName.trim() !== "",
+      ).length || 0;
+    const numberOfTenants =
+      formData.maxTenants > 1
+        ? filledTenantsCount > 0
+          ? filledTenantsCount
+          : formData.maxTenants
+        : 1;
+
+    // Use rentPerCollection * numberOfTenants for pre-organized, rentAmount for vacant
+    const rentAmount =
+      formData.rentPerCollection > 0
+        ? formData.rentPerCollection * numberOfTenants
+        : formData.rentAmount;
 
     if (!rentAmount || rentAmount <= 0) {
       toast.error("Please enter a valid rent amount");
@@ -2492,7 +2578,7 @@ export function MultiStepPopup({
                                 className="text-sm font-medium flex items-center gap-1.5"
                               >
                                 <DollarSign className="h-3.5 w-3.5 text-green-600" />
-                                Rent per Tenant per Collection Date (₱) *
+                                Rent per Individual Tenant (₱) *
                               </Label>
                               <Input
                                 id="rentPerCollection"
@@ -2507,12 +2593,13 @@ export function MultiStepPopup({
                                       : parseInt(e.target.value) || "",
                                   )
                                 }
-                                placeholder="Enter amount"
+                                placeholder="Enter per-tenant amount"
                                 className="h-9 text-sm"
                               />
                               <p className="text-xs text-muted-foreground">
-                                Amount to collect on each {formData.formBasis}{" "}
-                                rent date
+                                {formData.maxTenants > 1
+                                  ? `Amount per tenant on each ${formData.formBasis} rent date. Total property rent will be calculated automatically.`
+                                  : `Amount to collect on each ${formData.formBasis} rent date`}
                               </p>
                             </div>
                           </>
@@ -3466,6 +3553,14 @@ export function MultiStepPopup({
                       <span className="text-green-600 font-medium block">
                         ₱{formData.rentAmount.toLocaleString()}
                       </span>
+                      {formData.billingType === "pre-organized" &&
+                        formData.maxTenants > 1 &&
+                        formData.rentPerCollection > 0 && (
+                          <span className="text-xs text-muted-foreground block">
+                            (₱{formData.rentPerCollection.toLocaleString()} per
+                            tenant)
+                          </span>
+                        )}
                     </div>
                   </div>
                 </div>

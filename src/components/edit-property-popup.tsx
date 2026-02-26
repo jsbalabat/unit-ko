@@ -733,41 +733,133 @@ export function EditPropertyPopup({
 
         // Handle billing entries only for occupied properties
         if (formData.occupancyStatus === "occupied") {
+          const paxCount = formData.pax || 1;
+
           for (const entry of formData.billingSchedule) {
             // For existing entries, update them
             if (!entry.id.startsWith("temp-")) {
+              // Fetch current tenant amounts to check if we need to add new tenants
+              const { data: currentEntry } = await supabase
+                .from("billing_entries")
+                .select("tenant_rent_amounts, tenant_other_charges")
+                .eq("id", entry.id)
+                .single();
+
+              let tenant_rent_amounts = null;
+              let tenant_other_charges = null;
+
+              let hasNewTenants = false;
+
+              if (paxCount > 1) {
+                // Parse existing amounts
+                const rentAmounts: Record<string, number> =
+                  currentEntry?.tenant_rent_amounts
+                    ? JSON.parse(currentEntry.tenant_rent_amounts)
+                    : {};
+                const chargeAmounts: Record<string, number> =
+                  currentEntry?.tenant_other_charges
+                    ? JSON.parse(currentEntry.tenant_other_charges)
+                    : {};
+
+                // Initialize any missing tenant entries with 0
+                for (let i = 0; i < paxCount; i++) {
+                  const key = i.toString();
+                  if (!(key in rentAmounts)) {
+                    rentAmounts[key] = 0;
+                    hasNewTenants = true;
+                  }
+                  if (!(key in chargeAmounts)) {
+                    chargeAmounts[key] = 0;
+                  }
+                }
+
+                tenant_rent_amounts = JSON.stringify(rentAmounts);
+                tenant_other_charges = JSON.stringify(chargeAmounts);
+              }
+
+              const updateData: any = {
+                due_date: entry.dueDate,
+                status:
+                  entry.grossDue === 0
+                    ? "Not Yet Set"
+                    : hasNewTenants
+                      ? "Not Yet Due"
+                      : entry.status,
+                other_charges: entry.otherCharges,
+                rent_due: entry.rentDue,
+                gross_due: entry.grossDue,
+                paid_amount: entry.paidAmount || 0,
+                updated_at: new Date().toISOString(),
+              };
+
+              if (tenant_rent_amounts)
+                updateData.tenant_rent_amounts = tenant_rent_amounts;
+              if (tenant_other_charges)
+                updateData.tenant_other_charges = tenant_other_charges;
+
               const { error: billingError } = await supabase
                 .from("billing_entries")
-                .update({
-                  due_date: entry.dueDate,
-                  status: entry.status,
-                  other_charges: entry.otherCharges,
-                  rent_due: entry.rentDue,
-                  gross_due: entry.grossDue,
-                  paid_amount: entry.paidAmount || 0,
-                  updated_at: new Date().toISOString(),
-                })
+                .update(updateData)
                 .eq("id", entry.id);
 
               if (billingError) throw billingError;
             }
             // For new entries, insert them
             else {
+              let tenant_rent_amounts = null;
+              let tenant_other_charges = null;
+
+              if (paxCount > 1) {
+                // Initialize all tenants with 0
+                const rentAmounts: Record<string, number> = {};
+                const chargeAmounts: Record<string, number> = {};
+
+                for (let i = 0; i < paxCount; i++) {
+                  rentAmounts[i.toString()] = 0;
+                  chargeAmounts[i.toString()] = 0;
+                }
+
+                tenant_rent_amounts = JSON.stringify(rentAmounts);
+                tenant_other_charges = JSON.stringify(chargeAmounts);
+              }
+
+              // Calculate billing period
+              // For additional charges rows (temp-additional-*), use 0
+              // For regular entries, count non-additional entries up to this point
+              let billingPeriod = 0;
+              if (!entry.id.startsWith("temp-additional-")) {
+                billingPeriod = formData.billingSchedule
+                  .slice(0, formData.billingSchedule.indexOf(entry) + 1)
+                  .filter((e) => !e.id.startsWith("temp-additional-")).length;
+              }
+
+              const insertData: any = {
+                property_id: formData.id,
+                tenant_id: formData.tenantId,
+                due_date: entry.dueDate,
+                rent_due: entry.rentDue,
+                other_charges: entry.otherCharges,
+                gross_due: entry.grossDue,
+                status:
+                  entry.grossDue === 0
+                    ? "Not Yet Set"
+                    : paxCount > 1
+                      ? "Not Yet Due"
+                      : entry.status,
+                paid_amount: entry.paidAmount || 0,
+                billing_period: billingPeriod,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              };
+
+              if (tenant_rent_amounts)
+                insertData.tenant_rent_amounts = tenant_rent_amounts;
+              if (tenant_other_charges)
+                insertData.tenant_other_charges = tenant_other_charges;
+
               const { error: newBillingError } = await supabase
                 .from("billing_entries")
-                .insert({
-                  property_id: formData.id,
-                  tenant_id: formData.tenantId,
-                  due_date: entry.dueDate,
-                  rent_due: entry.rentDue,
-                  other_charges: entry.otherCharges,
-                  gross_due: entry.grossDue,
-                  status: entry.status,
-                  paid_amount: entry.paidAmount || 0,
-                  billing_period: formData.billingSchedule.indexOf(entry) + 1,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                });
+                .insert(insertData);
 
               if (newBillingError) throw newBillingError;
             }
@@ -1153,24 +1245,6 @@ export function EditPropertyPopup({
                     <p className="text-xs text-muted-foreground">
                       Number of persons sharing this unit
                     </p>
-                    {formData.pax >= 1 && property && property.rent_amount && (
-                      <div className="mt-2 p-2 rounded-md bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800">
-                        <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
-                          Per-Person Rent: ₱
-                          {(property.rent_amount / formData.pax).toLocaleString(
-                            undefined,
-                            {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            },
-                          )}
-                        </p>
-                        <p className="text-[10px] text-blue-700 dark:text-blue-300 mt-0.5">
-                          Total ₱{property.rent_amount.toLocaleString()} ÷{" "}
-                          {formData.pax} persons
-                        </p>
-                      </div>
-                    )}
                   </div>
 
                   <div className="space-y-2">
