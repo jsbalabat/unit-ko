@@ -2264,7 +2264,7 @@ export function PropertyDetailsPopup({
                                           // Get tenant's paid amount from tenant_payments
                                           let tenantPaidAmount =
                                             entry.paid_amount || 0;
-                                          
+
                                           // If in individual view, get the specific tenant's paid amount
                                           if (
                                             isIndividualView &&
@@ -2272,7 +2272,9 @@ export function PropertyDetailsPopup({
                                           ) {
                                             const tenantPayments: TenantPaymentMap =
                                               entry.tenant_payments
-                                                ? JSON.parse(entry.tenant_payments)
+                                                ? JSON.parse(
+                                                    entry.tenant_payments,
+                                                  )
                                                 : {};
                                             tenantPaidAmount =
                                               tenantPayments[
