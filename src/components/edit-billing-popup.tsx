@@ -2170,25 +2170,76 @@ export function EditBillingPopup({
                                     </Button>
                                   </div>
                                 ) : (
-                                  <div className="flex items-center justify-end gap-2 group">
-                                    <span>
-                                      ₱{billing.rentDue.toLocaleString()}
-                                    </span>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                                      onClick={() =>
-                                        handleStartEditRent(
-                                          index,
-                                          billing.rentDue,
-                                        )
+                                  (() => {
+                                    // Check if rent editing should be disabled for this row
+                                    let canEditRent = true;
+                                    let disableReason = "";
+
+                                    // Only apply this rule to period rows (not additional charges rows)
+                                    if (!isAdditionalCharges) {
+                                      // Find all period rows (non-additional)
+                                      const periodRows =
+                                        formData.billingSchedule
+                                          .map((b, i) => ({
+                                            billing: b,
+                                            originalIndex: i,
+                                          }))
+                                          .filter(
+                                            (item) =>
+                                              !item.billing.id.startsWith(
+                                                "temp-additional-",
+                                              ),
+                                          );
+
+                                      // Find the current period row's position among all period rows
+                                      const currentPeriodIndex =
+                                        periodRows.findIndex(
+                                          (item) =>
+                                            item.originalIndex === index,
+                                        );
+
+                                      // Check if there's a previous period row
+                                      if (currentPeriodIndex > 0) {
+                                        const prevPeriodRow =
+                                          periodRows[currentPeriodIndex - 1];
+
+                                        // If the immediately previous period row has no rent, disable editing
+                                        if (
+                                          prevPeriodRow.billing.rentDue === 0
+                                        ) {
+                                          canEditRent = false;
+                                          disableReason =
+                                            "Previous period has no rent. Add rent sequentially.";
+                                        }
                                       }
-                                      disabled={isLocked}
-                                    >
-                                      <Pencil className="h-3 w-3" />
-                                    </Button>
-                                  </div>
+                                      // If this is the first period row (index 0), always allow editing
+                                    }
+
+                                    return (
+                                      <div className="flex items-center justify-end gap-2 group">
+                                        <span>
+                                          ₱{billing.rentDue.toLocaleString()}
+                                        </span>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                          onClick={() =>
+                                            handleStartEditRent(
+                                              index,
+                                              billing.rentDue,
+                                            )
+                                          }
+                                          disabled={isLocked || !canEditRent}
+                                          title={
+                                            !canEditRent ? disableReason : ""
+                                          }
+                                        >
+                                          <Pencil className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    );
+                                  })()
                                 )}
                               </td>
                               <td className="px-3 py-3 text-center">
