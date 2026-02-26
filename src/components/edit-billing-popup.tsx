@@ -2138,11 +2138,7 @@ export function EditBillingPopup({
                                 )}
                               </td>
                               <td className="px-3 py-3 text-sm text-right font-medium">
-                                {isAdditionalCharges ? (
-                                  <span className="text-muted-foreground italic text-xs">
-                                    —
-                                  </span>
-                                ) : editingRentIndex === index ? (
+                                {editingRentIndex === index ? (
                                   <div className="flex items-center justify-end gap-1">
                                     <Input
                                       type="number"
