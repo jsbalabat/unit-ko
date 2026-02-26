@@ -373,23 +373,15 @@ export function PropertyDetailsPopup({
   };
 
   // Convert billing status to payment display status
-  const getPaymentDisplayStatus = (status: string): string => {
-    const lowerStatus = status.toLowerCase();
-    // Paid = Paid
-    if (lowerStatus === "paid" || lowerStatus.includes("collected")) {
-      return "Paid";
-    }
-    // All others = Pending
-    return "Pending";
-  };
-
-  // Get color class for payment display status
-  const getPaymentStatusColorClass = (displayStatus: string): string => {
-    if (displayStatus === "Paid") {
-      return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-800/50";
-    }
-    // Pending
-    return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-800/50";
+  // Capitalize status for display consistency
+  const formatStatusForDisplay = (status: string): string => {
+    // Keep the actual status but ensure proper capitalization
+    if (status.toLowerCase() === "overdue") return "Overdue";
+    if (status === "Paid") return "Paid";
+    if (status === "Partial") return "Partial";
+    if (status === "Not Yet Due") return "Not Yet Due";
+    if (status === "Not Yet Set") return "Not Yet Set";
+    return status;
   };
 
   const formatCurrency = (amount: number): string => {
@@ -1157,28 +1149,25 @@ export function PropertyDetailsPopup({
   const currentDate = new Date();
   currentDate.setHours(0, 0, 0, 0);
 
-  // Recent Transactions: Paid entries that are past or current
+  // Recent Transactions: Entries that have been paid (Paid or Partial) sorted by most recent
   const recentPayments = billingEntries
     .filter((entry) => {
-      const dueDate = new Date(entry.due_date);
-      dueDate.setHours(0, 0, 0, 0);
-      const isPaid = entry.status === "Paid";
-      const isPastOrCurrent = dueDate <= currentDate;
-      return isPaid && isPastOrCurrent;
+      const hasPaidAmount = (entry.paid_amount || 0) > 0;
+      return hasPaidAmount;
     })
     .sort(
       (a, b) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime(),
     )
     .slice(0, 5);
 
-  // Upcoming Payments: Unpaid entries that are current or future
+  // Upcoming Payments: Unpaid/Partial entries (excluding Not Yet Set), sorted by due date
   const upcomingPayments = billingEntries
     .filter((entry) => {
-      const dueDate = new Date(entry.due_date);
-      dueDate.setHours(0, 0, 0, 0);
-      const isUnpaid = entry.status !== "Paid";
-      const isCurrentOrFuture = dueDate >= currentDate;
-      return isUnpaid && isCurrentOrFuture;
+      const lowerStatus = entry.status.toLowerCase();
+      const isNotYetSet = lowerStatus.includes("not yet set");
+      const isPaid = entry.status === "Paid";
+      // Include entries that are not fully paid and not "Not Yet Set"
+      return !isPaid && !isNotYetSet;
     })
     .sort(
       (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
@@ -1605,40 +1594,136 @@ export function PropertyDetailsPopup({
                       {upcomingPayments.length > 0 ? (
                         <div className="space-y-2 md:space-y-3">
                           {upcomingPayments.slice(0, 3).map((payment) => {
-                            const displayStatus = getPaymentDisplayStatus(
+                            const displayStatus = formatStatusForDisplay(
                               payment.status,
                             );
+                            const daysUntil = calculateDaysUntilDue(
+                              payment.due_date,
+                            );
+
+                            // Get tenant-specific amounts and payments for multi-tenant properties
+                            const showTenantDetails = paxCount > 1;
+                            let tenantDetails: Array<{
+                              name: string;
+                              due: number;
+                              paid: number;
+                              balance: number;
+                            }> = [];
+
+                            if (showTenantDetails) {
+                              for (let i = 0; i < paxCount; i++) {
+                                const tenantKey = i.toString();
+                                const person = activeTenant?.pax_details?.[i];
+                                const tenantName =
+                                  person?.name || `Tenant ${i + 1}`;
+
+                                // Get tenant rent and charges
+                                let tenantRent = 0;
+                                let tenantCharges = 0;
+                                try {
+                                  const tenantRentAmounts =
+                                    payment.tenant_rent_amounts
+                                      ? JSON.parse(payment.tenant_rent_amounts)
+                                      : {};
+                                  tenantRent =
+                                    tenantRentAmounts[tenantKey] || 0;
+                                } catch (e) {
+                                  tenantRent = 0;
+                                }
+                                try {
+                                  const tenantOtherCharges =
+                                    payment.tenant_other_charges
+                                      ? JSON.parse(payment.tenant_other_charges)
+                                      : {};
+                                  tenantCharges =
+                                    tenantOtherCharges[tenantKey] || 0;
+                                } catch (e) {
+                                  tenantCharges = 0;
+                                }
+
+                                // Get tenant payment
+                                let tenantPaid = 0;
+                                try {
+                                  const tenantPayments = payment.tenant_payments
+                                    ? JSON.parse(payment.tenant_payments)
+                                    : {};
+                                  tenantPaid = tenantPayments[tenantKey] || 0;
+                                } catch (e) {
+                                  tenantPaid = 0;
+                                }
+
+                                const tenantDue = tenantRent + tenantCharges;
+                                const tenantBalance = tenantDue - tenantPaid;
+
+                                // Only include if tenant has outstanding balance
+                                if (tenantBalance > 0.01) {
+                                  tenantDetails.push({
+                                    name: tenantName,
+                                    due: tenantDue,
+                                    paid: tenantPaid,
+                                    balance: tenantBalance,
+                                  });
+                                }
+                              }
+                            }
+
                             return (
                               <div
                                 key={payment.id}
-                                className="flex justify-between items-center p-2 md:p-3 bg-muted/30 rounded-lg border"
+                                className="flex flex-col p-2 md:p-3 bg-muted/30 rounded-lg border"
                               >
-                                <div className="flex items-center">
-                                  <Clock className="h-3.5 w-3.5 text-blue-500 mr-1.5 flex-shrink-0" />
-                                  <div>
-                                    <p className="text-xs md:text-sm font-medium">
-                                      {formatDueDate(payment.due_date)}
-                                    </p>
-                                    <p className="text-[10px] md:text-xs text-muted-foreground">
-                                      Due in{" "}
-                                      {calculateDaysUntilDue(payment.due_date)}{" "}
-                                      days
-                                    </p>
+                                <div className="flex justify-between items-center">
+                                  <div className="flex items-center">
+                                    <Clock className="h-3.5 w-3.5 text-blue-500 mr-1.5 flex-shrink-0" />
+                                    <div>
+                                      <p className="text-xs md:text-sm font-medium">
+                                        {formatDueDate(payment.due_date)}
+                                      </p>
+                                      <p className="text-[10px] md:text-xs text-muted-foreground">
+                                        {daysUntil < 0
+                                          ? `${Math.abs(daysUntil)} days overdue`
+                                          : `Due in ${daysUntil} days`}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="text-xs md:text-sm font-bold block">
+                                      {formatCurrency(
+                                        payment.gross_due -
+                                          (payment.paid_amount || 0),
+                                      )}
+                                    </span>
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-[10px] md:text-xs mt-1 ${getStatusColorClass(
+                                        payment.status,
+                                      )}`}
+                                    >
+                                      {displayStatus}
+                                    </Badge>
                                   </div>
                                 </div>
-                                <div className="text-right">
-                                  <span className="text-xs md:text-sm font-bold block">
-                                    {formatCurrency(payment.gross_due)}
-                                  </span>
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-[10px] md:text-xs mt-1 ${getPaymentStatusColorClass(
-                                      displayStatus,
-                                    )}`}
-                                  >
-                                    {displayStatus}
-                                  </Badge>
-                                </div>
+                                {showTenantDetails &&
+                                  tenantDetails.length > 0 && (
+                                    <div className="mt-2 pt-2 border-t border-muted space-y-1">
+                                      {tenantDetails.map((tenant, idx) => (
+                                        <div
+                                          key={idx}
+                                          className="flex items-center justify-between text-[10px] md:text-xs"
+                                        >
+                                          <div className="flex items-center gap-1">
+                                            <User className="h-2.5 w-2.5 text-muted-foreground" />
+                                            <span className="text-muted-foreground">
+                                              {tenant.name}:
+                                            </span>
+                                          </div>
+                                          <span className="font-semibold">
+                                            {formatCurrency(tenant.balance)}
+                                          </span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                               </div>
                             );
                           })}
@@ -1673,71 +1758,139 @@ export function PropertyDetailsPopup({
                                     },
                                   ];
 
+                            const displayStatus = formatStatusForDisplay(
+                              payment.status,
+                            );
+
+                            // Get tenant-specific payment details for multi-tenant properties
+                            const showTenantDetails = paxCount > 1;
+                            let tenantPaymentDetails: Array<{
+                              name: string;
+                              amount: number;
+                            }> = [];
+
+                            if (showTenantDetails) {
+                              for (let i = 0; i < paxCount; i++) {
+                                const tenantKey = i.toString();
+                                const person = activeTenant?.pax_details?.[i];
+                                const tenantName =
+                                  person?.name || `Tenant ${i + 1}`;
+
+                                // Get tenant payment
+                                let tenantPaid = 0;
+                                try {
+                                  const tenantPayments = payment.tenant_payments
+                                    ? JSON.parse(payment.tenant_payments)
+                                    : {};
+                                  tenantPaid = tenantPayments[tenantKey] || 0;
+                                } catch (e) {
+                                  tenantPaid = 0;
+                                }
+
+                                // Only include if tenant made a payment
+                                if (tenantPaid > 0.01) {
+                                  tenantPaymentDetails.push({
+                                    name: tenantName,
+                                    amount: tenantPaid,
+                                  });
+                                }
+                              }
+                            }
+
                             return (
                               <div
                                 key={payment.id}
-                                className="flex justify-between items-center p-2 md:p-3 bg-muted/30 rounded-lg border group"
+                                className="flex flex-col p-2 md:p-3 bg-muted/30 rounded-lg border group"
                               >
-                                <div className="flex items-center">
-                                  <CreditCard className="h-3.5 w-3.5 text-muted-foreground mr-1.5 flex-shrink-0" />
-                                  <div>
-                                    <p className="text-xs md:text-sm font-medium">
-                                      {formatDate(payment.due_date)}
-                                    </p>
-                                    <p className="text-[10px] md:text-xs text-muted-foreground">
-                                      Payment #{payment.billing_period}
-                                    </p>
+                                <div className="flex justify-between items-center">
+                                  <div className="flex items-center">
+                                    <CreditCard className="h-3.5 w-3.5 text-muted-foreground mr-1.5 flex-shrink-0" />
+                                    <div>
+                                      <p className="text-xs md:text-sm font-medium">
+                                        {formatDate(payment.due_date)}
+                                      </p>
+                                      <p className="text-[10px] md:text-xs text-muted-foreground">
+                                        {payment.billing_period > 0
+                                          ? `Billing Period #${payment.billing_period}`
+                                          : "Additional Charge"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="text-xs md:text-sm font-bold">
+                                      {formatCurrency(payment.paid_amount || 0)}
+                                    </span>
+                                    <Badge
+                                      variant="outline"
+                                      className={`block mt-1 text-[10px] md:text-xs ${getStatusColorClass(
+                                        payment.status,
+                                      )}`}
+                                    >
+                                      {displayStatus}
+                                    </Badge>
+
+                                    {/* Expense items tooltip - more mobile friendly - wrapper technique */}
+                                    <span className="absolute invisible group-hover:visible z-[100]">
+                                      <span className="relative block right-0 bottom-full mb-1 bg-popover shadow-md rounded-md p-2 w-48 xs:w-64 border">
+                                        <div className="text-xs font-medium mb-1">
+                                          Expense Breakdown:
+                                        </div>
+                                        <div className="flex justify-between text-xs mb-1">
+                                          <span>Rent</span>
+                                          <span>
+                                            {formatCurrency(payment.rent_due)}
+                                          </span>
+                                        </div>
+                                        {expenseItems.map((item) => (
+                                          <div
+                                            key={item.id}
+                                            className="flex justify-between text-xs mb-1"
+                                          >
+                                            <span className="truncate mr-2">
+                                              {item.name}
+                                            </span>
+                                            <span className="flex-shrink-0">
+                                              {formatCurrency(item.amount)}
+                                            </span>
+                                          </div>
+                                        ))}
+                                        <div className="border-t pt-1 mt-1 text-xs font-semibold">
+                                          <div className="flex justify-between">
+                                            <span>Total</span>
+                                            <span>
+                                              {formatCurrency(
+                                                payment.gross_due,
+                                              )}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </span>
+                                    </span>
                                   </div>
                                 </div>
-                                <div className="text-right">
-                                  <span className="text-xs md:text-sm font-bold">
-                                    {formatCurrency(payment.gross_due)}
-                                  </span>
-                                  <Badge
-                                    variant="outline"
-                                    className={`block mt-1 text-[10px] md:text-xs ${getPaymentStatusColorClass(
-                                      getPaymentDisplayStatus(payment.status),
-                                    )}`}
-                                  >
-                                    {getPaymentDisplayStatus(payment.status)}
-                                  </Badge>
-
-                                  {/* Expense items tooltip - more mobile friendly - wrapper technique */}
-                                  <span className="absolute invisible group-hover:visible z-[100]">
-                                    <span className="relative block right-0 bottom-full mb-1 bg-popover shadow-md rounded-md p-2 w-48 xs:w-64 border">
-                                      <div className="text-xs font-medium mb-1">
-                                        Expense Breakdown:
-                                      </div>
-                                      <div className="flex justify-between text-xs mb-1">
-                                        <span>Rent</span>
-                                        <span>
-                                          {formatCurrency(payment.rent_due)}
-                                        </span>
-                                      </div>
-                                      {expenseItems.map((item) => (
-                                        <div
-                                          key={item.id}
-                                          className="flex justify-between text-xs mb-1"
-                                        >
-                                          <span className="truncate mr-2">
-                                            {item.name}
-                                          </span>
-                                          <span className="flex-shrink-0">
-                                            {formatCurrency(item.amount)}
-                                          </span>
-                                        </div>
-                                      ))}
-                                      <div className="border-t pt-1 mt-1 text-xs font-semibold">
-                                        <div className="flex justify-between">
-                                          <span>Total</span>
-                                          <span>
-                                            {formatCurrency(payment.gross_due)}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </span>
-                                  </span>
-                                </div>
+                                {showTenantDetails &&
+                                  tenantPaymentDetails.length > 0 && (
+                                    <div className="mt-2 pt-2 border-t border-muted space-y-1">
+                                      {tenantPaymentDetails.map(
+                                        (tenant, idx) => (
+                                          <div
+                                            key={idx}
+                                            className="flex items-center justify-between text-[10px] md:text-xs"
+                                          >
+                                            <div className="flex items-center gap-1">
+                                              <User className="h-2.5 w-2.5 text-green-600" />
+                                              <span className="text-muted-foreground">
+                                                {tenant.name} paid:
+                                              </span>
+                                            </div>
+                                            <span className="font-semibold text-green-600">
+                                              {formatCurrency(tenant.amount)}
+                                            </span>
+                                          </div>
+                                        ),
+                                      )}
+                                    </div>
+                                  )}
                               </div>
                             );
                           })}
@@ -2119,41 +2272,31 @@ export function PropertyDetailsPopup({
                                         scope="col"
                                         className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                       >
-                                        {isIndividualView
-                                          ? "Account Rent"
-                                          : "Total Rent"}
+                                        Rent Due
                                       </th>
                                       <th
                                         scope="col"
                                         className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                       >
-                                        {isIndividualView
-                                          ? "Account Expenses"
-                                          : "Total Expenses"}
+                                        Other Charges
                                       </th>
                                       <th
                                         scope="col"
                                         className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                       >
-                                        {isIndividualView
-                                          ? "Account Total"
-                                          : "Total Amount"}
+                                        Total Due
                                       </th>
                                       <th
                                         scope="col"
                                         className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                       >
-                                        {isIndividualView
-                                          ? "Account Paid"
-                                          : "Total Paid"}
+                                        Paid Amount
                                       </th>
                                       <th
                                         scope="col"
                                         className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
                                       >
-                                        {isIndividualView
-                                          ? "Account Status"
-                                          : "Status"}
+                                        Status
                                       </th>
                                     </tr>
                                   </thead>
@@ -2556,10 +2699,10 @@ export function PropertyDetailsPopup({
 
                       {/* Per-Tenant Payment Summary */}
                       {paxCount > 1 && billingEntries.length > 0 && (
-                        <div className="mt-6 border-t pt-6">
+                        <div className="mt-6 cborder-t pt-6">
                           <h4 className="text-sm font-semibold mb-3 flex items-center">
                             <User className="h-4 w-4 mr-2 text-primary" />
-                            Payment Summary by Tenant
+                            Payment Summary by Tenant (Grand Total)
                           </h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {Array.from({ length: paxCount }, (_, i) => {
@@ -3079,7 +3222,7 @@ export function PropertyDetailsPopup({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="rent" className="text-xs sm:text-sm">
-                      Rent
+                      Rent Due
                     </SelectItem>
                     <SelectItem value="deposit" className="text-xs sm:text-sm">
                       Security Deposit

@@ -2055,16 +2055,16 @@ export function EditBillingPopup({
                             Due Date
                           </th>
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-right w-24">
-                            Rent
+                            Rent Due
                           </th>
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-center w-32">
-                            Other
+                            Other Charges
                           </th>
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground text-right w-24">
-                            Total
+                            Total Due
                           </th>
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground w-32">
-                            Paid
+                            Paid Amount
                           </th>
                           <th className="px-3 py-3 text-xs font-semibold text-muted-foreground w-28">
                             Status
