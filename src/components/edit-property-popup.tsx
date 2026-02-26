@@ -738,10 +738,12 @@ export function EditPropertyPopup({
           for (const entry of formData.billingSchedule) {
             // For existing entries, update them
             if (!entry.id.startsWith("temp-")) {
-              // Fetch current tenant amounts to check if we need to add new tenants
+              // Fetch current tenant amounts AND legacy fields to preserve existing data
               const { data: currentEntry } = await supabase
                 .from("billing_entries")
-                .select("tenant_rent_amounts, tenant_other_charges")
+                .select(
+                  "tenant_rent_amounts, tenant_other_charges, rent_due, other_charges",
+                )
                 .eq("id", entry.id)
                 .single();
 
@@ -751,15 +753,27 @@ export function EditPropertyPopup({
               let hasNewTenants = false;
 
               if (paxCount > 1) {
-                // Parse existing amounts
-                const rentAmounts: Record<string, number> =
-                  currentEntry?.tenant_rent_amounts
+                // Parse existing amounts or initialize from legacy fields
+                let rentAmounts: Record<string, number> = {};
+                let chargeAmounts: Record<string, number> = {};
+
+                // Check if we're migrating from single-tenant to multi-tenant
+                if (
+                  !currentEntry?.tenant_rent_amounts &&
+                  !currentEntry?.tenant_other_charges
+                ) {
+                  // Migration: preserve existing single-tenant data for tenant 0
+                  rentAmounts["0"] = currentEntry?.rent_due || 0;
+                  chargeAmounts["0"] = currentEntry?.other_charges || 0;
+                } else {
+                  // Already multi-tenant, parse existing values
+                  rentAmounts = currentEntry?.tenant_rent_amounts
                     ? JSON.parse(currentEntry.tenant_rent_amounts)
                     : {};
-                const chargeAmounts: Record<string, number> =
-                  currentEntry?.tenant_other_charges
+                  chargeAmounts = currentEntry?.tenant_other_charges
                     ? JSON.parse(currentEntry.tenant_other_charges)
                     : {};
+                }
 
                 // Initialize any missing tenant entries with 0
                 for (let i = 0; i < paxCount; i++) {

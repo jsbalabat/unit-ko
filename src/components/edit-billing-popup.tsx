@@ -1213,9 +1213,19 @@ export function EditBillingPopup({
             // Initialize missing tenant entries
             const existingTenantCount = Object.keys(tenantRentAmounts).length;
             if (existingTenantCount === 0) {
-              // First time editing - initialize all tenants with 0
-              for (let i = 0; i < paxCount; i++) {
-                tenantRentAmounts[i.toString()] = 0;
+              // First time editing - check if migrating from single-tenant
+              if (currentEntry.rent_due && !currentEntry.tenant_rent_amounts) {
+                // Migration: preserve existing rent for tenant 0
+                tenantRentAmounts["0"] = currentEntry.rent_due;
+                // Initialize other tenants with 0
+                for (let i = 1; i < paxCount; i++) {
+                  tenantRentAmounts[i.toString()] = 0;
+                }
+              } else {
+                // Initialize all tenants with 0
+                for (let i = 0; i < paxCount; i++) {
+                  tenantRentAmounts[i.toString()] = 0;
+                }
               }
             } else if (existingTenantCount < paxCount) {
               // New tenant(s) added - initialize new entries with 0
@@ -1243,9 +1253,22 @@ export function EditBillingPopup({
             // Initialize missing tenant entries
             const existingChargeCount = Object.keys(tenantOtherCharges).length;
             if (existingChargeCount === 0) {
-              // First time editing - initialize all tenants with 0
-              for (let i = 0; i < paxCount; i++) {
-                tenantOtherCharges[i.toString()] = 0;
+              // First time editing - check if migrating from single-tenant
+              if (
+                currentEntry.other_charges &&
+                !currentEntry.tenant_other_charges
+              ) {
+                // Migration: preserve existing charges for tenant 0
+                tenantOtherCharges["0"] = currentEntry.other_charges;
+                // Initialize other tenants with 0
+                for (let i = 1; i < paxCount; i++) {
+                  tenantOtherCharges[i.toString()] = 0;
+                }
+              } else {
+                // Initialize all tenants with 0
+                for (let i = 0; i < paxCount; i++) {
+                  tenantOtherCharges[i.toString()] = 0;
+                }
               }
             } else if (existingChargeCount < paxCount) {
               // New tenant(s) added - initialize new entries with 0
@@ -1371,11 +1394,13 @@ export function EditBillingPopup({
               .slice(-1)[0];
 
             if (lastBillingEntry) {
-              // Fetch the last entry's tenant amounts from the database
+              // Fetch the last entry's tenant amounts AND legacy fields from the database
               try {
                 const { data: lastEntry } = await supabase
                   .from("billing_entries")
-                  .select("tenant_rent_amounts, tenant_other_charges")
+                  .select(
+                    "tenant_rent_amounts, tenant_other_charges, rent_due, other_charges",
+                  )
                   .eq("id", lastBillingEntry.id)
                   .single();
 
@@ -1383,11 +1408,18 @@ export function EditBillingPopup({
                   baseRentsForOtherTenants = JSON.parse(
                     lastEntry.tenant_rent_amounts,
                   );
+                } else if (lastEntry?.rent_due) {
+                  // Migration from single-tenant: use legacy rent_due for tenant 0
+                  baseRentsForOtherTenants["0"] = lastEntry.rent_due;
                 }
+
                 if (lastEntry?.tenant_other_charges) {
                   baseChargesForOtherTenants = JSON.parse(
                     lastEntry.tenant_other_charges,
                   );
+                } else if (lastEntry?.other_charges) {
+                  // Migration from single-tenant: use legacy other_charges for tenant 0
+                  baseChargesForOtherTenants["0"] = lastEntry.other_charges;
                 }
               } catch (e) {
                 console.error("Error fetching last entry amounts:", e);
