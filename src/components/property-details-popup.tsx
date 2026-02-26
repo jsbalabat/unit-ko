@@ -213,7 +213,7 @@ export function PropertyDetailsPopup({
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState(0);
-  const [paymentType, setPaymentType] = useState<string>("rent");
+  const [paymentType, setPaymentType] = useState<string>("");
   const [paymentNote, setPaymentNote] = useState<string>("");
   const [receiptDate, setReceiptDate] = useState<string>("");
   const [isApplyingPayment, setIsApplyingPayment] = useState(false);
@@ -653,7 +653,7 @@ export function PropertyDetailsPopup({
 
         // Reset and close dialog
         setPaymentAmount(0);
-        setPaymentType("rent");
+        setPaymentType("");
         setPaymentNote("");
         setReceiptDate("");
         setIsPaymentDialogOpen(false);
@@ -1078,7 +1078,7 @@ export function PropertyDetailsPopup({
 
       // Reset and close dialog
       setPaymentAmount(0);
-      setPaymentType("rent");
+      setPaymentType("");
       setPaymentNote("");
       setReceiptDate("");
       setSelectedTenantIndex(null);
@@ -3049,33 +3049,33 @@ export function PropertyDetailsPopup({
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="payment-type" className="text-xs sm:text-sm">
-                Payment Type
-              </Label>
-              <Select value={paymentType} onValueChange={setPaymentType}>
-                <SelectTrigger
-                  id="payment-type"
-                  className="h-8 sm:h-9 text-xs sm:text-sm"
-                >
-                  <SelectValue placeholder="Select payment type" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="rent" className="text-xs sm:text-sm">
-                    Rent
-                  </SelectItem>
-                  <SelectItem value="deposit" className="text-xs sm:text-sm">
-                    Security Deposit
-                  </SelectItem>
-                  <SelectItem value="advance" className="text-xs sm:text-sm">
-                    Advance Payment
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <div className="space-y-1.5 flex-1">
+                <Label htmlFor="payment-type" className="text-xs sm:text-sm">
+                  Payment Type
+                </Label>
+                <Select value={paymentType} onValueChange={setPaymentType}>
+                  <SelectTrigger
+                    id="payment-type"
+                    className="h-8 sm:h-9 text-xs sm:text-sm"
+                  >
+                    <SelectValue placeholder="Choose Type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="rent" className="text-xs sm:text-sm">
+                      Rent
+                    </SelectItem>
+                    <SelectItem value="deposit" className="text-xs sm:text-sm">
+                      Security Deposit
+                    </SelectItem>
+                    <SelectItem value="advance" className="text-xs sm:text-sm">
+                      Advance Payment
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 flex-1">
                 <Label htmlFor="receipt-date" className="text-xs sm:text-sm">
                   Receipt Date
                 </Label>
@@ -3087,19 +3087,19 @@ export function PropertyDetailsPopup({
                   className="h-8 sm:h-9 text-xs sm:text-sm"
                 />
               </div>
+            </div>
 
-              <div className="space-y-1.5 sm:col-span-1">
-                <Label htmlFor="payment-note" className="text-xs sm:text-sm">
-                  Note
-                </Label>
-                <Input
-                  id="payment-note"
-                  value={paymentNote}
-                  onChange={(e) => setPaymentNote(e.target.value)}
-                  placeholder="Optional note..."
-                  className="h-8 sm:h-9 text-xs sm:text-sm"
-                />
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="payment-note" className="text-xs sm:text-sm">
+                Note
+              </Label>
+              <Input
+                id="payment-note"
+                value={paymentNote}
+                onChange={(e) => setPaymentNote(e.target.value)}
+                placeholder="Optional note..."
+                className="h-8 sm:h-9 text-xs sm:text-sm"
+              />
             </div>
           </div>
 
@@ -3110,7 +3110,7 @@ export function PropertyDetailsPopup({
               onClick={() => {
                 setIsPaymentDialogOpen(false);
                 setPaymentAmount(0);
-                setPaymentType("rent");
+                setPaymentType("");
                 setPaymentNote("");
                 setReceiptDate("");
                 setSelectedTenantIndex(null);
@@ -3123,7 +3123,9 @@ export function PropertyDetailsPopup({
             <Button
               size="sm"
               onClick={handleApplyPayment}
-              disabled={isApplyingPayment || paymentAmount === 0}
+              disabled={
+                isApplyingPayment || paymentAmount === 0 || !paymentType
+              }
               className="gap-1.5 h-8 sm:h-9 text-xs sm:text-sm"
             >
               {isApplyingPayment ? (
