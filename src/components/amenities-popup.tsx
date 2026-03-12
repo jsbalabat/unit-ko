@@ -43,6 +43,8 @@ import {
   Laptop,
   TreePine,
   Sun,
+  PawPrint,
+  Ban,
 } from "lucide-react";
 
 interface Amenity {
@@ -184,6 +186,18 @@ const AVAILABLE_AMENITIES: Amenity[] = [
     icon: <Volume2 className="h-4 w-4" />,
     category: "comfort",
   },
+  {
+    id: "pets_allowed",
+    name: "Pets allowed",
+    icon: <PawPrint className="h-4 w-4" />,
+    category: "comfort",
+  },
+  {
+    id: "no_pets",
+    name: "No pets",
+    icon: <Ban className="h-4 w-4" />,
+    category: "comfort",
+  },
 
   // Security & Safety
   {
@@ -233,11 +247,28 @@ export function AmenitiesPopup({
   }, [currentAmenities, isOpen]);
 
   const handleToggleAmenity = (amenityId: string) => {
-    setSelectedAmenities((prev) =>
-      prev.includes(amenityId)
+    setSelectedAmenities((prev) => {
+      const isCurrentlySelected = prev.includes(amenityId);
+
+      // Handle mutually exclusive pets options
+      if (amenityId === "pets_allowed" || amenityId === "no_pets") {
+        const otherPetOption =
+          amenityId === "pets_allowed" ? "no_pets" : "pets_allowed";
+
+        if (isCurrentlySelected) {
+          // Deselect the current option
+          return prev.filter((id) => id !== amenityId);
+        } else {
+          // Select this option and remove the other pet option if it exists
+          return [...prev.filter((id) => id !== otherPetOption), amenityId];
+        }
+      }
+
+      // Normal toggle behavior for other amenities
+      return isCurrentlySelected
         ? prev.filter((id) => id !== amenityId)
-        : [...prev, amenityId]
-    );
+        : [...prev, amenityId];
+    });
   };
 
   const handleSave = () => {
@@ -286,7 +317,7 @@ export function AmenitiesPopup({
           <div className="space-y-6 pb-4">
             {categories.map((category) => {
               const categoryAmenities = AVAILABLE_AMENITIES.filter(
-                (a) => a.category === category
+                (a) => a.category === category,
               );
 
               return (
