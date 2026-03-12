@@ -21,6 +21,7 @@ export interface Property {
   max_tenants?: number // Bed space support
   bed_space_billing_mode?: string // 'unified' or 'per_tenant'
   lease_date?: string // Optional lease/contract date
+  notes?: string // JSON array of notes
   created_at: string
   updated_at: string
 }

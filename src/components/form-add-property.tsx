@@ -406,7 +406,9 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
               {formData.billingType === "pre-organized" && (
                 <>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Billing Type</span>
+                    <span className="text-muted-foreground">
+                      Billing Template
+                    </span>
                     <span className="font-medium capitalize">
                       Pre-organized
                     </span>
@@ -451,7 +453,9 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
 
               {formData.billingType === "blank" && (
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Billing Type</span>
+                  <span className="text-muted-foreground">
+                    Billing Template
+                  </span>
                   <span className="font-medium">Blank (Custom)</span>
                 </div>
               )}
@@ -812,7 +816,7 @@ export function MultiStepPopup({
 
     // Billing Type validation
     if (!formData.billingType) {
-      newErrors.billingType = "Billing type is required";
+      newErrors.billingType = "Billing template is required";
       setErrors(newErrors);
       return false;
     }
@@ -2268,7 +2272,7 @@ export function MultiStepPopup({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2 md:col-span-2">
                           <Label className="text-sm font-medium">
-                            Billing Type *
+                            Billing Template *
                           </Label>
                           <div className="grid grid-cols-2 gap-2 max-w-sm">
                             <button
@@ -2872,7 +2876,7 @@ export function MultiStepPopup({
                             className="text-sm font-medium flex items-center gap-1.5"
                           >
                             <Calendar className="h-3.5 w-3.5 text-blue-600" />
-                            Lease/Contract Date (Optional)
+                            Lease/Contract Date Expiry (Optional)
                           </Label>
                           <Input
                             id="leaseDate"
@@ -2885,7 +2889,7 @@ export function MultiStepPopup({
                             className="h-9 text-sm max-w-xs"
                           />
                           <p className="text-xs text-muted-foreground">
-                            Date when the lease/contract was signed (optional)
+                            Date when the lease/contract expires (optional)
                           </p>
                         </div>
 

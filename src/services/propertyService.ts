@@ -78,6 +78,7 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
         max_tenants: formData.maxTenants || 1,
         bed_space_billing_mode: formData.maxTenants > 1 ? 'per_tenant' : 'unified',
         lease_date: formData.leaseDate || null,
+        notes: '[]',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })

@@ -169,6 +169,7 @@ interface Property {
   max_tenants?: number; // Bed space support
   bed_space_billing_mode?: string; // 'unified' or 'per_tenant'
   amenities?: string; // JSON string array of amenity IDs
+  notes?: string; // JSON array of notes
   created_at: string;
   updated_at: string;
   tenants?: Tenant[];
@@ -220,6 +221,99 @@ export function PropertyDetailsPopup({
   const [selectedTenantIndex, setSelectedTenantIndex] = useState<number | null>(
     null,
   );
+
+  // Notes management state
+  const [isAddingNote, setIsAddingNote] = useState(false);
+  const [newNoteText, setNewNoteText] = useState("");
+  const [editingNoteIndex, setEditingNoteIndex] = useState<number | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState("");
+
+  // Notes CRUD functions
+  const handleAddNote = async () => {
+    if (!newNoteText.trim() || !property) return;
+
+    const currentNotes = property.notes ? JSON.parse(property.notes) : [];
+    const newNote = {
+      id: Date.now().toString(),
+      text: newNoteText.trim(),
+      createdAt: new Date().toISOString(),
+    };
+    const updatedNotes = [...currentNotes, newNote];
+
+    try {
+      const { error } = await supabase
+        .from("properties")
+        .update({ notes: JSON.stringify(updatedNotes) })
+        .eq("id", propertyId);
+
+      if (error) throw error;
+
+      await fetchPropertyDetails();
+      setNewNoteText("");
+      setIsAddingNote(false);
+      toast.success("Note added successfully");
+    } catch (error) {
+      console.error("Error adding note:", error);
+      toast.error("Failed to add note");
+    }
+  };
+
+  const handleUpdateNote = async (index: number) => {
+    if (!editingNoteText.trim() || !property) return;
+
+    const currentNotes = property.notes ? JSON.parse(property.notes) : [];
+    currentNotes[index].text = editingNoteText.trim();
+    currentNotes[index].updatedAt = new Date().toISOString();
+
+    try {
+      const { error } = await supabase
+        .from("properties")
+        .update({ notes: JSON.stringify(currentNotes) })
+        .eq("id", propertyId);
+
+      if (error) throw error;
+
+      await fetchPropertyDetails();
+      setEditingNoteIndex(null);
+      setEditingNoteText("");
+      toast.success("Note updated successfully");
+    } catch (error) {
+      console.error("Error updating note:", error);
+      toast.error("Failed to update note");
+    }
+  };
+
+  const handleDeleteNote = async (index: number) => {
+    if (!property) return;
+
+    const currentNotes = property.notes ? JSON.parse(property.notes) : [];
+    currentNotes.splice(index, 1);
+
+    try {
+      const { error } = await supabase
+        .from("properties")
+        .update({ notes: JSON.stringify(currentNotes) })
+        .eq("id", propertyId);
+
+      if (error) throw error;
+
+      await fetchPropertyDetails();
+      toast.success("Note deleted successfully");
+    } catch (error) {
+      console.error("Error deleting note:", error);
+      toast.error("Failed to delete note");
+    }
+  };
+
+  const startEditingNote = (index: number, currentText: string) => {
+    setEditingNoteIndex(index);
+    setEditingNoteText(currentText);
+  };
+
+  const cancelEditingNote = () => {
+    setEditingNoteIndex(null);
+    setEditingNoteText("");
+  };
 
   // Store view mode per property ID in localStorage
   const getStoredViewMode = (propId: string): string => {
@@ -1907,60 +2001,208 @@ export function PropertyDetailsPopup({
                 </div>
               )}
 
-              {/* Amenities Section */}
-              <Card className="shadow-sm">
-                <CardContent className="p-4 md:p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-base md:text-lg font-semibold flex items-center">
-                      <Home className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
-                      What this place offers
-                    </h3>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setIsAmenitiesPopupOpen(true)}
-                      className="text-xs h-8"
-                    >
-                      <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                      Edit
-                    </Button>
-                  </div>
+              {/* Amenities and Notes Section - Side by Side */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+                {/* Amenities Section */}
+                <Card className="shadow-sm">
+                  <CardContent className="p-4 md:p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-base md:text-lg font-semibold flex items-center">
+                        <Home className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
+                        What this place offers
+                      </h3>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setIsAmenitiesPopupOpen(true)}
+                        className="text-xs h-8"
+                      >
+                        <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                        Edit
+                      </Button>
+                    </div>
 
-                  {property &&
-                  property.amenities &&
-                  JSON.parse(property.amenities).length > 0 ? (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {JSON.parse(property.amenities).map(
-                        (amenityId: string) => {
-                          const amenity = AVAILABLE_AMENITIES.find(
-                            (a) => a.id === amenityId,
-                          );
-                          if (!amenity) return null;
-                          return (
-                            <div
-                              key={amenity.id}
-                              className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20"
-                            >
-                              <span className="text-muted-foreground">
-                                {amenity.icon}
-                              </span>
-                              <span className="text-sm">{amenity.name}</span>
-                            </div>
-                          );
-                        },
+                    {property &&
+                    property.amenities &&
+                    JSON.parse(property.amenities).length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {JSON.parse(property.amenities).map(
+                          (amenityId: string) => {
+                            const amenity = AVAILABLE_AMENITIES.find(
+                              (a) => a.id === amenityId,
+                            );
+                            if (!amenity) return null;
+                            return (
+                              <div
+                                key={amenity.id}
+                                className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20"
+                              >
+                                <span className="text-muted-foreground">
+                                  {amenity.icon}
+                                </span>
+                                <span className="text-sm">{amenity.name}</span>
+                              </div>
+                            );
+                          },
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+                        <Home className="h-8 w-8 mb-2 opacity-40" />
+                        <p className="text-sm">No amenities added yet</p>
+                        <p className="text-xs mt-1">
+                          Click Edit to add amenities to this property
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Notes Section */}
+                <Card className="shadow-sm">
+                  <CardContent className="p-4 md:p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-base md:text-lg font-semibold flex items-center">
+                        <FileText className="h-4 w-4 md:h-5 md:w-5 mr-2 text-orange-600" />
+                        Property Notes
+                      </h3>
+                      {!isAddingNote && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsAddingNote(true)}
+                          className="text-xs h-8"
+                        >
+                          <Plus className="h-3.5 w-3.5 mr-1.5" />
+                          Add Note
+                        </Button>
                       )}
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
-                      <Home className="h-8 w-8 mb-2 opacity-40" />
-                      <p className="text-sm">No amenities added yet</p>
-                      <p className="text-xs mt-1">
-                        Click Edit to add amenities to this property
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+
+                    {/* Add Note Form */}
+                    {isAddingNote && (
+                      <div className="mb-4 p-3 bg-muted/30 rounded-lg border">
+                        <textarea
+                          value={newNoteText}
+                          onChange={(e) => setNewNoteText(e.target.value)}
+                          placeholder="Enter your note e.g. penalty for late payment, maintenance issues, tenant complaints, etc."
+                          className="w-full min-h-[80px] p-2 text-sm border rounded-md resize-none focus:ring-1 focus:ring-primary bg-background"
+                          autoFocus
+                        />
+                        <div className="flex gap-2 mt-2">
+                          <Button
+                            size="sm"
+                            onClick={handleAddNote}
+                            disabled={!newNoteText.trim()}
+                            className="text-xs h-8"
+                          >
+                            Save Note
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setIsAddingNote(false);
+                              setNewNoteText("");
+                            }}
+                            className="text-xs h-8"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Notes List */}
+                    {property &&
+                    property.notes &&
+                    JSON.parse(property.notes).length > 0 ? (
+                      <div className="space-y-3 max-h-[400px] overflow-y-auto">
+                        {JSON.parse(property.notes).map(
+                          (note: any, index: number) => (
+                            <div
+                              key={note.id}
+                              className="p-3 rounded-lg border bg-muted/20 group hover:bg-muted/30 transition-colors"
+                            >
+                              {editingNoteIndex === index ? (
+                                <div className="space-y-2">
+                                  <textarea
+                                    value={editingNoteText}
+                                    onChange={(e) =>
+                                      setEditingNoteText(e.target.value)
+                                    }
+                                    className="w-full min-h-[60px] p-2 text-sm border rounded-md resize-none focus:ring-1 focus:ring-primary bg-background"
+                                    autoFocus
+                                  />
+                                  <div className="flex gap-2">
+                                    <Button
+                                      size="sm"
+                                      onClick={() => handleUpdateNote(index)}
+                                      disabled={!editingNoteText.trim()}
+                                      className="text-xs h-7"
+                                    >
+                                      Save
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={cancelEditingNote}
+                                      className="text-xs h-7"
+                                    >
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <p className="text-sm mb-2 whitespace-pre-wrap">
+                                    {note.text}
+                                  </p>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs text-muted-foreground">
+                                      {note.updatedAt
+                                        ? `Updated ${formatDateTime(note.updatedAt)}`
+                                        : `Added ${formatDateTime(note.createdAt)}`}
+                                    </span>
+                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() =>
+                                          startEditingNote(index, note.text)
+                                        }
+                                        className="h-7 w-7 p-0"
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleDeleteNote(index)}
+                                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    ) : !isAddingNote ? (
+                      <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+                        <FileText className="h-8 w-8 mb-2 opacity-40" />
+                        <p className="text-sm">No notes added yet</p>
+                        <p className="text-xs mt-1">
+                          Click Add Note to create a note for this property
+                        </p>
+                      </div>
+                    ) : null}
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </TabsContent>
 
