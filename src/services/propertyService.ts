@@ -28,6 +28,7 @@ interface PropertyFormData {
   // Accounting & Monitoring fields
   advancePayment: number
   securityDeposit: number
+  leaseDate: string
   billingSchedule: Array<{
     dueDate: string
     rentDue: number
@@ -76,6 +77,7 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
         rent_amount: formData.rentAmount,
         max_tenants: formData.maxTenants || 1,
         bed_space_billing_mode: formData.maxTenants > 1 ? 'per_tenant' : 'unified',
+        lease_date: formData.leaseDate || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       })

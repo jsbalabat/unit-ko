@@ -79,7 +79,7 @@ interface PropertyFormData {
   tenants: TenantInfo[];
 
   propertyLocation: string;
-  billingType: "pre-organized" | "blank";
+  billingType: "pre-organized" | "blank" | "";
   contractMonths: number; // Number of billing periods (not necessarily months - depends on formBasis: weekly, monthly, quarterly, etc.)
   rentStartDate: string;
   dueDay: string;
@@ -92,7 +92,8 @@ interface PropertyFormData {
     | "monthly"
     | "quarterly"
     | "semi-annually"
-    | "annually";
+    | "annually"
+    | "";
   collectionDay: string; // For weekly: "monday" - "sunday"
   collectionDates: number[]; // For bi-weekly: [date1, date2], monthly: [date1]
   rentPerCollection: number;
@@ -100,6 +101,7 @@ interface PropertyFormData {
   // Accounting & Monitoring fields
   advancePayment: number;
   securityDeposit: number;
+  leaseDate: string;
 
   // Update the billing schedule to include expense items
   billingSchedule: Array<{
@@ -125,9 +127,13 @@ interface ValidationErrors {
   contactNumber?: string;
   pax?: string;
   propertyLocation?: string;
+  billingType?: string;
   contractMonths?: string;
   rentStartDate?: string;
   rentAmount?: string;
+  formBasis?: string;
+  collectionDay?: string;
+  collectionDates?: string;
   [key: string]: string | undefined; // Allow dynamic keys for tenant validation
 }
 
@@ -550,21 +556,22 @@ export function MultiStepPopup({
     tenantName: "",
     tenantEmail: "",
     contactNumber: "",
-    pax: 1,
-    maxTenants: 1,
+    pax: 0,
+    maxTenants: 0,
     tenants: [],
     propertyLocation: "",
-    billingType: "pre-organized",
-    contractMonths: 6,
+    billingType: "",
+    contractMonths: 0,
     rentStartDate: "",
-    dueDay: "15",
+    dueDay: "",
     rentAmount: 0,
-    formBasis: "monthly",
-    collectionDay: "monday",
-    collectionDates: [1],
+    formBasis: "",
+    collectionDay: "",
+    collectionDates: [],
     rentPerCollection: 0,
     advancePayment: 0,
     securityDeposit: 0,
+    leaseDate: "",
     billingSchedule: [],
   });
   const [isOtherChargesPopupOpen, setIsOtherChargesPopupOpen] = useState(false);
@@ -591,8 +598,15 @@ export function MultiStepPopup({
       formData.collectionDates.length !== 1
     ) {
       setFormData((prev) => ({ ...prev, collectionDates: [1] }));
+    } else if (formData.formBasis === "weekly" && !formData.collectionDay) {
+      // Set default collection day for weekly billing
+      setFormData((prev) => ({ ...prev, collectionDay: "monday" }));
     }
-  }, [formData.formBasis, formData.collectionDates.length]);
+  }, [
+    formData.formBasis,
+    formData.collectionDates.length,
+    formData.collectionDay,
+  ]);
 
   // Auto-generate billing schedule when Step 2 fields change
   useEffect(() => {
@@ -751,24 +765,18 @@ export function MultiStepPopup({
     // Tenant details validation (only if occupied)
     if (formData.occupancyStatus === "occupied") {
       // Max Tenants validation
-      if (!formData.maxTenants || formData.maxTenants < 1) {
-        newErrors.maxTenants = "At least 1 tenant slot is required";
+      if (
+        !formData.maxTenants ||
+        formData.maxTenants === 0 ||
+        formData.maxTenants < 1
+      ) {
+        newErrors.maxTenants = "At least 1 tenant slot is required (1-20)";
       } else if (formData.maxTenants > 20) {
         newErrors.maxTenants = "Maximum 20 tenant slots allowed";
       }
 
-      // If bed space (multiple tenants), validate tenant array
-      if (formData.maxTenants > 1) {
-        // At least one tenant must be filled
-        const hasAnyTenant = formData.tenants.some(
-          (t) => t.tenantName || t.tenantEmail || t.contactNumber,
-        );
-
-        if (!hasAnyTenant) {
-          newErrors.tenantName =
-            "At least one tenant is required for occupied property";
-        }
-      } else {
+      // Single tenant mode - use legacy validation
+      if (formData.maxTenants === 1) {
         // Single tenant mode - use legacy validation
         if (!formData.tenantName.trim()) {
           newErrors.tenantName =
@@ -802,9 +810,18 @@ export function MultiStepPopup({
   const validateStep2 = (): boolean => {
     const newErrors: ValidationErrors = {};
 
+    // Billing Type validation
+    if (!formData.billingType) {
+      newErrors.billingType = "Billing type is required";
+      setErrors(newErrors);
+      return false;
+    }
+
     // Contract Periods validation (only for pre-organized)
     if (formData.billingType === "pre-organized") {
-      if (!formData.contractMonths || formData.contractMonths < 1) {
+      if (!formData.contractMonths || formData.contractMonths === 0) {
+        newErrors.contractMonths = "Contract duration is required";
+      } else if (formData.contractMonths < 1) {
         newErrors.contractMonths =
           "Contract duration must be at least 1 period";
       } else if (formData.contractMonths > 100) {
@@ -826,8 +843,15 @@ export function MultiStepPopup({
 
     // Pre-organized billing validation
     if (formData.billingType === "pre-organized") {
+      // Form Basis validation
+      if (!formData.formBasis) {
+        newErrors.formBasis = "Billing frequency is required";
+      }
+
       // Rent Per Collection validation (per tenant amount)
-      if (!formData.rentPerCollection || formData.rentPerCollection <= 0) {
+      if (!formData.rentPerCollection || formData.rentPerCollection === 0) {
+        newErrors.rentAmount = "Rent per tenant is required";
+      } else if (formData.rentPerCollection < 0) {
         newErrors.rentAmount = "Rent per tenant must be greater than 0";
       } else if (formData.rentPerCollection < 500) {
         newErrors.rentAmount = "Per-tenant rent seems too low (minimum ₱500)";
@@ -853,18 +877,39 @@ export function MultiStepPopup({
         newErrors.rentAmount = `Total property rent (₱${totalRent.toLocaleString()}) exceeds maximum of ₱1,000,000`;
       }
 
+      // Collection day validation for weekly
+      if (formData.formBasis === "weekly" && !formData.collectionDay) {
+        newErrors.collectionDay =
+          "Collection day is required for weekly billing";
+      }
+
       // Collection date validation for bi-weekly
       if (formData.formBasis === "bi-weekly") {
-        if (!formData.collectionDates[0] || !formData.collectionDates[1]) {
-          newErrors.rentAmount =
+        if (
+          !formData.collectionDates ||
+          formData.collectionDates.length === 0
+        ) {
+          newErrors.collectionDates =
+            "Collection dates are required for bi-weekly billing";
+        } else if (
+          !formData.collectionDates[0] ||
+          !formData.collectionDates[1]
+        ) {
+          newErrors.collectionDates =
             "Both collection dates are required for bi-weekly";
         }
       }
 
       // Collection date validation for monthly
       if (formData.formBasis === "monthly") {
-        if (!formData.collectionDates[0]) {
-          newErrors.rentAmount = "Collection date is required for monthly";
+        if (
+          !formData.collectionDates ||
+          formData.collectionDates.length === 0
+        ) {
+          newErrors.collectionDates =
+            "Collection date is required for monthly billing";
+        } else if (!formData.collectionDates[0]) {
+          newErrors.collectionDates = "Collection date is required for monthly";
         }
       }
     }
@@ -885,7 +930,7 @@ export function MultiStepPopup({
 
   // Helper function to generate tenant fields based on maxTenants
   const handleMaxTenantsChange = (value: number) => {
-    const newMaxTenants = Math.max(1, Math.min(20, value)); // Limit between 1-20
+    const newMaxTenants = Math.max(0, Math.min(20, value)); // Allow 0, limit max at 20
 
     // Generate tenant array based on new max
     const newTenants: TenantInfo[] = [];
@@ -929,6 +974,20 @@ export function MultiStepPopup({
   const validateTenants = (): boolean => {
     const newErrors: ValidationErrors = {};
     let isValid = true;
+
+    // Check if at least one tenant has any data
+    const hasAnyTenant = formData.tenants.some(
+      (t) => t.tenantName || t.tenantEmail || t.contactNumber,
+    );
+
+    // If no tenant data at all, show errors on first tenant fields
+    if (!hasAnyTenant && formData.tenants.length > 0) {
+      newErrors[`tenant0_name`] = "Tenant 1 name is required";
+      newErrors[`tenant0_email`] = "Tenant 1 email is required";
+      newErrors[`tenant0_contact`] = "Tenant 1 contact is required";
+      setErrors(newErrors);
+      return false;
+    }
 
     formData.tenants.forEach((tenant, index) => {
       // Check if at least one tenant field is filled (partial validation)
@@ -1155,21 +1214,22 @@ export function MultiStepPopup({
       tenantName: "",
       tenantEmail: "",
       contactNumber: "",
-      pax: 1,
-      maxTenants: 1,
+      pax: 0,
+      maxTenants: 0,
       tenants: [],
       propertyLocation: "",
-      contractMonths: 6,
+      contractMonths: 0,
       rentStartDate: "",
-      dueDay: "30th/31st - Last Day",
+      dueDay: "",
       rentAmount: 0,
-      billingType: "pre-organized",
-      formBasis: "monthly",
-      collectionDay: "monday",
-      collectionDates: [1],
+      billingType: "",
+      formBasis: "",
+      collectionDay: "",
+      collectionDates: [],
       rentPerCollection: 0,
       advancePayment: 0,
       securityDeposit: 0,
+      leaseDate: "",
       billingSchedule: [],
     });
     onClose();
@@ -1499,21 +1559,22 @@ export function MultiStepPopup({
           tenantName: "",
           tenantEmail: "",
           contactNumber: "",
-          pax: 1,
-          maxTenants: 1,
+          pax: 0,
+          maxTenants: 0,
           tenants: [],
           propertyLocation: "",
-          billingType: "pre-organized",
+          billingType: "",
           contractMonths: 0,
           rentStartDate: "",
-          dueDay: "30th/31st - Last Day",
+          dueDay: "",
           rentAmount: 0,
-          formBasis: "monthly",
-          collectionDay: "monday",
-          collectionDates: [1],
+          formBasis: "",
+          collectionDay: "",
+          collectionDates: [],
           rentPerCollection: 0,
           advancePayment: 0,
           securityDeposit: 0,
+          leaseDate: "",
           billingSchedule: [],
         });
       } else {
@@ -1847,13 +1908,15 @@ export function MultiStepPopup({
                             type="number"
                             min="1"
                             max="20"
-                            value={formData.maxTenants}
+                            value={formData.maxTenants || ""}
                             onChange={(e) =>
                               handleMaxTenantsChange(
-                                parseInt(e.target.value) || 1,
+                                e.target.value === ""
+                                  ? 0
+                                  : parseInt(e.target.value) || 0,
                               )
                             }
-                            placeholder="1"
+                            placeholder="Enter number of tenants"
                             className={`h-9 text-sm ${
                               errors.maxTenants ? "border-destructive" : ""
                             }`}
@@ -1865,7 +1928,7 @@ export function MultiStepPopup({
                           )}
                           <p className="text-xs text-muted-foreground">
                             Number of tenant slots/bed spaces in this property
-                            (1-20)
+                            (minimum 1, maximum 20)
                           </p>
                         </div>
 
@@ -2155,14 +2218,13 @@ export function MultiStepPopup({
                               <Input
                                 id="vacantRentAmount"
                                 type="number"
-                                min="0"
-                                value={formData.rentAmount}
+                                value={formData.rentAmount || ""}
                                 onChange={(e) =>
                                   updateFormData(
                                     "rentAmount",
                                     e.target.value === ""
-                                      ? ""
-                                      : parseInt(e.target.value) || "",
+                                      ? 0
+                                      : parseInt(e.target.value) || 0,
                                   )
                                 }
                                 placeholder="25000"
@@ -2259,15 +2321,16 @@ export function MultiStepPopup({
                                 type="number"
                                 min="1"
                                 max="100"
-                                value={formData.contractMonths}
+                                value={formData.contractMonths || ""}
                                 onChange={(e) =>
                                   updateFormData(
                                     "contractMonths",
                                     e.target.value === ""
-                                      ? ""
-                                      : parseInt(e.target.value) || "",
+                                      ? 0
+                                      : parseInt(e.target.value) || 0,
                                   )
                                 }
+                                placeholder="e.g., 12"
                                 className={`h-9 text-sm ${
                                   errors.contractMonths
                                     ? "border-destructive"
@@ -2303,6 +2366,7 @@ export function MultiStepPopup({
                                     e.target.value,
                                   )
                                 }
+                                placeholder="Select start date"
                                 className={`h-9 text-sm ${
                                   errors.rentStartDate
                                     ? "border-destructive"
@@ -2584,13 +2648,13 @@ export function MultiStepPopup({
                                 id="rentPerCollection"
                                 type="number"
                                 min="0"
-                                value={formData.rentPerCollection}
+                                value={formData.rentPerCollection || ""}
                                 onChange={(e) =>
                                   updateFormData(
                                     "rentPerCollection",
                                     e.target.value === ""
-                                      ? ""
-                                      : parseInt(e.target.value) || "",
+                                      ? 0
+                                      : parseInt(e.target.value) || 0,
                                   )
                                 }
                                 placeholder="Enter per-tenant amount"
@@ -2622,6 +2686,7 @@ export function MultiStepPopup({
                               onChange={(e) =>
                                 updateFormData("rentStartDate", e.target.value)
                               }
+                              placeholder="Select start date"
                               className={`h-9 text-sm max-w-xs ${
                                 errors.rentStartDate ? "border-destructive" : ""
                               }`}
@@ -2756,13 +2821,13 @@ export function MultiStepPopup({
                             id="advancePayment"
                             type="number"
                             min="0"
-                            value={formData.advancePayment}
+                            value={formData.advancePayment || ""}
                             onChange={(e) =>
                               updateFormData(
                                 "advancePayment",
                                 e.target.value === ""
-                                  ? ""
-                                  : parseInt(e.target.value) || "",
+                                  ? 0
+                                  : parseInt(e.target.value) || 0,
                               )
                             }
                             placeholder="Enter advance payment amount"
@@ -2784,13 +2849,13 @@ export function MultiStepPopup({
                             id="securityDeposit"
                             type="number"
                             min="0"
-                            value={formData.securityDeposit}
+                            value={formData.securityDeposit || ""}
                             onChange={(e) =>
                               updateFormData(
                                 "securityDeposit",
                                 e.target.value === ""
-                                  ? ""
-                                  : parseInt(e.target.value) || "",
+                                  ? 0
+                                  : parseInt(e.target.value) || 0,
                               )
                             }
                             placeholder="Enter security deposit amount"
@@ -2798,6 +2863,29 @@ export function MultiStepPopup({
                           />
                           <p className="text-xs text-muted-foreground">
                             Refundable security deposit amount
+                          </p>
+                        </div>
+
+                        <div className="space-y-2 md:col-span-2">
+                          <Label
+                            htmlFor="leaseDate"
+                            className="text-sm font-medium flex items-center gap-1.5"
+                          >
+                            <Calendar className="h-3.5 w-3.5 text-blue-600" />
+                            Lease/Contract Date (Optional)
+                          </Label>
+                          <Input
+                            id="leaseDate"
+                            type="date"
+                            value={formData.leaseDate}
+                            onChange={(e) =>
+                              updateFormData("leaseDate", e.target.value)
+                            }
+                            placeholder="Select lease/contract date"
+                            className="h-9 text-sm max-w-xs"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Date when the lease/contract was signed (optional)
                           </p>
                         </div>
 

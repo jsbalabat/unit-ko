@@ -1105,6 +1105,7 @@ export function EditPropertyPopup({
                       value={formData.unitName ?? ""}
                       onChange={(e) => handleChange("unitName", e.target.value)}
                       disabled={isLocked}
+                      placeholder="e.g., Unit 101, Office 3B"
                       className={isLocked ? "opacity-70" : ""}
                     />
                   </div>
@@ -1151,6 +1152,7 @@ export function EditPropertyPopup({
                           const value = e.target.value.replace(/^0+(?=\d)/, "");
                           handleChange("rentAmount", parseFloat(value) || 0);
                         }}
+                        placeholder="25000"
                         disabled={isLocked}
                       />
                     </div>
@@ -1243,6 +1245,7 @@ export function EditPropertyPopup({
                           handlePaxNumberChange(newPax);
                         }}
                         disabled={isLocked}
+                        placeholder="1"
                         className={`flex-1 ${isLocked ? "opacity-70" : ""}`}
                       />
                       <Button
@@ -1270,6 +1273,7 @@ export function EditPropertyPopup({
                       onChange={(e) =>
                         handleChange("rentStartDate", e.target.value)
                       }
+                      placeholder="Select start date"
                       disabled={isLocked}
                       className={isLocked ? "opacity-70" : ""}
                     />
