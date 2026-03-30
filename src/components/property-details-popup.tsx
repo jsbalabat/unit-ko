@@ -192,6 +192,7 @@ interface PropertyDetailsPopupProps {
   onClose: () => void;
   onEdit?: (propertyId: string) => void;
   onSuccess?: () => void;
+  defaultTab?: string;
 }
 
 export function PropertyDetailsPopup({
@@ -200,11 +201,12 @@ export function PropertyDetailsPopup({
   onClose,
   onEdit,
   onSuccess,
+  defaultTab = "details",
 }: PropertyDetailsPopupProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [property, setProperty] = useState<Property | null>(null);
-  const [activeTab, setActiveTab] = useState("details");
+  const [activeTab, setActiveTab] = useState(defaultTab);
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
   const [isEditBillingPopupOpen, setIsEditBillingPopupOpen] = useState(false);
   const [isAmenitiesPopupOpen, setIsAmenitiesPopupOpen] = useState(false);
@@ -426,6 +428,13 @@ export function PropertyDetailsPopup({
     }
   }, [isEditPopupOpen, isEditBillingPopupOpen, isOpen, fetchPropertyDetails]);
 
+  // Sync active tab when modal opens or defaultTab changes
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab(defaultTab);
+    }
+  }, [isOpen, defaultTab]);
+
   // Enhanced status styling with improved colors and design
   const getStatusColorClass = (status: string): string => {
     const lowerStatus = status.toLowerCase();
@@ -446,7 +455,7 @@ export function PropertyDetailsPopup({
       lowerStatus.includes("problem") ||
       lowerStatus.includes("urgent")
     ) {
-      return "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/50 dark:text-red-300 dark:border-red-800/50";
+      return "bg-red-200 text-red-900 border-red-300 ring-1 ring-red-300/60 dark:bg-red-900/60 dark:text-red-200 dark:border-red-700/70 dark:ring-red-700/40";
     }
 
     // Not Yet Due / Upcoming - Blue
@@ -619,6 +628,57 @@ export function PropertyDetailsPopup({
     today.setHours(0, 0, 0, 0);
 
     return Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  };
+
+  const getEffectiveBillingStatus = (
+    entry: BillingEntry,
+    paidAmount: number,
+    totalDue: number,
+  ): string => {
+    const epsilon = 0.01;
+
+    if (totalDue < epsilon) return "Not Yet Set";
+    if (paidAmount >= totalDue - epsilon) return "Paid";
+    if (paidAmount > epsilon) return "Partial";
+
+    const lowerStatus = entry.status.toLowerCase();
+    const daysUntil = calculateDaysUntilDue(entry.due_date);
+    const isPastDue = daysUntil < 0;
+
+    if (
+      lowerStatus.includes("paid") ||
+      lowerStatus.includes("collected") ||
+      lowerStatus.includes("settled")
+    ) {
+      return "Paid";
+    }
+
+    if (lowerStatus.includes("partial")) {
+      return "Partial";
+    }
+
+    if (lowerStatus.includes("not yet set")) {
+      return "Not Yet Set";
+    }
+
+    if (
+      isPastDue ||
+      lowerStatus.includes("overdue") ||
+      lowerStatus.includes("problem") ||
+      lowerStatus.includes("urgent") ||
+      lowerStatus.includes("delayed")
+    ) {
+      return "Overdue";
+    }
+
+    if (
+      lowerStatus.includes("not yet due") ||
+      lowerStatus.includes("upcoming")
+    ) {
+      return "Not Yet Due";
+    }
+
+    return "Not Yet Due";
   };
 
   // Handle property deletion
@@ -1243,11 +1303,94 @@ export function PropertyDetailsPopup({
   const currentDate = new Date();
   currentDate.setHours(0, 0, 0, 0);
 
+  const isIndividualBillingView =
+    paxCount > 1 && billingViewMode.startsWith("tenant-");
+  const selectedBillingTenantIdx = isIndividualBillingView
+    ? parseInt(billingViewMode.split("-")[1], 10)
+    : null;
+  const selectedBillingTenant =
+    selectedBillingTenantIdx !== null && !Number.isNaN(selectedBillingTenantIdx)
+      ? activeTenant?.pax_details?.[selectedBillingTenantIdx]
+      : null;
+  const isSelectedTenantEmpty =
+    isIndividualBillingView &&
+    (!selectedBillingTenant?.name || selectedBillingTenant.name.trim() === "");
+  const useIndividualStripView =
+    isIndividualBillingView && !isSelectedTenantEmpty;
+  const selectedBillingTenantKey =
+    selectedBillingTenantIdx !== null &&
+    !Number.isNaN(selectedBillingTenantIdx) &&
+    useIndividualStripView
+      ? selectedBillingTenantIdx.toString()
+      : null;
+  const selectedBillingTenantName = useIndividualStripView
+    ? selectedBillingTenant?.name ||
+      `Tenant ${(selectedBillingTenantIdx ?? 0) + 1}`
+    : "Consolidated";
+
+  const getViewAmounts = (entry: BillingEntry) => {
+    if (!useIndividualStripView || selectedBillingTenantKey === null) {
+      return {
+        totalDue: entry.gross_due,
+        paidAmount: entry.paid_amount || 0,
+      };
+    }
+
+    let tenantRent = 0;
+    let tenantCharges = 0;
+    let tenantPaid = 0;
+
+    try {
+      const tenantRentAmounts = entry.tenant_rent_amounts
+        ? JSON.parse(entry.tenant_rent_amounts)
+        : {};
+      tenantRent =
+        selectedBillingTenantKey in tenantRentAmounts
+          ? tenantRentAmounts[selectedBillingTenantKey]
+          : entry.rent_due / paxCount;
+    } catch {
+      tenantRent = entry.rent_due / paxCount;
+    }
+
+    try {
+      const tenantOtherCharges = entry.tenant_other_charges
+        ? JSON.parse(entry.tenant_other_charges)
+        : {};
+      tenantCharges =
+        selectedBillingTenantKey in tenantOtherCharges
+          ? tenantOtherCharges[selectedBillingTenantKey]
+          : entry.other_charges / paxCount;
+    } catch {
+      tenantCharges = entry.other_charges / paxCount;
+    }
+
+    try {
+      const tenantPayments = entry.tenant_payments
+        ? JSON.parse(entry.tenant_payments)
+        : {};
+      tenantPaid =
+        selectedBillingTenantKey in tenantPayments
+          ? tenantPayments[selectedBillingTenantKey]
+          : (entry.paid_amount || 0) / paxCount;
+    } catch {
+      tenantPaid = (entry.paid_amount || 0) / paxCount;
+    }
+
+    return {
+      totalDue: tenantRent + tenantCharges,
+      paidAmount: tenantPaid,
+    };
+  };
+
   // Recent Transactions: Entries that have been paid (Paid or Partial) sorted by most recent
   const recentPayments = billingEntries
     .filter((entry) => {
-      const hasPaidAmount = (entry.paid_amount || 0) > 0;
-      return hasPaidAmount;
+      const effectiveStatus = getEffectiveBillingStatus(
+        entry,
+        entry.paid_amount || 0,
+        entry.gross_due,
+      );
+      return effectiveStatus === "Paid" || effectiveStatus === "Partial";
     })
     .sort(
       (a, b) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime(),
@@ -1257,9 +1400,13 @@ export function PropertyDetailsPopup({
   // Upcoming Payments: Unpaid/Partial entries (excluding Not Yet Set), sorted by due date
   const upcomingPayments = billingEntries
     .filter((entry) => {
-      const lowerStatus = entry.status.toLowerCase();
-      const isNotYetSet = lowerStatus.includes("not yet set");
-      const isPaid = entry.status === "Paid";
+      const effectiveStatus = getEffectiveBillingStatus(
+        entry,
+        entry.paid_amount || 0,
+        entry.gross_due,
+      );
+      const isNotYetSet = effectiveStatus === "Not Yet Set";
+      const isPaid = effectiveStatus === "Paid";
       // Include entries that are not fully paid and not "Not Yet Set"
       return !isPaid && !isNotYetSet;
     })
@@ -1267,25 +1414,35 @@ export function PropertyDetailsPopup({
       (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
     );
 
-  // Calculate financial summaries
-  // Total Revenue: All paid entries
-  const totalRevenue = billingEntries
-    .filter((entry) => entry.status === "Paid")
-    .reduce((sum, entry) => sum + entry.gross_due, 0);
+  // Calculate financial summaries for the current view mode (consolidated or selected tenant)
+  const totalRevenue = billingEntries.reduce((sum, entry) => {
+    const { paidAmount } = getViewAmounts(entry);
+    return sum + paidAmount;
+  }, 0);
 
-  // Pending Payments: All unpaid entries except Problem/Urgent (Needs Monitoring, Neutral/Administrative)
-  const pendingPayments = billingEntries
-    .filter(
-      (entry) =>
-        entry.status === "Needs Monitoring" ||
-        entry.status === "Neutral / Administrative",
-    )
-    .reduce((sum, entry) => sum + entry.gross_due, 0);
+  const pendingPayments = billingEntries.reduce((sum, entry) => {
+    const { totalDue, paidAmount } = getViewAmounts(entry);
+    const effectiveStatus = getEffectiveBillingStatus(
+      entry,
+      paidAmount,
+      totalDue,
+    );
+    const balance = Math.max(0, totalDue - paidAmount);
+    return effectiveStatus === "Not Yet Due" ? sum + balance : sum;
+  }, 0);
 
-  // Overdue Amount: Problem/Urgent entries
-  const overdueAmount = billingEntries
-    .filter((entry) => entry.status === "Problem / Urgent")
-    .reduce((sum, entry) => sum + entry.gross_due, 0);
+  const unpaidBalance = billingEntries.reduce((sum, entry) => {
+    const { totalDue, paidAmount } = getViewAmounts(entry);
+    const effectiveStatus = getEffectiveBillingStatus(
+      entry,
+      paidAmount,
+      totalDue,
+    );
+    const balance = Math.max(0, totalDue - paidAmount);
+    return effectiveStatus === "Partial" || effectiveStatus === "Overdue"
+      ? sum + balance
+      : sum;
+  }, 0);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -1689,7 +1846,11 @@ export function PropertyDetailsPopup({
                         <div className="space-y-2 md:space-y-3">
                           {upcomingPayments.slice(0, 3).map((payment) => {
                             const displayStatus = formatStatusForDisplay(
-                              payment.status,
+                              getEffectiveBillingStatus(
+                                payment,
+                                payment.paid_amount || 0,
+                                payment.gross_due,
+                              ),
                             );
                             const daysUntil = calculateDaysUntilDue(
                               payment.due_date,
@@ -1790,7 +1951,7 @@ export function PropertyDetailsPopup({
                                     <Badge
                                       variant="outline"
                                       className={`text-[10px] md:text-xs mt-1 ${getStatusColorClass(
-                                        payment.status,
+                                        displayStatus,
                                       )}`}
                                     >
                                       {displayStatus}
@@ -1853,7 +2014,11 @@ export function PropertyDetailsPopup({
                                   ];
 
                             const displayStatus = formatStatusForDisplay(
-                              payment.status,
+                              getEffectiveBillingStatus(
+                                payment,
+                                payment.paid_amount || 0,
+                                payment.gross_due,
+                              ),
                             );
 
                             // Get tenant-specific payment details for multi-tenant properties
@@ -1917,7 +2082,7 @@ export function PropertyDetailsPopup({
                                     <Badge
                                       variant="outline"
                                       className={`block mt-1 text-[10px] md:text-xs ${getStatusColorClass(
-                                        payment.status,
+                                        displayStatus,
                                       )}`}
                                     >
                                       {displayStatus}
@@ -2216,12 +2381,12 @@ export function PropertyDetailsPopup({
                 <>
                   {/* Financial Overview - Ticker Strip */}
                   <div className="overflow-hidden bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 rounded-lg border shadow-sm">
+                    <div className="px-4 pt-3 text-[11px] text-muted-foreground">
+                      View: {selectedBillingTenantName}
+                    </div>
                     <div className="overflow-x-auto scrollbar-hide">
                       <div className="flex items-center justify-between sm:justify-around py-3 px-4 gap-4 sm:gap-6 min-w-max sm:min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
-                          <div className="h-8 w-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center shrink-0">
-                            <DollarSign className="h-4 w-4 text-green-600 dark:text-green-400" />
-                          </div>
                           <div className="min-w-0">
                             <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
                               Total Revenue
@@ -2235,9 +2400,6 @@ export function PropertyDetailsPopup({
                         <div className="h-10 w-px bg-border shrink-0" />
 
                         <div className="flex items-center gap-2 min-w-0">
-                          <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                            <Clock className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                          </div>
                           <div className="min-w-0">
                             <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
                               Pending Payments
@@ -2251,15 +2413,12 @@ export function PropertyDetailsPopup({
                         <div className="h-10 w-px bg-border shrink-0" />
 
                         <div className="flex items-center gap-2 min-w-0">
-                          <div className="h-8 w-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center shrink-0">
-                            <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
-                          </div>
                           <div className="min-w-0">
                             <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                              Overdue Amount
+                              Unpaid Balance
                             </div>
                             <div className="text-lg font-bold text-red-600 dark:text-red-400 whitespace-nowrap">
-                              {formatCurrency(overdueAmount)}
+                              {formatCurrency(unpaidBalance)}
                             </div>
                           </div>
                         </div>
@@ -2267,9 +2426,6 @@ export function PropertyDetailsPopup({
                         <div className="h-10 w-px bg-border shrink-0" />
 
                         <div className="flex items-center gap-2 min-w-0">
-                          <div className="h-8 w-8 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center shrink-0">
-                            <TrendingUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                          </div>
                           <div className="min-w-0">
                             <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
                               Advance Payment
@@ -2286,9 +2442,6 @@ export function PropertyDetailsPopup({
                         <div className="h-10 w-px bg-border shrink-0" />
 
                         <div className="flex items-center gap-2 min-w-0">
-                          <div className="h-8 w-8 rounded-full bg-cyan-100 dark:bg-cyan-900/30 flex items-center justify-center shrink-0">
-                            <Shield className="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
-                          </div>
                           <div className="min-w-0">
                             <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
                               Security Deposit
@@ -2305,9 +2458,6 @@ export function PropertyDetailsPopup({
                         <div className="h-10 w-px bg-border shrink-0" />
 
                         <div className="flex items-center gap-2 min-w-0">
-                          <div className="h-8 w-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                            <Plus className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                          </div>
                           <div className="min-w-0">
                             <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
                               Overflow (Excess)
@@ -2667,36 +2817,17 @@ export function PropertyDetailsPopup({
                                               ] || 0;
                                           }
 
-                                          let tenantStatus = entry.status;
-
-                                          // Check for "Not Yet Set" status first (applies to both views)
-                                          const epsilon = 0.01;
                                           const relevantTotal =
                                             isIndividualView &&
                                             selectedTenantIdx !== null
                                               ? tenantShareTotal
                                               : entry.gross_due;
-
-                                          if (relevantTotal < epsilon) {
-                                            tenantStatus = "Not Yet Set";
-                                          } else if (
-                                            isIndividualView &&
-                                            selectedTenantIdx !== null
-                                          ) {
-                                            // Calculate tenant-specific status
-                                            const tenantBalance =
-                                              tenantShareTotal -
-                                              tenantPaidAmount;
-                                            if (tenantBalance <= epsilon) {
-                                              tenantStatus = "Paid";
-                                            } else if (
-                                              tenantPaidAmount > epsilon
-                                            ) {
-                                              tenantStatus = "Partial";
-                                            } else {
-                                              tenantStatus = entry.status; // Keep original status if not paid
-                                            }
-                                          }
+                                          const tenantStatus =
+                                            getEffectiveBillingStatus(
+                                              entry,
+                                              tenantPaidAmount,
+                                              relevantTotal,
+                                            );
 
                                           return (
                                             <tr
