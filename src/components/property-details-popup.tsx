@@ -2057,16 +2057,32 @@ export function PropertyDetailsPopup({
                         <div className="space-y-2 md:space-y-3">
                           {recentPayments.slice(0, 3).map((payment) => {
                             // Parse expense items
-                            const expenseItems: ExpenseItem[] =
-                              payment.expense_items
-                                ? JSON.parse(payment.expense_items)
-                                : [
-                                    {
-                                      id: `default-${payment.id}`,
-                                      name: "Miscellaneous",
-                                      amount: payment.other_charges,
-                                    },
-                                  ];
+                            let expenseItems: ExpenseItem[] = [
+                              {
+                                id: `default-${payment.id}`,
+                                name: "Miscellaneous",
+                                amount: payment.other_charges,
+                              },
+                            ];
+
+                            if (payment.expense_items) {
+                              try {
+                                const parsed = JSON.parse(
+                                  payment.expense_items,
+                                );
+                                if (Array.isArray(parsed)) {
+                                  expenseItems = parsed;
+                                }
+                              } catch (e) {
+                                expenseItems = [
+                                  {
+                                    id: `default-${payment.id}`,
+                                    name: "Miscellaneous",
+                                    amount: payment.other_charges,
+                                  },
+                                ];
+                              }
+                            }
 
                             const displayStatus = formatStatusForDisplay(
                               getEffectiveBillingStatus(
@@ -2774,17 +2790,33 @@ export function PropertyDetailsPopup({
                                             new Date(b.due_date).getTime(),
                                         )
                                         .map((entry) => {
-                                          // Parse expense items from JSON string
-                                          const expenseItems: ExpenseItem[] =
-                                            entry.expense_items
-                                              ? JSON.parse(entry.expense_items)
-                                              : [
-                                                  {
-                                                    id: `default-${entry.id}`,
-                                                    name: "Miscellaneous",
-                                                    amount: entry.other_charges,
-                                                  },
-                                                ];
+                                          // Parse expense items safely; fallback if malformed/empty JSON exists in legacy rows
+                                          let expenseItems: ExpenseItem[] = [
+                                            {
+                                              id: `default-${entry.id}`,
+                                              name: "Miscellaneous",
+                                              amount: entry.other_charges,
+                                            },
+                                          ];
+
+                                          if (entry.expense_items) {
+                                            try {
+                                              const parsed = JSON.parse(
+                                                entry.expense_items,
+                                              );
+                                              if (Array.isArray(parsed)) {
+                                                expenseItems = parsed;
+                                              }
+                                            } catch (e) {
+                                              expenseItems = [
+                                                {
+                                                  id: `default-${entry.id}`,
+                                                  name: "Miscellaneous",
+                                                  amount: entry.other_charges,
+                                                },
+                                              ];
+                                            }
+                                          }
 
                                           // Calculate per-tenant amounts if in individual view
                                           let tenantShareRent = entry.rent_due;
