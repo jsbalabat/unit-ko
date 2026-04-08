@@ -53,6 +53,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
+import { logActivity } from "@/services/activityLogService";
 
 // Define types
 interface BillingEntry {
@@ -912,6 +913,20 @@ export function EditPropertyPopup({
       const savedWhat = hasTenantData
         ? `${formData.unitName} and ${formData.pax} person detail${formData.pax > 1 ? "s" : ""} saved`
         : `${formData.unitName} updated`;
+
+      await logActivity({
+        propertyId: formData.id,
+        tenantId: formData.tenantId ?? null,
+        actionType: "property_updated",
+        description: `Property details updated for ${formData.unitName}`,
+        metadata: {
+          occupancy_status: finalOccupancyStatus,
+          property_type: formData.propertyType,
+          rent_amount: formData.rentAmount,
+          pax: formData.pax,
+          billing_entries: formData.billingSchedule.length,
+        },
+      });
 
       toast.success("Property updated successfully", {
         description: savedWhat,

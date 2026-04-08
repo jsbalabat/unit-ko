@@ -50,6 +50,7 @@ import {
   Redo,
 } from "lucide-react";
 import { OtherChargesPopup } from "@/components/other-charges-popup";
+import { logActivity } from "@/services/activityLogService";
 
 // Define types
 interface BillingEntry {
@@ -143,6 +144,15 @@ export function EditBillingPopup({
   const [editingDateValue, setEditingDateValue] = useState<string>("");
   const [tenantName, setTenantName] = useState<string>("");
   const [propertyTotalRent, setPropertyTotalRent] = useState<number>(0);
+  const [pendingPaymentLogs, setPendingPaymentLogs] = useState<
+    Array<{
+      amount: number;
+      paymentType: string;
+      note: string;
+      receiptDate: string;
+      tenantIndex: number | null;
+    }>
+  >([]);
 
   // Undo/Redo state using two-stack approach
   type HistorySnapshot = {
@@ -281,6 +291,7 @@ export function EditBillingPopup({
       setUndoStack([]);
       setRedoStack([]);
       setPendingOverflow(0);
+      setPendingPaymentLogs([]);
 
       try {
         // Fetch property for rent amount
@@ -654,6 +665,21 @@ export function EditBillingPopup({
           },
         );
 
+        await logActivity({
+          propertyId,
+          tenantId,
+          actionType: "payment_made",
+          description: `${paymentType === "deposit" ? "Security deposit" : "Advance payment"} updated in statement of account`,
+          metadata: {
+            amount: paymentAmount,
+            payment_type: paymentType,
+            note: paymentNote || null,
+            receipt_date: receiptDate || null,
+            new_value: newValue,
+            tenant_index: tenantIndex ?? null,
+          },
+        });
+
         // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
         // console.log('Payment note for activity log:', paymentNote);
         // console.log('Receipt date for activity log:', receiptDate);
@@ -765,8 +791,16 @@ export function EditBillingPopup({
     setPendingOverflow(newPendingOverflow);
 
     // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
-    // console.log('Payment note for activity log:', paymentNote);
-    // console.log('Receipt date for activity log:', receiptDate);
+    setPendingPaymentLogs((prev) => [
+      ...prev,
+      {
+        amount: paymentAmount,
+        paymentType,
+        note: paymentNote,
+        receiptDate,
+        tenantIndex: tenantIndex ?? null,
+      },
+    ]);
 
     setPaymentAmount(0);
     setPaymentNote("");
@@ -1676,9 +1710,44 @@ export function EditBillingPopup({
         toast.success("Billing updated successfully");
       }
 
+      await logActivity({
+        propertyId,
+        tenantId,
+        actionType: "billing_updated",
+        description:
+          tenantIndex !== undefined
+            ? `Statement of account updated for ${tenantName || `Tenant ${tenantIndex + 1}`}`
+            : "Statement of account updated",
+        metadata: {
+          billing_entries: formData.billingSchedule.length,
+          deleted_entries: deletedEntryIds.length,
+          pending_overflow: pendingOverflow,
+          tenant_index: tenantIndex ?? null,
+        },
+      });
+
+      if (pendingPaymentLogs.length > 0) {
+        for (const paymentLog of pendingPaymentLogs) {
+          await logActivity({
+            propertyId,
+            tenantId,
+            actionType: "payment_made",
+            description: "Payment applied in statement of account",
+            metadata: {
+              amount: paymentLog.amount,
+              payment_type: paymentLog.paymentType || "rent",
+              note: paymentLog.note || null,
+              receipt_date: paymentLog.receiptDate || null,
+              tenant_index: paymentLog.tenantIndex,
+            },
+          });
+        }
+      }
+
       // Reset pending overflow and deleted entries after successful save
       setPendingOverflow(0);
       setDeletedEntriesPaidAmounts({});
+      setPendingPaymentLogs([]);
 
       onSuccess?.();
       onClose();

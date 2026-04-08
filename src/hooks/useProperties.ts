@@ -80,7 +80,15 @@ export function useProperties() {
             contact_number,
             pax,
             pax_details,
-            is_active
+            is_active,
+            billing_entries (
+              id,
+              due_date,
+              status,
+              billing_period,
+              paid_amount,
+              gross_due
+            )
           )
         `)
         .eq('landlord_id', user.id)

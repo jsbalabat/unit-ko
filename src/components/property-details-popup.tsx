@@ -100,6 +100,7 @@ import {
 } from "@/components/amenities-popup";
 import { PropertyResetDialog } from "@/components/property-reset-dialog";
 import { archiveAndResetProperty } from "@/services/archiveService";
+import { logActivity } from "@/services/activityLogService";
 // import { ScrollArea } from "@/components/ui/scroll-area";
 
 // Define TypeScript interfaces for data structures
@@ -253,6 +254,16 @@ export function PropertyDetailsPopup({
       await fetchPropertyDetails();
       setNewNoteText("");
       setIsAddingNote(false);
+
+      await logActivity({
+        propertyId,
+        actionType: "property_note_added",
+        description: `Note added for ${property.unit_name}`,
+        metadata: {
+          note_text: newNote.text,
+        },
+      });
+
       toast.success("Note added successfully");
     } catch (error) {
       console.error("Error adding note:", error);
@@ -278,6 +289,17 @@ export function PropertyDetailsPopup({
       await fetchPropertyDetails();
       setEditingNoteIndex(null);
       setEditingNoteText("");
+
+      await logActivity({
+        propertyId,
+        actionType: "property_note_updated",
+        description: `Property note updated for ${property.unit_name}`,
+        metadata: {
+          note_index: index,
+          note_text: editingNoteText.trim(),
+        },
+      });
+
       toast.success("Note updated successfully");
     } catch (error) {
       console.error("Error updating note:", error);
@@ -300,6 +322,16 @@ export function PropertyDetailsPopup({
       if (error) throw error;
 
       await fetchPropertyDetails();
+
+      await logActivity({
+        propertyId,
+        actionType: "property_note_deleted",
+        description: `Property note removed for ${property.unit_name}`,
+        metadata: {
+          note_index: index,
+        },
+      });
+
       toast.success("Note deleted successfully");
     } catch (error) {
       console.error("Error deleting note:", error);
@@ -786,6 +818,20 @@ export function PropertyDetailsPopup({
         // Refresh property details
         await fetchPropertyDetails();
 
+        await logActivity({
+          propertyId,
+          tenantId: activeTenant.id,
+          actionType: "payment_made",
+          description: `${paymentType === "deposit" ? "Security deposit" : "Advance payment"} updated for ${property.unit_name}`,
+          metadata: {
+            payment_type: paymentType,
+            amount: paymentAmount,
+            note: finalPaymentNote,
+            receipt_date: receiptDate || null,
+            new_value: newValue,
+          },
+        });
+
         toast.success(
           `${paymentType === "deposit" ? "Security Deposit" : "Advance Payment"} updated successfully`,
           {
@@ -1197,6 +1243,23 @@ export function PropertyDetailsPopup({
 
       // Refresh property details
       await fetchPropertyDetails();
+
+      await logActivity({
+        propertyId,
+        tenantId: activeTenant.id,
+        actionType: "payment_made",
+        description: `Payment applied to statement of account for ${property.unit_name}`,
+        metadata: {
+          amount: paymentAmount,
+          payment_type: paymentType,
+          note: finalPaymentNote,
+          receipt_date: receiptDate || null,
+          overflow_before: currentOverflow,
+          overflow_after: newOverflow,
+          per_person: isPerPersonPayment,
+          selected_tenant_index: selectedTenantIndex,
+        },
+      });
 
       // Show success message
       const tenantInfo =
@@ -2380,93 +2443,126 @@ export function PropertyDetailsPopup({
               {property.occupancy_status === "occupied" && activeTenant ? (
                 <>
                   {/* Financial Overview - Ticker Strip */}
-                  <div className="overflow-hidden bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 rounded-lg border shadow-sm">
-                    <div className="px-4 pt-3 text-[11px] text-muted-foreground">
-                      View: {selectedBillingTenantName}
-                    </div>
-                    <div className="overflow-x-auto scrollbar-hide">
-                      <div className="flex items-center justify-between sm:justify-around py-3 px-4 gap-4 sm:gap-6 min-w-max sm:min-w-0">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="min-w-0">
-                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                              Total Revenue
-                            </div>
-                            <div className="text-lg font-bold text-green-600 dark:text-green-400 whitespace-nowrap">
-                              {formatCurrency(totalRevenue)}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="h-10 w-px bg-border shrink-0" />
-
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="min-w-0">
-                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                              Pending Payments
-                            </div>
-                            <div className="text-lg font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                              {formatCurrency(pendingPayments)}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="h-10 w-px bg-border shrink-0" />
-
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="min-w-0">
-                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                              Unpaid Balance
-                            </div>
-                            <div className="text-lg font-bold text-red-600 dark:text-red-400 whitespace-nowrap">
-                              {formatCurrency(unpaidBalance)}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="h-10 w-px bg-border shrink-0" />
-
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="min-w-0">
-                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                              Advance Payment
-                            </div>
-                            <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                              {activeTenant.advance_payment !== undefined &&
-                              activeTenant.advance_payment > 0
-                                ? formatCurrency(activeTenant.advance_payment)
-                                : formatCurrency(0)}
+                  <div className="sticky top-0 z-20">
+                    <div className="overflow-hidden bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 rounded-lg border shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                      <div className="px-4 pt-3 flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                          View Mode
+                        </span>
+                        {paxCount > 1 ? (
+                          <Select
+                            value={billingViewMode}
+                            onValueChange={updateBillingViewMode}
+                          >
+                            <SelectTrigger
+                              id="billing-view-strip"
+                              className="h-8 text-xs w-full sm:w-[240px] bg-background/90"
+                            >
+                              <SelectValue placeholder="Select view mode" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="consolidated">
+                                Consolidated (All Tenants)
+                              </SelectItem>
+                              {activeTenant?.pax_details?.map((person, idx) => (
+                                <SelectItem key={idx} value={`tenant-${idx}`}>
+                                  {person.name || `Tenant ${idx + 1}`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">
+                            {selectedBillingTenantName}
+                          </span>
+                        )}
+                      </div>
+                      <div className="overflow-x-auto scrollbar-hide">
+                        <div className="flex items-center justify-between sm:justify-around py-3 px-4 gap-4 sm:gap-6 min-w-max sm:min-w-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="min-w-0">
+                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                                Total Revenue
+                              </div>
+                              <div className="text-lg font-bold text-green-600 dark:text-green-400 whitespace-nowrap">
+                                {formatCurrency(totalRevenue)}
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="h-10 w-px bg-border shrink-0" />
+                          <div className="h-10 w-px bg-border shrink-0" />
 
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="min-w-0">
-                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                              Security Deposit
-                            </div>
-                            <div className="text-lg font-bold text-cyan-600 dark:text-cyan-400 whitespace-nowrap">
-                              {activeTenant.security_deposit !== undefined &&
-                              activeTenant.security_deposit > 0
-                                ? formatCurrency(activeTenant.security_deposit)
-                                : formatCurrency(0)}
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="min-w-0">
+                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                                Pending Payments
+                              </div>
+                              <div className="text-lg font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                {formatCurrency(pendingPayments)}
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="h-10 w-px bg-border shrink-0" />
+                          <div className="h-10 w-px bg-border shrink-0" />
 
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="min-w-0">
-                            <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                              Overflow (Excess)
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="min-w-0">
+                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                                Unpaid Balance
+                              </div>
+                              <div className="text-lg font-bold text-red-600 dark:text-red-400 whitespace-nowrap">
+                                {formatCurrency(unpaidBalance)}
+                              </div>
                             </div>
-                            <div className="text-lg font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                              {activeTenant.overflow !== undefined &&
-                              activeTenant.overflow > 0
-                                ? formatCurrency(activeTenant.overflow)
-                                : formatCurrency(0)}
+                          </div>
+
+                          <div className="h-10 w-px bg-border shrink-0" />
+
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="min-w-0">
+                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                                Advance Payment
+                              </div>
+                              <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                                {activeTenant.advance_payment !== undefined &&
+                                activeTenant.advance_payment > 0
+                                  ? formatCurrency(activeTenant.advance_payment)
+                                  : formatCurrency(0)}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="h-10 w-px bg-border shrink-0" />
+
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="min-w-0">
+                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                                Security Deposit
+                              </div>
+                              <div className="text-lg font-bold text-cyan-600 dark:text-cyan-400 whitespace-nowrap">
+                                {activeTenant.security_deposit !== undefined &&
+                                activeTenant.security_deposit > 0
+                                  ? formatCurrency(
+                                      activeTenant.security_deposit,
+                                    )
+                                  : formatCurrency(0)}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="h-10 w-px bg-border shrink-0" />
+
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="min-w-0">
+                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
+                                Overflow (Excess)
+                              </div>
+                              <div className="text-lg font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
+                                {activeTenant.overflow !== undefined &&
+                                activeTenant.overflow > 0
+                                  ? formatCurrency(activeTenant.overflow)
+                                  : formatCurrency(0)}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -2527,39 +2623,6 @@ export function PropertyDetailsPopup({
                           </Button>
                         </div>
                       </div>
-
-                      {/* View Mode Selector for multi-tenant properties */}
-                      {paxCount > 1 && (
-                        <div className="mb-4">
-                          <Label
-                            htmlFor="billing-view"
-                            className="text-xs mb-2 block"
-                          >
-                            View Mode
-                          </Label>
-                          <Select
-                            value={billingViewMode}
-                            onValueChange={updateBillingViewMode}
-                          >
-                            <SelectTrigger
-                              id="billing-view"
-                              className="w-full md:w-64 h-9 text-xs"
-                            >
-                              <SelectValue placeholder="Select view mode" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="consolidated">
-                                Consolidated (All Tenants)
-                              </SelectItem>
-                              {activeTenant?.pax_details?.map((person, idx) => (
-                                <SelectItem key={idx} value={`tenant-${idx}`}>
-                                  {person.name || `Tenant ${idx + 1}`}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )}
 
                       {/* Info banner for multi-tenant payment tracking - only show in consolidated view */}
                       {paxCount > 1 && billingViewMode === "consolidated" && (
@@ -3345,6 +3408,16 @@ export function PropertyDetailsPopup({
 
             // Refresh property data
             await fetchPropertyDetails();
+
+            await logActivity({
+              propertyId,
+              actionType: "property_updated",
+              description: `Amenities updated for ${property?.unit_name || "property"}`,
+              metadata: {
+                amenities_count: selectedAmenities.length,
+              },
+            });
+
             toast.success("Amenities updated successfully");
           } catch (err) {
             console.error("Error updating amenities:", err);
