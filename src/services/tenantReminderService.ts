@@ -1,3 +1,4 @@
+import { supabase } from "@/lib/supabase";
 import { logActivity } from "@/services/activityLogService";
 
 interface ReminderPayload {
@@ -7,6 +8,8 @@ interface ReminderPayload {
   dueDate: string
   totalAmount: number
   billingEntryId: string
+  propertyId?: string
+  tenantId?: string
 }
 
 interface RateLimitKey {
@@ -82,6 +85,26 @@ export async function sendTenantReminder(payload: ReminderPayload): Promise<{
       }
     }
 
+    // Lookup billing entry to get propertyId and tenantId if not provided
+    let propertyId = payload.propertyId;
+    let tenantId = payload.tenantId;
+
+    if (!propertyId || !tenantId) {
+      const { data: billingEntry, error: billingError } = await supabase
+        .from("billing_entries")
+        .select("property_id, tenant_id")
+        .eq("id", payload.billingEntryId)
+        .single();
+
+      if (billingError || !billingEntry) {
+        console.error("Failed to lookup billing entry for activity log:", billingError);
+        // Continue anyway - don't block reminder send if lookup fails
+      } else {
+        propertyId = propertyId || billingEntry.property_id;
+        tenantId = tenantId || billingEntry.tenant_id;
+      }
+    }
+
     // Build SMS message
     const smsMessage = buildSMSMessage(
       payload.tenantName,
@@ -118,6 +141,8 @@ export async function sendTenantReminder(payload: ReminderPayload): Promise<{
     setRateLimitFlag(payload.billingEntryId)
 
     await logActivity({
+      propertyId,
+      tenantId,
       actionType: "tenant_reminder_sent",
       description: `SMS reminder sent to ${payload.tenantName}`,
       metadata: {
