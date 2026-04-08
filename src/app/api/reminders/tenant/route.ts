@@ -16,11 +16,7 @@ const reminderSchema = z.object({
 });
 
 function getReminderWebhookUrl(): string | null {
-  return (
-    process.env.ZAPIER_TENANT_REMINDER_WEBHOOK ||
-    process.env.NEXT_PUBLIC_ZAPIER_TENANT_REMINDER_URL ||
-    null
-  );
+  return process.env.ZAPIER_TENANT_REMINDER_WEBHOOK || null;
 }
 
 export async function POST(request: Request) {
