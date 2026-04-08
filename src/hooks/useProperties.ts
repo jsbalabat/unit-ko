@@ -22,6 +22,16 @@ interface PropertyWithTenant {
     pax?: number
     pax_details?: PersonDetail[]
     is_active: boolean
+    billing_entries?: Array<{
+      id: string
+      property_id: string
+      tenant_id: string | null
+      due_date: string
+      status: string
+      billing_period: number
+      paid_amount?: number
+      gross_due: number
+    }>
   }>
 }
 
@@ -62,8 +72,8 @@ export function useProperties() {
 
       console.log('Fetching properties for user:', user.id)
       
-      // Fetch only properties belonging to the current landlord
-      const { data, error } = await supabase
+      // Fetch only properties and tenant details first (billing entries are loaded separately).
+      const { data: propertiesDataRaw, error: propertiesError } = await supabase
         .from('properties')
         .select(`
           id,
@@ -80,33 +90,69 @@ export function useProperties() {
             contact_number,
             pax,
             pax_details,
-            is_active,
-            billing_entries (
-              id,
-              due_date,
-              status,
-              billing_period,
-              paid_amount,
-              gross_due
-            )
+            is_active
           )
         `)
         .eq('landlord_id', user.id)
         .order('created_at', { ascending: false })
 
-      if (error) {
-        console.error('Properties fetch error:', error)
-        throw error
+      if (propertiesError) {
+        console.error('Properties fetch error:', propertiesError)
+        throw propertiesError
       }
 
-      const propertiesData = data || []
-      setProperties(propertiesData)
+      const propertiesData = (propertiesDataRaw || []) as PropertyWithTenant[]
+
+      const propertyIds = propertiesData.map((property) => property.id)
+
+      const { data: billingRows, error: billingError } = propertyIds.length
+        ? await supabase
+            .from('billing_entries')
+            .select(`
+              id,
+              property_id,
+              tenant_id,
+              due_date,
+              status,
+              billing_period,
+              paid_amount,
+              gross_due
+            `)
+            .in('property_id', propertyIds)
+            .order('due_date', { ascending: true })
+        : { data: [], error: null }
+
+      if (billingError) {
+        console.error('Billing entries fetch error:', billingError)
+        throw billingError
+      }
+
+      const billingEntriesByTenantId = new Map<string, typeof billingRows>()
+      ;(billingRows || []).forEach((entry) => {
+        if (!entry.tenant_id) return
+
+        const existing = billingEntriesByTenantId.get(entry.tenant_id) || []
+        existing.push(entry)
+        billingEntriesByTenantId.set(entry.tenant_id, existing)
+      })
+
+      const hydratedProperties = propertiesData.map((property) => ({
+        ...property,
+        tenants: (property.tenants || []).map((tenant) => ({
+          ...tenant,
+          billing_entries: billingEntriesByTenantId.get(tenant.id) || [],
+        })),
+      }))
+
+      const propertiesDataFinal = hydratedProperties
+      
+      setProperties(propertiesDataFinal)
 
       // Calculate stats
-      const totalProperties = propertiesData.length
-      const activeRentals = propertiesData.filter(p => p.occupancy_status === 'occupied').length
-      const vacantProperties = propertiesData.filter(p => p.occupancy_status === 'vacant').length
-      const totalRevenue = propertiesData
+      const totalProperties = propertiesDataFinal.length
+      const activeRentals = propertiesDataFinal.filter(p => p.occupancy_status === 'occupied').length
+      const vacantProperties = propertiesDataFinal.filter(p => p.occupancy_status === 'vacant').length
+      const totalRevenue = propertiesDataFinal
         .filter(p => p.occupancy_status === 'occupied')
         .reduce((sum, p) => sum + p.rent_amount, 0)
 
