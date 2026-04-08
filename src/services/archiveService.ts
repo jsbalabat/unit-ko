@@ -34,121 +34,20 @@ export async function archiveAndResetProperty(data: ResetPropertyData): Promise<
   try {
     const { propertyId, tenantId, remarks } = data;
 
-    // Get current user to verify ownership
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      throw new Error('User not authenticated');
+    const { data: result, error } = await supabase.rpc('archive_and_reset_property_atomic', {
+      payload: {
+        propertyId,
+        tenantId,
+        remarks,
+      },
+    });
+
+    if (error) {
+      throw new Error(`Archive and reset failed: ${error.message}`);
     }
 
-    // 1. Fetch current property data (only if owned by current user)
-    const { data: property, error: propertyError } = await supabase
-      .from('properties')
-      .select('*')
-      .eq('id', propertyId)
-      .eq('landlord_id', user.id)
-      .single();
-
-    if (propertyError || !property) {
-      throw new Error('Property not found');
-    }
-
-    // 2. Fetch current tenant data
-    const { data: tenant, error: tenantError } = await supabase
-      .from('tenants')
-      .select('*')
-      .eq('id', tenantId)
-      .eq('property_id', propertyId)
-      .single();
-
-    if (tenantError || !tenant) {
-      throw new Error('Tenant not found');
-    }
-
-    // 3. Fetch all billing entries for this tenant
-    const { data: billingEntries, error: billingError } = await supabase
-      .from('billing_entries')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .order('billing_period', { ascending: true });
-
-    if (billingError) {
-      throw new Error('Failed to fetch billing entries');
-    }
-
-    // 4. Calculate totals
-    const totalDue = billingEntries?.reduce((sum, entry) => sum + entry.gross_due, 0) || 0;
-    const totalPaid = billingEntries?.filter(
-      (entry) => entry.status.toLowerCase().includes('paid') || entry.status.toLowerCase().includes('good standing')
-    ).reduce((sum, entry) => sum + entry.gross_due, 0) || 0;
-
-    // 5. Calculate rent end date (start date + contract months)
-    const rentStartDate = new Date(tenant.rent_start_date);
-    const rentEndDate = new Date(rentStartDate);
-    rentEndDate.setMonth(rentEndDate.getMonth() + tenant.contract_months);
-
-    // 6. Create archive entry
-    const { error: archiveError } = await supabase
-      .from('archived_tenants')
-      .insert({
-        landlord_id: property.landlord_id,
-        property_id: propertyId,
-        property_name: property.unit_name,
-        property_type: property.property_type,
-        property_location: property.property_location,
-        tenant_name: tenant.tenant_name,
-        contact_number: tenant.contact_number,
-        contract_months: tenant.contract_months,
-        rent_start_date: tenant.rent_start_date,
-        rent_end_date: rentEndDate.toISOString().split('T')[0],
-        due_day: tenant.due_day,
-        rent_amount: property.rent_amount,
-        total_paid: totalPaid,
-        total_due: totalDue,
-        archive_reason: remarks,
-        billing_entries: JSON.stringify(billingEntries || []),
-        archived_at: new Date().toISOString(),
-      });
-
-    if (archiveError) {
-      console.error('Archive error:', archiveError);
-      throw new Error('Failed to create archive');
-    }
-
-    // 7. Delete billing entries
-    const { error: deleteBillingError } = await supabase
-      .from('billing_entries')
-      .delete()
-      .eq('tenant_id', tenantId);
-
-    if (deleteBillingError) {
-      console.error('Delete billing error:', deleteBillingError);
-      throw new Error('Failed to delete billing entries');
-    }
-
-    // 8. Delete tenant
-    const { error: deleteTenantError } = await supabase
-      .from('tenants')
-      .delete()
-      .eq('id', tenantId);
-
-    if (deleteTenantError) {
-      console.error('Delete tenant error:', deleteTenantError);
-      throw new Error('Failed to delete tenant');
-    }
-
-    // 9. Update property to vacant
-    const { error: updatePropertyError } = await supabase
-      .from('properties')
-      .update({
-        occupancy_status: 'vacant',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', propertyId);
-
-    if (updatePropertyError) {
-      console.error('Update property error:', updatePropertyError);
-      throw new Error('Failed to update property status');
+    if (!result || typeof result !== 'object' || !(result as { success?: boolean }).success) {
+      throw new Error('Archive and reset returned an invalid response');
     }
 
     return { success: true };

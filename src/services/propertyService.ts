@@ -61,7 +61,13 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
     })
 
     if (error) {
-      throw new Error(`Property submission failed: ${error.message}`)
+      const diagnostic = [
+        `message=${error.message}`,
+        `code=${error.code ?? 'n/a'}`,
+        `details=${error.details ?? 'n/a'}`,
+        `hint=${error.hint ?? 'n/a'}`,
+      ].join(' | ')
+      throw new Error(`Property submission failed: ${diagnostic}`)
     }
 
     if (!data || typeof data !== 'object' || !('property' in data)) {
