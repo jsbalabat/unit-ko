@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { logActivity } from '@/services/activityLogService';
 
 export interface ArchivedTenant {
   id: string;
@@ -48,6 +49,23 @@ export async function archiveAndResetProperty(data: ResetPropertyData): Promise<
 
     if (!result || typeof result !== 'object' || !(result as { success?: boolean }).success) {
       throw new Error('Archive and reset returned an invalid response');
+    }
+
+    // Log the archive and reset activity
+    try {
+      await logActivity({
+        propertyId,
+        tenantId,
+        actionType: "property_reset",
+        description: `Property archived and reset: ${remarks}`,
+        metadata: {
+          remarks,
+          archived_at: new Date().toISOString(),
+        },
+      });
+    } catch (logError) {
+      console.error("Failed to log archive and reset activity:", logError);
+      // Don't block archive operation if logging fails
     }
 
     return { success: true };
