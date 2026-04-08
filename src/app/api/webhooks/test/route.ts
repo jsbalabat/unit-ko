@@ -79,8 +79,6 @@ export async function GET(request: Request) {
       body: JSON.stringify(testPayload),
     });
 
-    const responseText = await response.text();
-
     return Response.json({
       success: response.ok,
       event,

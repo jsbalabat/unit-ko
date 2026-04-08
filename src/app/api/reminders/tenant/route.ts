@@ -5,11 +5,11 @@ import { z } from "zod";
 
 const reminderSchema = z.object({
   eventType: z.literal("tenant_reminder"),
-  timestamp: z.string(),
+  timestamp: z.string().datetime(),
   tenantName: z.string().trim().min(1).max(200),
   tenantPhone: z.string().trim().min(5).max(40),
   propertyName: z.string().trim().min(1).max(200),
-  dueDate: z.string().trim().min(1).max(40),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   amount: z.number().finite().nonnegative(),
   message: z.string().trim().min(1).max(500),
   billingEntryId: z.string().trim().min(1).max(100),

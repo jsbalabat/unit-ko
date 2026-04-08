@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { z } from "zod";
 
 const COOKIE_SECRET = process.env.TENANT_SESSION_SECRET;
 
@@ -10,10 +11,12 @@ if (!COOKIE_SECRET) {
 export const TENANT_SESSION_COOKIE = "tenant_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24; // 24 hours
 
-type SessionPayload = {
-  tenantId: string;
-  exp: number;
-};
+const sessionPayloadSchema = z.object({
+  tenantId: z.string().trim().min(1),
+  exp: z.number().int().positive(),
+});
+
+type SessionPayload = z.infer<typeof sessionPayloadSchema>;
 
 function getSecret(): string {
   return COOKIE_SECRET || "insecure-dev-fallback-change-this";
@@ -58,8 +61,11 @@ export function verifyTenantSessionToken(token: string): SessionPayload | null {
 
     if (!valid) return null;
 
-    const parsed = JSON.parse(base64UrlDecode(payloadBase64)) as SessionPayload;
-    if (!parsed?.tenantId || !parsed?.exp) return null;
+    const payloadJson = JSON.parse(base64UrlDecode(payloadBase64));
+    const parsedResult = sessionPayloadSchema.safeParse(payloadJson);
+    if (!parsedResult.success) return null;
+
+    const parsed = parsedResult.data;
 
     if (parsed.exp < Math.floor(Date.now() / 1000)) return null;
 

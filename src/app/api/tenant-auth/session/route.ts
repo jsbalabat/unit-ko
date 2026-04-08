@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import { TENANT_SESSION_COOKIE, verifyTenantSessionToken } from "@/lib/tenant-session";
+
+const cookieValueSchema = z.string().trim().min(1).max(4096);
 
 function getSupabaseServerClient() {
   return createClient(
@@ -11,11 +14,14 @@ function getSupabaseServerClient() {
 
 export async function GET(request: Request) {
   const cookieHeader = request.headers.get("cookie") || "";
-  const cookieValue = cookieHeader
+  const rawCookieValue = cookieHeader
     .split(";")
     .map((part) => part.trim())
     .find((part) => part.startsWith(`${TENANT_SESSION_COOKIE}=`))
-    ?.split("=")[1];
+    ?.slice(TENANT_SESSION_COOKIE.length + 1);
+
+  const cookieValueParsed = cookieValueSchema.safeParse(rawCookieValue);
+  const cookieValue = cookieValueParsed.success ? cookieValueParsed.data : null;
 
   if (!cookieValue) {
     return NextResponse.json({ authenticated: false }, { status: 401 });
