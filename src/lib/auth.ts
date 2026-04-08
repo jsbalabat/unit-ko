@@ -29,13 +29,22 @@ export async function checkLandlordAuth(): Promise<boolean> {
 }
 
 /**
- * Check if a tenant is authenticated via sessionStorage
+ * Check if a tenant is authenticated via server-backed tenant session cookie
  */
-export function checkTenantAuth(): boolean {
+export async function checkTenantAuth(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
-  
-  const tenantId = sessionStorage.getItem('tenantId');
-  return !!tenantId;
+
+  try {
+    const response = await fetch('/api/tenant-auth/session', {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    });
+
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -47,7 +56,7 @@ export async function getUserRole(): Promise<UserRole> {
   if (isLandlord) return 'landlord';
   
   // Check tenant auth
-  const isTenant = checkTenantAuth();
+  const isTenant = await checkTenantAuth();
   if (isTenant) return 'tenant';
   
   return null;
@@ -66,11 +75,25 @@ export async function getLandlordUserId(): Promise<string | null> {
 }
 
 /**
- * Get tenant ID from sessionStorage
+ * Get tenant ID from server-backed tenant session
  */
-export function getTenantId(): string | null {
+export async function getTenantId(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
-  return sessionStorage.getItem('tenantId');
+
+  try {
+    const response = await fetch('/api/tenant-auth/session', {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    });
+
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as { tenantId?: string };
+    return data.tenantId ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -89,9 +112,17 @@ export async function logoutLandlord(): Promise<void> {
 /**
  * Logout tenant
  */
-export function logoutTenant(): void {
-  sessionStorage.removeItem('tenantId');
-  sessionStorage.removeItem('tenantEmail');
+export async function logoutTenant(): Promise<void> {
+  if (typeof window === 'undefined') return;
+
+  try {
+    await fetch('/api/tenant-auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+    });
+  } catch {
+    // No-op: caller handles redirect regardless.
+  }
 }
 
 /**
@@ -99,5 +130,5 @@ export function logoutTenant(): void {
  */
 export async function clearAllAuth(): Promise<void> {
   await logoutLandlord();
-  logoutTenant();
+  await logoutTenant();
 }

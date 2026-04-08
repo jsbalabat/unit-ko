@@ -17,7 +17,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, Mail, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { authenticateTenant } from "@/services/tenantService";
 import { toast } from "sonner";
 import { checkTenantAuth } from "@/lib/auth";
 
@@ -45,29 +44,36 @@ export default function TenantLogin() {
 
   // Check if already authenticated, redirect to dashboard
   useEffect(() => {
-    if (checkTenantAuth()) {
-      router.replace("/dashboard/tenant");
-    }
+    const checkExistingTenantSession = async () => {
+      const authenticated = await checkTenantAuth();
+      if (authenticated) {
+        router.replace("/dashboard/tenant");
+      }
+    };
+
+    checkExistingTenantSession();
   }, [router]);
 
   const onSubmit = async (data: z.infer<typeof formSchema>) => {
     setIsLoading(true);
 
     try {
-      const tenantId = await authenticateTenant(data.identifier);
+      const response = await fetch("/api/tenant-auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ identifier: data.identifier }),
+      });
 
-      if (tenantId) {
-        // Store tenant ID in sessionStorage for the dashboard
-        sessionStorage.setItem("tenantId", tenantId);
-        sessionStorage.setItem("tenantIdentifier", data.identifier);
-
-        toast.success("Login successful! Redirecting...");
-        router.push("/dashboard/tenant");
-      } else {
+      if (!response.ok) {
         toast.error(
           "No tenant account found with this contact number or email address",
         );
+        return;
       }
+
+      toast.success("Login successful! Redirecting...");
+      router.push("/dashboard/tenant");
     } catch (error) {
       console.error("Login error:", error);
       toast.error("An error occurred during login. Please try again.");

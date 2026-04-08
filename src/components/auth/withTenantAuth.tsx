@@ -20,9 +20,9 @@ export function withTenantAuth<P extends object>(
     const [isChecking, setIsChecking] = useState(true);
 
     useEffect(() => {
-      const checkAuth = () => {
+      const checkAuth = async () => {
         try {
-          const authenticated = checkTenantAuth();
+          const authenticated = await checkTenantAuth();
 
           if (!authenticated) {
             router.replace("/auth/tenant/login");

@@ -1,7 +1,15 @@
+import { z } from "zod";
+
 type WebhookEvent =
   | "rent_due_today"
   | "payment_submitted"
   | "landlord_confirms_payment";
+
+const querySchema = z.object({
+  event: z
+    .enum(["rent_due_today", "payment_submitted", "landlord_confirms_payment"])
+    .default("rent_due_today"),
+});
 
 function getWebhookUrl(event: WebhookEvent): string | undefined {
   if (event === "rent_due_today") return process.env.ZAPIER_RENT_DUE_WEBHOOK;
@@ -37,23 +45,20 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const eventParam = url.searchParams.get("event") ?? "rent_due_today";
+  const parsedQuery = querySchema.safeParse({
+    event: url.searchParams.get("event") ?? "rent_due_today",
+  });
 
-  if (
-    eventParam !== "rent_due_today" &&
-    eventParam !== "payment_submitted" &&
-    eventParam !== "landlord_confirms_payment"
-  ) {
+  if (!parsedQuery.success) {
     return Response.json(
       {
-        error:
-          "Invalid event. Use one of: rent_due_today, payment_submitted, landlord_confirms_payment",
+        error: "Invalid event. Use one of: rent_due_today, payment_submitted, landlord_confirms_payment",
       },
       { status: 400 }
     );
   }
 
-  const event = eventParam as WebhookEvent;
+  const event = parsedQuery.data.event as WebhookEvent;
   const webhookUrl = getWebhookUrl(event);
 
   if (!webhookUrl || webhookUrl.includes("xxxxx/yyyy")) {

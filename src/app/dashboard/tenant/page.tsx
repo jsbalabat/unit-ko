@@ -25,10 +25,7 @@ import {
   Banknote,
   AlertCircle,
 } from "lucide-react";
-import {
-  fetchTenantDashboardData,
-  TenantDashboardData,
-} from "@/services/tenantService";
+import { TenantDashboardData } from "@/services/tenantService";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/button";
 import {
@@ -54,16 +51,19 @@ function TenantDashboard() {
 
   useEffect(() => {
     const loadDashboard = async () => {
-      // Check if tenant is authenticated
-      const tenantId = sessionStorage.getItem("tenantId");
-
-      if (!tenantId) {
-        router.push("/auth/tenant/login");
-        return;
-      }
-
       try {
-        const data = await fetchTenantDashboardData(tenantId);
+        const response = await fetch("/api/tenant/dashboard", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          router.push("/auth/tenant/login");
+          return;
+        }
+
+        const data = (await response.json()) as TenantDashboardData;
 
         if (data) {
           setDashboardData(data);
@@ -81,10 +81,15 @@ function TenantDashboard() {
     loadDashboard();
   }, [router]);
 
-  const handleLogout = () => {
-    sessionStorage.removeItem("tenantId");
-    sessionStorage.removeItem("tenantEmail");
-    router.push("/auth/tenant/login");
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/tenant-auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } finally {
+      router.push("/auth/tenant/login");
+    }
   };
 
   const handlePayNow = (billing: any) => {

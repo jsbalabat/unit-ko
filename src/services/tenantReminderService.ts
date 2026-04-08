@@ -90,23 +90,13 @@ export async function sendTenantReminder(payload: ReminderPayload): Promise<{
       payload.totalAmount
     )
 
-    // Get the Zapier webhook URL from environment variables
-    const zapierWebhookUrl = process.env.NEXT_PUBLIC_ZAPIER_TENANT_REMINDER_URL
-
-    if (!zapierWebhookUrl) {
-      console.error('NEXT_PUBLIC_ZAPIER_TENANT_REMINDER_URL is not configured')
-      return {
-        success: false,
-        message: 'SMS service is not properly configured. Please contact the administrator.'
-      }
-    }
-
-    // Send to Zapier webhook
-    const response = await fetch(zapierWebhookUrl, {
+    // Send through backend so webhook URL remains server-side.
+    const response = await fetch('/api/reminders/tenant', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({
         eventType: 'tenant_reminder',
         timestamp: new Date().toISOString(),
