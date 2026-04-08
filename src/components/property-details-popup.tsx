@@ -832,6 +832,9 @@ export function PropertyDetailsPopup({
           },
         });
 
+        // Refresh again so Activity Log tab includes the newly written payment log.
+        await fetchPropertyDetails();
+
         toast.success(
           `${paymentType === "deposit" ? "Security Deposit" : "Advance Payment"} updated successfully`,
           {
@@ -1256,6 +1259,9 @@ export function PropertyDetailsPopup({
           selected_tenant_index: selectedTenantIndex,
         },
       });
+
+      // Refresh again so Activity Log tab includes the newly written payment log.
+      await fetchPropertyDetails();
 
       // Show success message
       const tenantInfo =
