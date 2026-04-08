@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import type { Property, Tenant, BillingEntry } from '@/lib/supabase'
+import { logActivity } from '@/services/activityLogService'
 
 // Interface for individual tenant in bed space
 interface TenantInfo {
@@ -78,6 +79,31 @@ export async function submitPropertyData(formData: PropertyFormData): Promise<Pr
       property: Property
       tenants?: Tenant[]
       billingEntries?: BillingEntry[]
+    }
+
+    // Log property creation activity
+    try {
+      await logActivity({
+        propertyId: response.property.id,
+        actionType: "property_created",
+        description: `New property created: ${formData.unitName}`,
+        metadata: {
+          property_type: formData.propertyType,
+          property_location: formData.propertyLocation,
+          pax: formData.maxTenants,
+          rent_amount: formData.rentAmount,
+          contract_months: formData.contractMonths,
+          lease_date: formData.leaseDate,
+          rent_start_date: formData.rentStartDate,
+          advance_payment: formData.advancePayment,
+          security_deposit: formData.securityDeposit,
+          billing_entries_count: response.billingEntries?.length ?? 0,
+          tenants_count: response.tenants?.length ?? 0,
+        },
+      });
+    } catch (logError) {
+      console.error("Failed to log property creation activity:", logError);
+      // Don't block property creation if logging fails
     }
 
     return {
