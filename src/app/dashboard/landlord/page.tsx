@@ -833,8 +833,8 @@ function LandlordDashboard() {
                           )}
                         />
                         <CardHeader className="pb-2">
-                          <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg line-clamp-1 flex items-center gap-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <CardTitle className="text-lg line-clamp-1 flex items-center gap-2 min-w-0 flex-1">
                               <Building
                                 className={`h-5 w-5 flex-shrink-0 ${getPropertyIcon(
                                   property.property_type,
@@ -842,7 +842,7 @@ function LandlordDashboard() {
                               />
                               {property.unit_name}
                             </CardTitle>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 flex-shrink-0">
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -854,9 +854,9 @@ function LandlordDashboard() {
                               </Button>
                             </div>
                           </div>
-                          <CardDescription className="flex items-center text-xs">
+                          <CardDescription className="flex items-start text-xs min-w-0">
                             <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
-                            <span className="truncate">
+                            <span className="min-w-0 break-words line-clamp-2">
                               {property.property_location}
                             </span>
                           </CardDescription>
