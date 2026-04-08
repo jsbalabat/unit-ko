@@ -185,39 +185,89 @@ After migration:
 - Rich billing model for multi-occupant rentals.
 - Extensive domain docs and migration history preserve business intent.
 
-## 11) Weaknesses and Risks
+## 11) Audit Findings (Security, Reliability, Efficiency)
 
-### Critical
-- Tenant authentication is lightweight (identifier + sessionStorage) and not equivalent to password-based auth.
-- Some business-critical calculations happen in client-heavy flows, increasing risk of drift and complexity.
-- No automated test suite is present.
+Findings below are based on direct code review as of April 2026.
 
-### High
-- Documentation drift: several docs are stale or empty while feature behavior evolved.
-- Transaction-like multi-step operations (archive or reset, property creation cleanup) are not wrapped in DB transactions.
-- Activity logging is not consistently applied to all mutation paths.
+### Security issues
 
-### Medium
-- Subscription enforcement is not consistently centralized.
-- Environment documentation is incomplete (.env.example empty).
-- Very large UI components (notably property details and billing-related popups) increase maintenance cost.
+#### Critical
+- Tenant auth trust is client-side only in current flow.
+	- Evidence: `src/lib/auth.ts` uses `sessionStorage` (`checkTenantAuth`, `getTenantId`), and `src/app/auth/tenant/login/page.tsx` stores the tenant identifier in `sessionStorage` after lookup.
+	- Risk: session spoofing and unauthorized tenant dashboard access.
 
-## 12) Recommendations
+#### High
+- Reminder webhook is called directly from client using a public env var.
+	- Evidence: `src/services/tenantReminderService.ts` reads `NEXT_PUBLIC_ZAPIER_TENANT_REMINDER_URL` and calls it from browser code.
+	- Risk: endpoint disclosure, bypass of centralized server-side controls, weak abuse protection.
+- Development webhook test route has minimal request validation and no signature model.
+	- Evidence: `src/app/api/webhooks/test/route.ts` validates only query `event` strings.
+	- Risk: weak baseline pattern for future production webhook/API endpoints.
 
-### Priority 1 (stability and security)
-1. Harden tenant auth flow (tokenized flow or OTP/passwordless with server verification).
-2. Move critical billing mutation logic into secure server-side endpoints or RPC functions.
-3. Add integration tests for auth, billing mutation, archive/reset, and RLS behavior.
+#### Medium
+- Tenant reminder rate limit is local-browser-only.
+	- Evidence: `src/services/tenantReminderService.ts` uses `localStorage` key checks.
+	- Risk: easy bypass across devices/sessions; no server-enforced throttling.
 
-### Priority 2 (correctness and operability)
-1. Convert archive/reset and other multi-step write flows into transactional RPC procedures.
-2. Centralize activity logging in service utilities and call from all mutation points.
-3. Create an authoritative .env.example with all required variables and descriptions.
+### Reliability issues
 
-### Priority 3 (maintainability)
-1. Break large UI modules into smaller composable units.
-2. Add pagination or query slicing for heavy property and billing views.
-3. Consolidate and retire stale docs in docs/ after this README becomes source-of-truth.
+#### Critical
+- Multi-step create flow is not atomic.
+	- Evidence: `src/services/propertyService.ts` inserts property, tenant, profile, and billing entries sequentially with manual cleanup.
+	- Risk: partial writes and orphaned/inconsistent data on mid-flow failure.
+
+#### High
+- Archive/reset workflow is non-transactional across multiple destructive writes.
+	- Evidence: `src/services/archiveService.ts` performs fetch, archive insert, billing delete, tenant delete, and property update as separate operations.
+	- Risk: race conditions and partial reset states under concurrent actions or transient failures.
+- No automated tests in project scripts.
+	- Evidence: `package.json` includes `dev`, `build`, `start`, `lint` but no unit/integration/e2e test script.
+	- Risk: regression risk for billing, auth, and migration-sensitive paths.
+
+#### Medium
+- Environment onboarding remains fragile.
+	- Evidence: `.env.example` is empty.
+	- Risk: misconfiguration and inconsistent local/staging/prod behavior.
+
+### Efficiency issues
+
+#### High
+- Dashboard data fetching is broad and nested by default.
+	- Evidence: `src/hooks/useProperties.ts` fetches properties with nested tenants and nested billing entries for all landlord properties in one query.
+	- Risk: slow initial loads and heavy client-side processing at scale.
+
+#### Medium
+- Complex UI modules carry high maintenance and render-cost risk.
+	- Evidence: billing and property form flows are concentrated in very large components, notably `src/components/edit-billing-popup.tsx` and `src/components/form-add-property.tsx`.
+	- Risk: higher rerender overhead, harder debugging, and slower feature iteration.
+
+## 12) Improvement Plan
+
+### 0-30 days (highest impact)
+1. Replace tenant `sessionStorage` auth with server-validated tenant sessions (Supabase auth, OTP, or signed token flow).
+2. Move tenant reminder sending behind server API routes; keep webhook URLs server-only.
+3. Add server-side request validation schemas (zod) for all API routes and future webhook handlers.
+4. Convert property create flow into one atomic DB RPC transaction.
+5. Add a minimal test baseline for critical paths: auth guard, create property flow, archive/reset flow, billing save flow.
+
+### 31-60 days (stability and operability)
+1. Convert archive/reset to a single transactional RPC with rollback-safe behavior.
+2. Add server-enforced rate limiting for reminder sending (per tenant/billing/day).
+3. Introduce structured error taxonomy and consistent error handling across service layer.
+4. Populate `.env.example` with every required variable and usage notes.
+5. Add migration verification checklist (post-migration health queries for required columns and RLS policies).
+
+### 61-90 days (scalability and maintainability)
+1. Refactor large components into smaller modules with clearer state boundaries.
+2. Add pagination/query slicing in landlord dashboard data loading.
+3. Move expensive derived calculations to memoized selectors or server-side computed queries.
+4. Add CI gates for lint + typecheck + tests before deployment.
+5. Consolidate docs into one maintained set and archive stale duplicates.
+
+### Suggested security baseline controls
+1. Enforce least-privilege RLS policies and validate with automated RLS tests.
+2. Add audit logging for sensitive mutation paths (already partially implemented; continue coverage).
+3. Add API abuse controls: request size limits, throttling, and standardized validation errors.
 
 ## 13) AI Agent Working Context
 
