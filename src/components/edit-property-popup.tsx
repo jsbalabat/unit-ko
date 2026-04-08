@@ -78,6 +78,14 @@ interface PersonDetail {
   phone: string;
 }
 
+type BillingFrequency =
+  | "weekly"
+  | "bi-weekly"
+  | "monthly"
+  | "quarterly"
+  | "semi-annually"
+  | "annually";
+
 interface Tenant {
   id: string;
   property_id: string;
@@ -121,6 +129,8 @@ interface PropertyFormData {
   paxDetails: PersonDetail[];
   contractMonths: number;
   rentStartDate: string;
+  formBasis: BillingFrequency;
+  rentPerPerson: number;
   dueDay: string;
   billingSchedule: Array<{
     id: string;
@@ -147,6 +157,26 @@ interface EditPropertyPopupProps {
   onSwitchToBilling?: () => void;
 }
 
+const inferBillingFrequency = (
+  entries: BillingEntry[] | undefined,
+): BillingFrequency => {
+  if (!entries || entries.length < 2) return "monthly";
+
+  const sorted = [...entries].sort(
+    (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
+  );
+  const first = new Date(sorted[0].due_date).getTime();
+  const second = new Date(sorted[1].due_date).getTime();
+  const diffDays = Math.round(Math.abs(second - first) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 8) return "weekly";
+  if (diffDays <= 16) return "bi-weekly";
+  if (diffDays <= 45) return "monthly";
+  if (diffDays <= 120) return "quarterly";
+  if (diffDays <= 220) return "semi-annually";
+  return "annually";
+};
+
 export function EditPropertyPopup({
   propertyId,
   isOpen,
@@ -164,6 +194,37 @@ export function EditPropertyPopup({
   const [editingPersonIndex, setEditingPersonIndex] = useState<number | null>(
     null,
   );
+
+  const calculatePeriodDueDate = (
+    startDate: Date,
+    periodIndex: number,
+    formBasis: BillingFrequency,
+    dueDay: string,
+  ): Date => {
+    const base = new Date(startDate);
+
+    if (formBasis === "weekly") {
+      base.setDate(base.getDate() + periodIndex * 7);
+      return base;
+    }
+
+    if (formBasis === "bi-weekly") {
+      base.setDate(base.getDate() + periodIndex * 14);
+      return base;
+    }
+
+    const monthStep =
+      formBasis === "quarterly"
+        ? 3
+        : formBasis === "semi-annually"
+          ? 6
+          : formBasis === "annually"
+            ? 12
+            : 1;
+
+    base.setMonth(base.getMonth() + periodIndex * monthStep);
+    return calculateDueDate(base, dueDay);
+  };
 
   // Fetch property data when the popup opens
   useEffect(() => {
@@ -201,6 +262,10 @@ export function EditPropertyPopup({
         const activeTenant = propertyData.tenants?.find((t) => t.is_active);
 
         // Prepare form data
+        const inferredFrequency = inferBillingFrequency(
+          activeTenant?.billing_entries,
+        );
+        const initialPax = activeTenant?.pax || 1;
         const initialFormData: PropertyFormData = {
           id: propertyData.id,
           unitName: propertyData.unit_name,
@@ -211,10 +276,15 @@ export function EditPropertyPopup({
           tenantId: activeTenant?.id,
           tenantName: activeTenant?.tenant_name || "",
           contactNumber: activeTenant?.contact_number || "",
-          pax: activeTenant?.pax || 1,
+          pax: initialPax,
           paxDetails: activeTenant?.pax_details || [],
           contractMonths: activeTenant?.contract_months || 0,
           rentStartDate: activeTenant?.rent_start_date || "",
+          formBasis: inferredFrequency,
+          rentPerPerson:
+            initialPax > 0
+              ? Number((propertyData.rent_amount / initialPax).toFixed(2))
+              : propertyData.rent_amount,
           dueDay: activeTenant?.due_day || "30th/31st - Last Day",
           billingSchedule: [],
         };
@@ -301,20 +371,17 @@ export function EditPropertyPopup({
           initialFormData.billingSchedule.length > 0 &&
           initialFormData.dueDay
         ) {
-          // Recalculate all dates to match the due day setting
+          // Recalculate all dates to match configured frequency and due marker.
           const rentStartDate = initialFormData.rentStartDate
             ? new Date(initialFormData.rentStartDate)
             : new Date();
 
           const updatedSchedule = initialFormData.billingSchedule.map(
             (entry, index) => {
-              // Calculate the month for this billing entry
-              const entryMonth = new Date(rentStartDate);
-              entryMonth.setMonth(rentStartDate.getMonth() + index);
-
-              // Apply the due day rule
-              const dueDate = calculateDueDate(
-                entryMonth,
+              const dueDate = calculatePeriodDueDate(
+                rentStartDate,
+                index,
+                initialFormData.formBasis,
                 initialFormData.dueDay,
               );
 
@@ -437,6 +504,10 @@ export function EditPropertyPopup({
       });
 
       updatedFormData.billingSchedule = updatedSchedule;
+      updatedFormData.rentPerPerson =
+        updatedFormData.pax > 0
+          ? Number((newRentAmount / updatedFormData.pax).toFixed(2))
+          : newRentAmount;
 
       const updatedCount = updatedSchedule.filter(
         (entry) => new Date(entry.dueDate) >= currentDate,
@@ -447,23 +518,44 @@ export function EditPropertyPopup({
           updatedCount !== 1 ? "s" : ""
         }. Past payments were not affected.`,
       });
+    } else if (field === "rentPerPerson") {
+      const newPerPerson =
+        typeof value === "number" ? value : parseFloat(value as string) || 0;
+      updatedFormData.rentPerPerson = newPerPerson;
+
+      const recalculatedTotalRent =
+        Math.max(1, updatedFormData.pax) * newPerPerson;
+      updatedFormData.rentAmount = recalculatedTotalRent;
+
+      if (formData.billingSchedule.length > 0) {
+        const currentDate = new Date();
+        updatedFormData.billingSchedule = formData.billingSchedule.map(
+          (entry) => {
+            const dueDate = new Date(entry.dueDate);
+            if (dueDate < currentDate) return entry;
+
+            const updatedRentDue = recalculatedTotalRent;
+            return {
+              ...entry,
+              rentDue: updatedRentDue,
+              grossDue: updatedRentDue + entry.otherCharges,
+            };
+          },
+        );
+      }
     } else if (field === "dueDay" && formData.billingSchedule.length > 0) {
-      // When due day changes, update all billing dates
-      const updatedSchedule = formData.billingSchedule.map((entry) => {
-        const currentDate = new Date(entry.dueDate);
+      // When due marker changes, update all billing dates using selected frequency.
+      const baseDate = updatedFormData.rentStartDate
+        ? new Date(updatedFormData.rentStartDate)
+        : new Date();
 
-        const firstEntryDate = new Date(formData.billingSchedule[0].dueDate);
-        const monthDiff =
-          (currentDate.getFullYear() - firstEntryDate.getFullYear()) * 12 +
-          (currentDate.getMonth() - firstEntryDate.getMonth());
-
-        const baseDate = formData.rentStartDate
-          ? new Date(formData.rentStartDate)
-          : new Date();
-
-        baseDate.setMonth(baseDate.getMonth() + monthDiff);
-
-        const newDueDate = calculateDueDate(baseDate, value as string);
+      const updatedSchedule = formData.billingSchedule.map((entry, index) => {
+        const newDueDate = calculatePeriodDueDate(
+          baseDate,
+          index,
+          updatedFormData.formBasis,
+          value as string,
+        );
 
         return {
           ...entry,
@@ -475,8 +567,34 @@ export function EditPropertyPopup({
 
       toast.success("Payment dates updated", {
         description:
-          "All billing dates have been adjusted to match the new payment schedule",
+          "All billing dates have been adjusted to match the selected frequency and due marker",
       });
+    } else if (
+      (field === "formBasis" || field === "rentStartDate") &&
+      formData.billingSchedule.length > 0
+    ) {
+      const baseDate =
+        field === "rentStartDate" && typeof value === "string" && value
+          ? new Date(value)
+          : updatedFormData.rentStartDate
+            ? new Date(updatedFormData.rentStartDate)
+            : new Date();
+
+      const updatedSchedule = formData.billingSchedule.map((entry, index) => {
+        const newDueDate = calculatePeriodDueDate(
+          baseDate,
+          index,
+          updatedFormData.formBasis,
+          updatedFormData.dueDay,
+        );
+
+        return {
+          ...entry,
+          dueDate: formatDueDate(newDueDate),
+        };
+      });
+
+      updatedFormData.billingSchedule = updatedSchedule;
     }
 
     // Sync tenant fields to Person 1 in paxDetails
@@ -599,11 +717,25 @@ export function EditPropertyPopup({
       updatedPaxDetails.pop();
     }
 
-    setFormData({
+    const updatedData: PropertyFormData = {
       ...formData,
       pax: newPax,
       paxDetails: updatedPaxDetails,
-    });
+    };
+
+    if (updatedData.rentPerPerson > 0) {
+      const recalculatedTotalRent = updatedData.rentPerPerson * newPax;
+      updatedData.rentAmount = recalculatedTotalRent;
+      updatedData.billingSchedule = updatedData.billingSchedule.map(
+        (entry) => ({
+          ...entry,
+          rentDue: recalculatedTotalRent,
+          grossDue: recalculatedTotalRent + entry.otherCharges,
+        }),
+      );
+    }
+
+    setFormData(updatedData);
   };
 
   // Submit the form
@@ -635,8 +767,9 @@ export function EditPropertyPopup({
 
       // Validate due day is set
       if (!formData.dueDay || formData.dueDay.trim() === "") {
-        toast.error("Payment Due Day is required", {
-          description: "Please set the payment due day of the month",
+        toast.error("Payment Due Marker is required", {
+          description:
+            "Please set the payment due marker for each billing period",
         });
         return;
       }
@@ -645,6 +778,28 @@ export function EditPropertyPopup({
       if (!formData.pax || formData.pax < 1) {
         toast.error("Number of Pax is required", {
           description: "Please set the number of occupants (at least 1)",
+        });
+        return;
+      }
+
+      if (!formData.contractMonths || formData.contractMonths < 1) {
+        toast.error("Contract duration is required", {
+          description: "Please provide the number of billing periods.",
+        });
+        return;
+      }
+
+      if (!formData.formBasis) {
+        toast.error("Frequency basis is required", {
+          description: "Please select a billing frequency.",
+        });
+        return;
+      }
+
+      if (!formData.rentPerPerson || formData.rentPerPerson <= 0) {
+        toast.error("Per-person payment is required", {
+          description:
+            "Please provide a valid rent amount per individual tenant.",
         });
         return;
       }
@@ -686,6 +841,7 @@ export function EditPropertyPopup({
           tenant_name: person1Data.name || formData.tenantName,
           contact_number: person1Data.phone || formData.contactNumber,
           rent_start_date: formData.rentStartDate,
+          contract_months: formData.contractMonths || 0,
           due_day: formData.dueDay,
           pax: formData.pax,
           pax_details: formData.paxDetails,
@@ -922,6 +1078,10 @@ export function EditPropertyPopup({
         metadata: {
           occupancy_status: finalOccupancyStatus,
           property_type: formData.propertyType,
+          billing_frequency: formData.formBasis,
+          contract_periods: formData.contractMonths,
+          rent_start_date: formData.rentStartDate,
+          rent_per_person: formData.rentPerPerson,
           rent_amount: formData.rentAmount,
           pax: formData.pax,
           billing_entries: formData.billingSchedule.length,
@@ -1280,6 +1440,28 @@ export function EditPropertyPopup({
                   </div>
 
                   <div className="space-y-2">
+                    <Label htmlFor="contractMonths">
+                      Contract Duration (Period)
+                    </Label>
+                    <Input
+                      id="contractMonths"
+                      type="number"
+                      min="1"
+                      value={formData.contractMonths ?? ""}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/^0+(?=\d)/, "");
+                        handleChange("contractMonths", parseInt(value) || 0);
+                      }}
+                      placeholder="e.g., 12"
+                      disabled={isLocked}
+                      className={isLocked ? "opacity-70" : ""}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Number of billing periods in the contract.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
                     <Label htmlFor="rentStartDate"> Rent Agreement Date</Label>
                     <Input
                       id="rentStartDate"
@@ -1294,13 +1476,66 @@ export function EditPropertyPopup({
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <Label htmlFor="formBasis">Frequency Basis</Label>
+                    <Select
+                      value={formData.formBasis}
+                      onValueChange={(value) =>
+                        handleChange("formBasis", value as BillingFrequency)
+                      }
+                      disabled={isLocked}
+                    >
+                      <SelectTrigger
+                        id="formBasis"
+                        className={isLocked ? "opacity-70" : ""}
+                      >
+                        <SelectValue placeholder="Select frequency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="bi-weekly">Bi-weekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="quarterly">Quarterly</SelectItem>
+                        <SelectItem value="semi-annually">
+                          Semi-annually
+                        </SelectItem>
+                        <SelectItem value="annually">Annually</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="rentPerPerson">
+                      Rent per Individual Tenant (per period)
+                    </Label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5">₱</span>
+                      <Input
+                        id="rentPerPerson"
+                        type="number"
+                        className={`pl-7 ${isLocked ? "opacity-70" : ""}`}
+                        value={formData.rentPerPerson ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/^0+(?=\d)/, "");
+                          handleChange("rentPerPerson", parseFloat(value) || 0);
+                        }}
+                        placeholder="Enter per-tenant amount"
+                        disabled={isLocked}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Total rent updates automatically based on number of
+                      tenants.
+                    </p>
+                  </div>
+
                   <div className="space-y-2 md:col-span-2">
                     <Label
                       htmlFor="dueDay"
                       className="text-sm font-medium flex items-center gap-1.5"
                     >
                       <Calendar className="h-3.5 w-3.5 text-purple-600" />
-                      Payment Due Day of Month
+                      Payment Due Marker Per Billing Period
                     </Label>
 
                     {/* Quick Selection Buttons */}
@@ -1373,13 +1608,14 @@ export function EditPropertyPopup({
                         disabled={isLocked || formData.dueDay === "last"}
                       />
                       <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        day of month
+                        day in billing period
                       </span>
                     </div>
 
                     <p className="text-xs text-muted-foreground">
-                      Select a preset or enter a custom day (1-31). Note: Day 31
-                      will adjust to last day for shorter months.
+                      Select a preset or enter a custom day (1-31) for each
+                      billing period. Day 31 automatically adjusts to the last
+                      day when needed.
                     </p>
                   </div>
                 </div>

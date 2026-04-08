@@ -1705,12 +1705,12 @@ export function PropertyDetailsPopup({
                           </div>
                           <div className="grid grid-cols-2 items-center">
                             <span className="text-muted-foreground text-xs md:text-sm">
-                              Due Day
+                              Payment Due Marker
                             </span>
                             <span className="font-medium text-xs md:text-sm">
                               {activeTenant.due_day === "last"
-                                ? "Last Day"
-                                : `Day ${activeTenant.due_day}`}
+                                ? "Last day of each billing period"
+                                : `Day ${activeTenant.due_day} of each billing period`}
                             </span>
                           </div>
                           {((activeTenant.advance_payment !== undefined &&
