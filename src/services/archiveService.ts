@@ -55,10 +55,11 @@ export async function archiveAndResetProperty(data: ResetPropertyData): Promise<
     try {
       await logActivity({
         propertyId,
-        tenantId,
+        tenantId: null,
         actionType: "property_reset",
         description: `Property archived and reset: ${remarks}`,
         metadata: {
+          archived_tenant_id: tenantId,
           remarks,
           archived_at: new Date().toISOString(),
         },

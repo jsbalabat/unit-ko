@@ -69,7 +69,7 @@ export async function logActivity(payload: ActivityLogPayload): Promise<Activity
       data: { user },
     } = await supabase.auth.getUser();
 
-    const { error } = await supabase.from("activity_logs").insert({
+    const baseInsertPayload = {
       property_id: validatedPayload.propertyId ?? null,
       tenant_id: validatedPayload.tenantId ?? null,
       user_id: user?.id ?? null,
@@ -77,9 +77,37 @@ export async function logActivity(payload: ActivityLogPayload): Promise<Activity
       description: validatedPayload.description,
       metadata: validatedPayload.metadata ?? {},
       created_at: new Date().toISOString(),
-    });
+    };
+
+    const { error } = await supabase.from("activity_logs").insert(baseInsertPayload);
 
     if (error) {
+      // If tenant no longer exists (e.g., after archive/reset), retry without tenant_id
+      // and preserve original tenant id in metadata for audit context.
+      if (error.code === "23503" && validatedPayload.tenantId) {
+        const retryMetadata = {
+          ...(validatedPayload.metadata ?? {}),
+          archived_tenant_id: validatedPayload.tenantId,
+        };
+
+        const { error: retryError } = await supabase.from("activity_logs").insert({
+          ...baseInsertPayload,
+          tenant_id: null,
+          metadata: retryMetadata,
+        });
+
+        if (!retryError) {
+          return { success: true };
+        }
+
+        const retryErrorMessage = `Failed to write activity log after tenant FK fallback: ${retryError.message}`;
+        console.error(retryErrorMessage);
+        return {
+          success: false,
+          error: retryErrorMessage,
+        };
+      }
+
       const errorMessage = `Failed to write activity log: ${error.message}`;
       console.error(errorMessage);
       return {
