@@ -104,6 +104,18 @@ interface EditBillingPopupProps {
   onSwitchToProperty?: () => void;
 }
 
+function safeParseJson<T>(value: unknown, fallback: T): T {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export function EditBillingPopup({
   propertyId,
   tenantId,
@@ -353,19 +365,15 @@ export function EditBillingPopup({
           const tenantKey = tenantIndex.toString();
           // Get the first billing entry to determine this tenant's base rent
           const firstEntry = sortedBillingEntries[0];
-          try {
-            const tenantRentAmounts = firstEntry.tenant_rent_amounts
-              ? JSON.parse(firstEntry.tenant_rent_amounts)
-              : {};
-            // Only fall back to equal division if the key doesn't exist
-            individualRentAmount =
-              tenantKey in tenantRentAmounts
-                ? tenantRentAmounts[tenantKey]
-                : firstEntry.rent_due / paxCount;
-          } catch (e) {
-            console.error("Error parsing tenant_rent_amounts:", e);
-            individualRentAmount = firstEntry.rent_due / paxCount;
-          }
+          const tenantRentAmounts = safeParseJson<Record<string, number>>(
+            firstEntry.tenant_rent_amounts,
+            {},
+          );
+          // Only fall back to equal division if the key doesn't exist
+          individualRentAmount =
+            tenantKey in tenantRentAmounts
+              ? tenantRentAmounts[tenantKey]
+              : firstEntry.rent_due / paxCount;
         } else if (isIndividualMode) {
           // No billing entries exist, use equal division
           individualRentAmount = propertyData.rent_amount / paxCount;
@@ -385,47 +393,35 @@ export function EditBillingPopup({
               const tenantKey = tenantIndex.toString();
 
               // Get individual rent amount
-              try {
-                const tenantRentAmounts = entry.tenant_rent_amounts
-                  ? JSON.parse(entry.tenant_rent_amounts)
-                  : {};
-                // Only fall back to equal division if the key doesn't exist
-                individualRent =
-                  tenantKey in tenantRentAmounts
-                    ? tenantRentAmounts[tenantKey]
-                    : entry.rent_due / paxCount;
-              } catch (e) {
-                console.error("Error parsing tenant_rent_amounts:", e);
-                individualRent = entry.rent_due / paxCount;
-              }
+              const tenantRentAmounts = safeParseJson<Record<string, number>>(
+                entry.tenant_rent_amounts,
+                {},
+              );
+              // Only fall back to equal division if the key doesn't exist
+              individualRent =
+                tenantKey in tenantRentAmounts
+                  ? tenantRentAmounts[tenantKey]
+                  : entry.rent_due / paxCount;
 
               // Get individual other charges
-              try {
-                const tenantOtherCharges = entry.tenant_other_charges
-                  ? JSON.parse(entry.tenant_other_charges)
-                  : {};
-                // Only fall back to equal division if the key doesn't exist
-                individualCharges =
-                  tenantKey in tenantOtherCharges
-                    ? tenantOtherCharges[tenantKey]
-                    : entry.other_charges / paxCount;
-              } catch (e) {
-                console.error("Error parsing tenant_other_charges:", e);
-                individualCharges = entry.other_charges / paxCount;
-              }
+              const tenantOtherCharges = safeParseJson<Record<string, number>>(
+                entry.tenant_other_charges,
+                {},
+              );
+              // Only fall back to equal division if the key doesn't exist
+              individualCharges =
+                tenantKey in tenantOtherCharges
+                  ? tenantOtherCharges[tenantKey]
+                  : entry.other_charges / paxCount;
 
               // Get individual paid amount
-              try {
-                const tenantPayments = entry.tenant_payments
-                  ? JSON.parse(entry.tenant_payments)
-                  : {};
-                // Check if tenant has a payment entry, default to 0 if not
-                individualPaid =
-                  tenantKey in tenantPayments ? tenantPayments[tenantKey] : 0;
-              } catch (e) {
-                console.error("Error parsing tenant_payments:", e);
-                individualPaid = (entry.paid_amount || 0) / paxCount;
-              }
+              const tenantPayments = safeParseJson<Record<string, number>>(
+                entry.tenant_payments,
+                {},
+              );
+              // Check if tenant has a payment entry, default to 0 if not
+              individualPaid =
+                tenantKey in tenantPayments ? tenantPayments[tenantKey] : 0;
             } else {
               individualRent = entry.rent_due;
               individualCharges = entry.other_charges;
@@ -475,19 +471,13 @@ export function EditBillingPopup({
         // Initialize expense items
         const initialExpenseItems: Record<string, ExpenseItem[]> = {};
         sortedBillingEntries.forEach((entry) => {
-          if (entry.expense_items) {
-            try {
-              const parsedItems = JSON.parse(entry.expense_items);
-              if (Array.isArray(parsedItems)) {
-                initialExpenseItems[entry.id] = parsedItems;
-              }
-            } catch (e) {
-              console.error("Error parsing expense items:", e);
-              initialExpenseItems[entry.id] = [];
-            }
-          } else {
-            initialExpenseItems[entry.id] = [];
-          }
+          const parsedItems = safeParseJson<ExpenseItem[]>(
+            entry.expense_items,
+            [],
+          );
+          initialExpenseItems[entry.id] = Array.isArray(parsedItems)
+            ? parsedItems
+            : [];
         });
 
         setExpenseItemsByBillingId(initialExpenseItems);
