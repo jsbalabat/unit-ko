@@ -839,10 +839,6 @@ export function PropertyDetailsPopup({
           },
         );
 
-        // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
-        // console.log('Payment note for activity log:', paymentNote);
-        // console.log('Receipt date for activity log:', receiptDate);
-
         // Reset and close dialog
         setPaymentAmount(0);
         setPaymentType("");
@@ -1280,10 +1276,6 @@ export function PropertyDetailsPopup({
           description: `₱${Math.abs(paymentAmount).toLocaleString()} has been distributed across billing entries${tenantInfo}.`,
         });
       }
-
-      // TODO: Log to activity log with finalPaymentNote and receiptDate when activity log is implemented
-      // console.log('Payment note for activity log:', finalPaymentNote);
-      // console.log('Receipt date for activity log:', receiptDate);
 
       // Reset and close dialog
       setPaymentAmount(0);

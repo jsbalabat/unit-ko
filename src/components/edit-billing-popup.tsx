@@ -680,10 +680,6 @@ export function EditBillingPopup({
           },
         });
 
-        // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
-        // console.log('Payment note for activity log:', paymentNote);
-        // console.log('Receipt date for activity log:', receiptDate);
-
         setPaymentAmount(0);
         setPaymentNote("");
         setReceiptDate("");
@@ -790,7 +786,6 @@ export function EditBillingPopup({
     setFormData({ ...formData, billingSchedule: finalSchedule });
     setPendingOverflow(newPendingOverflow);
 
-    // TODO: Log to activity log with paymentNote and receiptDate when activity log is implemented
     setPendingPaymentLogs((prev) => [
       ...prev,
       {
