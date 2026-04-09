@@ -1708,9 +1708,15 @@ export function PropertyDetailsPopup({
                               Payment Due Marker
                             </span>
                             <span className="font-medium text-xs md:text-sm">
-                              {activeTenant.due_day === "last"
-                                ? "Last day of each billing period"
-                                : `Day ${activeTenant.due_day} of each billing period`}
+                              {activeTenant.due_day.includes(",")
+                                ? (() => {
+                                    const [firstDay = "", secondDay = ""] =
+                                      activeTenant.due_day.split(",");
+                                    return `Days ${firstDay.trim()} and ${secondDay.trim()} of each billing period`;
+                                  })()
+                                : activeTenant.due_day === "last"
+                                  ? "Last day of each billing period"
+                                  : `Day ${activeTenant.due_day} of each billing period`}
                             </span>
                           </div>
                           {((activeTenant.advance_payment !== undefined &&

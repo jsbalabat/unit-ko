@@ -40,6 +40,8 @@ export interface Tenant {
   }> // JSONB array of individual person details
   tenant_slot?: number // Bed space slot number
   contract_months: number // Number of billing periods (can be weekly, monthly, quarterly, semi-annually, or annually)
+  billing_frequency?: 'weekly' | 'bi-weekly' | 'monthly' | 'quarterly' | 'semi-annually' | 'annually'
+  rent_per_person?: number
   rent_start_date: string
   due_day: string
   is_active: boolean

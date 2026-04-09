@@ -256,7 +256,13 @@ function TenantDashboard() {
                   <div>
                     <p className="text-sm font-medium">Payment Due Day</p>
                     <p className="text-sm text-muted-foreground">
-                      Every {tenant.due_day} of the month
+                      {tenant.due_day.includes(",")
+                        ? (() => {
+                            const [firstDay = "", secondDay = ""] =
+                              tenant.due_day.split(",");
+                            return `Days ${firstDay.trim()} and ${secondDay.trim()} of each billing period`;
+                          })()
+                        : `Every ${tenant.due_day} of the month`}
                     </p>
                   </div>
                 </div>

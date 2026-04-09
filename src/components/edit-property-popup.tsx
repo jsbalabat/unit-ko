@@ -94,6 +94,8 @@ interface Tenant {
   pax?: number;
   pax_details?: PersonDetail[];
   contract_months: number;
+  billing_frequency?: BillingFrequency;
+  rent_per_person?: number;
   rent_start_date: string;
   due_day: string;
   is_active: boolean;
@@ -177,6 +179,36 @@ const inferBillingFrequency = (
   return "annually";
 };
 
+const WEEK_DAYS = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+] as const;
+
+const isWeekDayValue = (value: string): value is (typeof WEEK_DAYS)[number] => {
+  return WEEK_DAYS.includes(value as (typeof WEEK_DAYS)[number]);
+};
+
+const parseBiWeeklyDueDay = (value: string) => {
+  const [firstRaw = "1", secondRaw = "16"] = value.split(",");
+  const firstDay = Number.parseInt(firstRaw, 10);
+  const secondDay = Number.parseInt(secondRaw, 10);
+
+  return {
+    firstDay: Number.isFinite(firstDay) ? firstDay : 1,
+    secondDay: Number.isFinite(secondDay) ? secondDay : 16,
+  };
+};
+
+const isValidBiWeeklyDueDayPair = (value: string): boolean => {
+  const { firstDay, secondDay } = parseBiWeeklyDueDay(value);
+  return firstDay >= 1 && firstDay <= 15 && secondDay >= 16 && secondDay <= 31;
+};
+
 export function EditPropertyPopup({
   propertyId,
   isOpen,
@@ -204,13 +236,75 @@ export function EditPropertyPopup({
     const base = new Date(startDate);
 
     if (formBasis === "weekly") {
-      base.setDate(base.getDate() + periodIndex * 7);
+      if (isWeekDayValue(dueDay)) {
+        const dayMap: Record<(typeof WEEK_DAYS)[number], number> = {
+          monday: 1,
+          tuesday: 2,
+          wednesday: 3,
+          thursday: 4,
+          friday: 5,
+          saturday: 6,
+          sunday: 0,
+        };
+        const targetDay = dayMap[dueDay];
+        const currentDay = base.getDay();
+        const offset = (targetDay - currentDay + 7) % 7;
+        base.setDate(base.getDate() + offset + periodIndex * 7);
+      } else {
+        base.setDate(base.getDate() + periodIndex * 7);
+      }
       return base;
     }
 
     if (formBasis === "bi-weekly") {
-      base.setDate(base.getDate() + periodIndex * 14);
-      return base;
+      const { firstDay, secondDay } = parseBiWeeklyDueDay(dueDay);
+      const [date1, date2] = [firstDay, secondDay].sort((a, b) => a - b);
+      let currentMonth = new Date(base);
+      currentMonth.setDate(1);
+      let useFirstDate = true;
+      let useSecondDate = true;
+
+      const firstDateInStartMonth = new Date(
+        currentMonth.getFullYear(),
+        currentMonth.getMonth(),
+        date1,
+      );
+      const secondDateInStartMonth = new Date(
+        currentMonth.getFullYear(),
+        currentMonth.getMonth(),
+        date2,
+      );
+
+      useFirstDate = firstDateInStartMonth > base;
+      useSecondDate = secondDateInStartMonth > base;
+
+      if (!useFirstDate && !useSecondDate) {
+        currentMonth.setMonth(currentMonth.getMonth() + 1);
+        useFirstDate = true;
+        useSecondDate = true;
+      }
+
+      const generatedDates: Date[] = [];
+
+      while (generatedDates.length <= periodIndex) {
+        const year = currentMonth.getFullYear();
+        const month = currentMonth.getMonth();
+        const lastDay = new Date(year, month + 1, 0).getDate();
+
+        if (useFirstDate && generatedDates.length <= periodIndex) {
+          generatedDates.push(new Date(year, month, Math.min(date1, lastDay)));
+        }
+
+        if (useSecondDate && generatedDates.length <= periodIndex) {
+          generatedDates.push(new Date(year, month, Math.min(date2, lastDay)));
+        }
+
+        currentMonth.setMonth(currentMonth.getMonth() + 1);
+        useFirstDate = true;
+        useSecondDate = true;
+      }
+
+      return generatedDates[periodIndex] || base;
     }
 
     const monthStep =
@@ -266,6 +360,12 @@ export function EditPropertyPopup({
           activeTenant?.billing_entries,
         );
         const initialPax = activeTenant?.pax || 1;
+        const normalizedDueDay =
+          activeTenant?.billing_frequency === "bi-weekly"
+            ? isValidBiWeeklyDueDayPair(activeTenant?.due_day || "")
+              ? activeTenant.due_day
+              : "1,16"
+            : activeTenant?.due_day || "last";
         const initialFormData: PropertyFormData = {
           id: propertyData.id,
           unitName: propertyData.unit_name,
@@ -280,12 +380,18 @@ export function EditPropertyPopup({
           paxDetails: activeTenant?.pax_details || [],
           contractMonths: activeTenant?.contract_months || 0,
           rentStartDate: activeTenant?.rent_start_date || "",
-          formBasis: inferredFrequency,
+          formBasis: activeTenant?.billing_frequency || inferredFrequency,
           rentPerPerson:
-            initialPax > 0
-              ? Number((propertyData.rent_amount / initialPax).toFixed(2))
-              : propertyData.rent_amount,
-          dueDay: activeTenant?.due_day || "30th/31st - Last Day",
+            activeTenant?.rent_per_person !== undefined &&
+            activeTenant?.rent_per_person !== null
+              ? Number(activeTenant.rent_per_person)
+              : initialPax > 0
+                ? Number((propertyData.rent_amount / initialPax).toFixed(2))
+                : propertyData.rent_amount,
+          dueDay:
+            normalizedDueDay === "30th/31st - Last Day"
+              ? "last"
+              : normalizedDueDay,
           billingSchedule: [],
         };
 
@@ -573,6 +679,26 @@ export function EditPropertyPopup({
       (field === "formBasis" || field === "rentStartDate") &&
       formData.billingSchedule.length > 0
     ) {
+      if (field === "formBasis") {
+        const nextBasis = value as BillingFrequency;
+        if (nextBasis === "weekly" && !isWeekDayValue(updatedFormData.dueDay)) {
+          updatedFormData.dueDay = "monday";
+        }
+        if (
+          nextBasis !== "weekly" &&
+          nextBasis !== "bi-weekly" &&
+          isWeekDayValue(updatedFormData.dueDay)
+        ) {
+          updatedFormData.dueDay = "1";
+        }
+        if (
+          nextBasis === "bi-weekly" &&
+          !isValidBiWeeklyDueDayPair(updatedFormData.dueDay)
+        ) {
+          updatedFormData.dueDay = "1,16";
+        }
+      }
+
       const baseDate =
         field === "rentStartDate" && typeof value === "string" && value
           ? new Date(value)
@@ -765,11 +891,17 @@ export function EditPropertyPopup({
         return;
       }
 
-      // Validate due day is set
-      if (!formData.dueDay || formData.dueDay.trim() === "") {
+      // Validate due day is set for frequencies that use a marker
+      if (
+        formData.formBasis === "bi-weekly"
+          ? !isValidBiWeeklyDueDayPair(formData.dueDay)
+          : !formData.dueDay || formData.dueDay.trim() === ""
+      ) {
         toast.error("Payment Due Marker is required", {
           description:
-            "Please set the payment due marker for each billing period",
+            formData.formBasis === "bi-weekly"
+              ? "Please choose two valid bi-weekly collection dates."
+              : "Please set the payment due marker for each billing period",
         });
         return;
       }
@@ -842,6 +974,8 @@ export function EditPropertyPopup({
           contact_number: person1Data.phone || formData.contactNumber,
           rent_start_date: formData.rentStartDate,
           contract_months: formData.contractMonths || 0,
+          billing_frequency: formData.formBasis,
+          rent_per_person: formData.rentPerPerson,
           due_day: formData.dueDay,
           pax: formData.pax,
           pax_details: formData.paxDetails,
@@ -872,6 +1006,8 @@ export function EditPropertyPopup({
               property_id: formData.id,
               is_active: true,
               contract_months: formData.contractMonths || 12,
+              billing_frequency: formData.formBasis,
+              rent_per_person: formData.rentPerPerson,
               created_at: new Date().toISOString(),
             })
             .select()
@@ -1538,85 +1674,151 @@ export function EditPropertyPopup({
                       Payment Due Marker Per Billing Period
                     </Label>
 
-                    {/* Quick Selection Buttons */}
-                    <div className="grid grid-cols-3 gap-2 mb-2">
-                      <Button
-                        type="button"
-                        variant={
-                          formData.dueDay === "1" ? "default" : "outline"
-                        }
-                        size="sm"
-                        onClick={() => handleChange("dueDay", "1")}
-                        disabled={isLocked}
-                        className="h-8 text-xs"
-                      >
-                        1st - First Day
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={
-                          formData.dueDay === "15" ? "default" : "outline"
-                        }
-                        size="sm"
-                        onClick={() => handleChange("dueDay", "15")}
-                        disabled={isLocked}
-                        className="h-8 text-xs"
-                      >
-                        15th - Mid Month
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={
-                          formData.dueDay === "last" ||
-                          formData.dueDay === "30th/31st - Last Day"
-                            ? "default"
-                            : "outline"
-                        }
-                        size="sm"
-                        onClick={() => handleChange("dueDay", "last")}
-                        disabled={isLocked}
-                        className="h-8 text-xs"
-                      >
-                        Last Day
-                      </Button>
-                    </div>
+                    {formData.formBasis === "weekly" ? (
+                      <>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                          {WEEK_DAYS.map((day) => (
+                            <button
+                              key={day}
+                              type="button"
+                              onClick={() => handleChange("dueDay", day)}
+                              disabled={isLocked}
+                              className={`h-9 px-2 text-xs font-medium rounded-md border transition-all ${
+                                formData.dueDay === day
+                                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                  : "bg-background border-input hover:bg-muted"
+                              } ${isLocked ? "opacity-70" : ""}`}
+                            >
+                              {day.charAt(0).toUpperCase() + day.slice(1, 3)}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Select collection day of the week.
+                        </p>
+                      </>
+                    ) : formData.formBasis === "bi-weekly" ? (
+                      (() => {
+                        const { firstDay, secondDay } = parseBiWeeklyDueDay(
+                          formData.dueDay,
+                        );
 
-                    {/* Custom Day Input */}
-                    <div className="flex items-center gap-2">
-                      <Input
-                        id="dueDay"
-                        type="number"
-                        value={
-                          formData.dueDay === "last" ||
-                          formData.dueDay === "30th/31st - Last Day"
-                            ? ""
-                            : formData.dueDay
-                        }
-                        onChange={(e) => {
-                          let value = e.target.value.replace(/^0+(?=\d)/, "");
-                          if (
-                            value === "" ||
-                            (parseInt(value) >= 1 && parseInt(value) <= 31)
-                          ) {
-                            handleChange("dueDay", value);
-                          }
-                        }}
-                        placeholder="Or enter custom day (1-31)"
-                        min="1"
-                        max="31"
-                        className="h-9 text-sm flex-1"
-                        disabled={isLocked || formData.dueDay === "last"}
-                      />
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        day in billing period
-                      </span>
-                    </div>
+                        return (
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <div className="text-xs font-medium text-muted-foreground">
+                                Date 1 (1-15){" "}
+                                {firstDay ? `[${firstDay}]` : "[None]"}
+                              </div>
+                              <div className="grid grid-cols-8 sm:grid-cols-10 lg:grid-cols-15 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24">
+                                {Array.from(
+                                  { length: 15 },
+                                  (_, i) => i + 1,
+                                ).map((date) => {
+                                  const isSelected = firstDay === date;
+                                  return (
+                                    <button
+                                      key={`bi-weekly-first-${date}`}
+                                      type="button"
+                                      onClick={() =>
+                                        handleChange(
+                                          "dueDay",
+                                          `${date},${secondDay || 16}`,
+                                        )
+                                      }
+                                      disabled={isLocked}
+                                      className={`h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all ${
+                                        isSelected
+                                          ? "bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-300"
+                                          : "bg-background border-input hover:bg-muted"
+                                      } ${isLocked ? "opacity-70" : ""}`}
+                                    >
+                                      {date}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
 
-                    <p className="text-xs text-muted-foreground">
-                      Select a preset or enter a custom day (1-31) for each
-                      billing period. Day 31 automatically adjusts to the last
-                      day when needed.
-                    </p>
+                            <div className="space-y-2">
+                              <div className="text-xs font-medium text-muted-foreground">
+                                Date 2 (16-31){" "}
+                                {secondDay ? `[${secondDay}]` : "[None]"}
+                              </div>
+                              <div className="grid grid-cols-8 sm:grid-cols-10 lg:grid-cols-16 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24">
+                                {Array.from(
+                                  { length: 16 },
+                                  (_, i) => i + 16,
+                                ).map((date) => {
+                                  const isSelected = secondDay === date;
+                                  return (
+                                    <button
+                                      key={`bi-weekly-second-${date}`}
+                                      type="button"
+                                      onClick={() =>
+                                        handleChange(
+                                          "dueDay",
+                                          `${firstDay || 1},${date}`,
+                                        )
+                                      }
+                                      disabled={isLocked}
+                                      className={`h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all ${
+                                        isSelected
+                                          ? "bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-300"
+                                          : "bg-background border-input hover:bg-muted"
+                                      } ${isLocked ? "opacity-70" : ""}`}
+                                    >
+                                      {date}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            <p className="text-xs text-muted-foreground">
+                              Selected: Date 1 = {firstDay || "None"}, Date 2 ={" "}
+                              {secondDay || "None"}.
+                            </p>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-10 sm:grid-cols-15 lg:grid-cols-16 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24">
+                          {Array.from({ length: 31 }, (_, i) => i + 1).map(
+                            (date) => {
+                              const isSelected =
+                                formData.dueDay === String(date);
+                              return (
+                                <button
+                                  key={date}
+                                  type="button"
+                                  onClick={() =>
+                                    handleChange("dueDay", String(date))
+                                  }
+                                  disabled={isLocked}
+                                  className={`h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all ${
+                                    isSelected
+                                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                      : "bg-background border-input hover:bg-muted"
+                                  } ${isLocked ? "opacity-70" : ""}`}
+                                >
+                                  {date}
+                                </button>
+                              );
+                            },
+                          )}
+                        </div>
+
+                        <p className="text-xs text-muted-foreground">
+                          Selected:{" "}
+                          {formData.dueDay === "last"
+                            ? "Last Day"
+                            : `Day ${formData.dueDay || "None"}`}{" "}
+                          • Date adjusts to last day for shorter months.
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
 
