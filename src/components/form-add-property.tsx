@@ -1375,7 +1375,7 @@ export function MultiStepPopup({
         }
 
         const [date1, date2] = formData.collectionDates.sort((a, b) => a - b);
-        let currentMonth = new Date(startDate);
+        const currentMonth = new Date(startDate);
         currentMonth.setDate(1);
         let periodCount = 0;
 
@@ -2999,7 +2999,8 @@ export function MultiStepPopup({
                             <Calendar className="h-8 w-8 opacity-50" />
                             <p className="text-sm">No billing entries yet</p>
                             <p className="text-xs">
-                              Tap \"Add Entry\" to create custom billing periods
+                              Tap &quot;Add Entry&quot; to create custom billing
+                              periods
                             </p>
                           </div>
                         </div>
@@ -3187,8 +3188,8 @@ export function MultiStepPopup({
                                       No billing entries yet
                                     </p>
                                     <p className="text-xs">
-                                      Click "Add Entry" to create custom billing
-                                      periods
+                                      Click &quot;Add Entry&quot; to create
+                                      custom billing periods
                                     </p>
                                   </div>
                                 </td>

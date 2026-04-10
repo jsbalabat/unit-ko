@@ -30,10 +30,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
 import { PropertyFilterBar } from "@/components/property-filter-bar";
 import { cn } from "@/lib/utils";
-import {
-  sendTenantReminder,
-  canSendReminderToday,
-} from "@/services/tenantReminderService";
+import { sendTenantReminder } from "@/services/tenantReminderService";
 import { toast } from "sonner";
 
 function LandlordDashboard() {
@@ -92,12 +89,6 @@ function LandlordDashboard() {
     totalAmount: number,
     billingEntryId: string,
   ) => {
-    // Check if reminder was already sent today
-    if (!canSendReminderToday(billingEntryId)) {
-      toast.error("SMS reminder already sent today for this billing period.");
-      return;
-    }
-
     // Open confirmation dialog
     setSelectedReminder({
       tenantName,
@@ -663,7 +654,7 @@ function LandlordDashboard() {
                                   )
                                 }
                                 title="Send SMS reminder"
-                                disabled={!canSendReminderToday(item.id)}
+                                disabled={isSendingReminder}
                               >
                                 <Send className="h-3.5 w-3.5" />
                               </Button>

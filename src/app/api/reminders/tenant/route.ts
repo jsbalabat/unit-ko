@@ -37,6 +37,11 @@ function buildSMSMessage(
   return `Hi ${tenantName}, your rent for ${propertyName} is due on ${formattedDate} with a total amount of ₱${amount}. Please settle your account. Thank you!`;
 }
 
+function getStartOfTodayIso(): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
+}
+
 export async function POST(request: Request) {
   try {
     const cookieStore = await cookies();
@@ -126,6 +131,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Reminder webhook is not configured" }, { status: 500 });
     }
 
+    const claimTimestamp = new Date().toISOString();
+    const startOfTodayIso = getStartOfTodayIso();
+
+    const { data: claimResult, error: claimError } = await supabase
+      .from("billing_entries")
+      .update({ last_reminded_at: claimTimestamp })
+      .eq("id", billingEntry.id)
+      .or(`last_reminded_at.is.null,last_reminded_at.lt.${startOfTodayIso}`)
+      .select("id")
+      .maybeSingle();
+
+    if (claimError) {
+      return NextResponse.json({ error: "Failed to reserve reminder slot" }, { status: 500 });
+    }
+
+    if (!claimResult) {
+      return NextResponse.json(
+        { error: "SMS reminder already sent today for this billing period." },
+        { status: 429 },
+      );
+    }
+
     const webhookResponse = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -137,6 +164,27 @@ export async function POST(request: Request) {
         { error: `Webhook call failed with status ${webhookResponse.status}` },
         { status: 502 },
       );
+    }
+
+    const { error: logError } = await supabase.from("activity_logs").insert({
+      property_id: property.id,
+      tenant_id: tenant.id,
+      user_id: user.id,
+      action_type: "tenant_reminder_sent",
+      description: `SMS reminder sent to ${tenant.tenant_name}`,
+      metadata: {
+        tenant_phone: tenant.contact_number,
+        property_name: property.unit_name,
+        due_date: billingEntry.due_date,
+        amount: Number(billingEntry.gross_due ?? 0),
+        billing_entry_id: billingEntry.id,
+        reminder_claimed_at: claimTimestamp,
+      },
+      created_at: claimTimestamp,
+    });
+
+    if (logError) {
+      console.error("Failed to write tenant reminder activity log:", logError);
     }
 
     return NextResponse.json({ success: true });

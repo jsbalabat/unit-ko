@@ -260,7 +260,7 @@ export function EditPropertyPopup({
     if (formBasis === "bi-weekly") {
       const { firstDay, secondDay } = parseBiWeeklyDueDay(dueDay);
       const [date1, date2] = [firstDay, secondDay].sort((a, b) => a - b);
-      let currentMonth = new Date(base);
+      const currentMonth = new Date(base);
       currentMonth.setDate(1);
       let useFirstDate = true;
       let useSecondDate = true;
@@ -1972,8 +1972,8 @@ export function EditPropertyPopup({
               <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               <AlertDescription>
                 This property is currently vacant. Change the occupancy status
-                to "Occupied" above to add tenant information and person
-                details.
+                to &quot;Occupied&quot; above to add tenant information and
+                person details.
               </AlertDescription>
             </Alert>
           )}

@@ -130,13 +130,14 @@ Create .env.local and provide:
 - NEXT_PUBLIC_SUPABASE_URL
 - NEXT_PUBLIC_SUPABASE_ANON_KEY
 - TENANT_SESSION_SECRET
-- NEXT_PUBLIC_ZAPIER_TENANT_REMINDER_URL
+- ZAPIER_TENANT_REMINDER_WEBHOOK
 - ZAPIER_RENT_DUE_WEBHOOK
 - ZAPIER_PAYMENT_SUBMITTED_WEBHOOK
 - ZAPIER_LANDLORD_CONFIRMS_WEBHOOK
 
 Notes:
-- .env.example is currently empty and should be populated.
+- See .env.example for a ready-to-copy local template.
+- `/api/reminders/tenant` uses `ZAPIER_TENANT_REMINDER_WEBHOOK` server-side.
 - /api/webhooks/test reads the three ZAPIER_* webhook variables.
 
 ## 8) Local Development Setup
@@ -163,7 +164,11 @@ Notes:
 
 ## 9) Database Migration Guidance
 
-Apply all SQL files in database/migrations in a consistent order on each environment.
+Apply all SQL files in database/migrations in filename order on each environment.
+
+Important:
+- Keep `zz_canonicalize_atomic_rpc_functions.sql` as the last migration so final RPC definitions are deterministic.
+- Do not reorder historical migrations that already ran in shared environments.
 
 At minimum, verify these logical groups are applied:
 - Profile and auth profile automation
@@ -192,18 +197,13 @@ Findings below are based on direct code review as of April 2026.
 
 ### Security issues
 
-#### Critical
-- Tenant auth trust is client-side only in current flow.
-	- Evidence: `src/lib/auth.ts` uses `sessionStorage` (`checkTenantAuth`, `getTenantId`), and `src/app/auth/tenant/login/page.tsx` stores the tenant identifier in `sessionStorage` after lookup.
-	- Risk: session spoofing and unauthorized tenant dashboard access.
-
 #### High
-- Reminder webhook is called directly from client using a public env var.
-	- Evidence: `src/services/tenantReminderService.ts` reads `NEXT_PUBLIC_ZAPIER_TENANT_REMINDER_URL` and calls it from browser code.
-	- Risk: endpoint disclosure, bypass of centralized server-side controls, weak abuse protection.
 - Development webhook test route has minimal request validation and no signature model.
 	- Evidence: `src/app/api/webhooks/test/route.ts` validates only query `event` strings.
 	- Risk: weak baseline pattern for future production webhook/API endpoints.
+- Tenant login is still knowledge-based (email + contact number), not OTP/verified identity.
+	- Evidence: tenant login requires matching profile data and sets a signed tenant cookie.
+	- Risk: weaker assurance than passwordless OTP or full auth provider flow.
 
 #### Medium
 - Tenant reminder rate limit is local-browser-only.
@@ -212,23 +212,15 @@ Findings below are based on direct code review as of April 2026.
 
 ### Reliability issues
 
-#### Critical
-- Multi-step create flow is not atomic.
-	- Evidence: `src/services/propertyService.ts` inserts property, tenant, profile, and billing entries sequentially with manual cleanup.
-	- Risk: partial writes and orphaned/inconsistent data on mid-flow failure.
-
 #### High
-- Archive/reset workflow is non-transactional across multiple destructive writes.
-	- Evidence: `src/services/archiveService.ts` performs fetch, archive insert, billing delete, tenant delete, and property update as separate operations.
-	- Risk: race conditions and partial reset states under concurrent actions or transient failures.
-- No automated tests in project scripts.
-	- Evidence: `package.json` includes `dev`, `build`, `start`, `lint` but no unit/integration/e2e test script.
-	- Risk: regression risk for billing, auth, and migration-sensitive paths.
+- Migration history defines some RPC names multiple times.
+	- Evidence: `create_property_atomic` and `archive_and_reset_property_atomic` appear in multiple migration files.
+	- Risk: drift between environments when migration order is inconsistent; mitigated by canonicalization migration.
 
 #### Medium
-- Environment onboarding remains fragile.
-	- Evidence: `.env.example` is empty.
-	- Risk: misconfiguration and inconsistent local/staging/prod behavior.
+- Build validation can be flaky in VS Code PowerShell terminals due local shell trust prompts.
+	- Evidence: shell integration publisher prompt can interrupt long-running `npm run build` checks.
+	- Risk: false negatives in local validation unless terminal execution policy is settled.
 
 ### Efficiency issues
 
@@ -245,18 +237,18 @@ Findings below are based on direct code review as of April 2026.
 ## 12) Improvement Plan
 
 ### 0-30 days (highest impact)
-1. Replace tenant `sessionStorage` auth with server-validated tenant sessions (Supabase auth, OTP, or signed token flow).
-2. Move tenant reminder sending behind server API routes; keep webhook URLs server-only.
-3. Add server-side request validation schemas (zod) for all API routes and future webhook handlers.
-4. Convert property create flow into one atomic DB RPC transaction.
-5. Add a minimal test baseline for critical paths: auth guard, create property flow, archive/reset flow, billing save flow.
+1. Upgrade tenant login from knowledge-based checks to OTP-based verification.
+2. Add server-side reminder throttling (per tenant or billing entry per day) instead of local-only throttling.
+3. Add request validation and authentication controls to `/api/webhooks/test` or gate it to development only.
+4. Add integration tests for critical RPC-backed flows: create property, archive/reset, reminder authorization.
+5. Add CI gates for lint, typecheck, tests, and build.
 
 ### 31-60 days (stability and operability)
-1. Convert archive/reset to a single transactional RPC with rollback-safe behavior.
-2. Add server-enforced rate limiting for reminder sending (per tenant/billing/day).
-3. Introduce structured error taxonomy and consistent error handling across service layer.
-4. Populate `.env.example` with every required variable and usage notes.
-5. Add migration verification checklist (post-migration health queries for required columns and RLS policies).
+1. Add migration verification scripts or SQL health checks after deploy.
+2. Introduce structured error taxonomy and consistent error handling across service layer.
+3. Add audit logging coverage for remaining mutation paths.
+4. Refine dashboard query strategy for large landlord portfolios.
+5. Expand test coverage to include tenant dashboard and reminder workflows.
 
 ### 61-90 days (scalability and maintainability)
 1. Refactor large components into smaller modules with clearer state boundaries.
@@ -290,7 +282,7 @@ This section is intended for coding agents and new maintainers.
 - src/services/tenantReminderService.ts
 - src/hooks/useProperties.ts
 - src/lib/supabase.ts
-- src/lib/auth.ts
+- src/lib/tenant-session.ts
 - src/proxy.ts
 
 ### Agent editing guidelines for this project
@@ -311,10 +303,10 @@ Use this README as the primary source of current project context, then verify be
 
 ## 15) Suggested Next Documentation Tasks
 
-1. Populate .env.example with real variable names and comments.
-2. Add an explicit migration order document.
-3. Add a short architecture diagram (auth, data flow, webhook flow).
-4. Add a test strategy section once automated tests are introduced.
+1. Add a short architecture diagram (auth, data flow, webhook flow).
+2. Add a migration verification guide with post-deploy SQL checks.
+3. Document tenant auth assurance level and planned OTP rollout.
+4. Add a test strategy section with critical-path coverage targets.
 
 ---
 

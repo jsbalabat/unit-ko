@@ -55,7 +55,6 @@ import {
   MapPin,
   Calendar,
   Clock,
-  ArrowUpRight,
   Loader2,
   AlertCircle,
   Pencil,
@@ -67,9 +66,7 @@ import {
   Archive,
   Trash2,
   AlertTriangle,
-  DollarSign,
   TrendingUp,
-  Shield,
   Plus,
   Minus,
 } from "lucide-react";
@@ -113,6 +110,19 @@ interface BillingEntry {
   created_at: string;
   updated_at: string;
   expense_items?: string; // Add this field for the JSON string of expense items
+}
+
+interface BillingDisplayRow {
+  key: string;
+  dueDate: string;
+  billingPeriod: number;
+  rentDue: number;
+  otherCharges: number;
+  grossDue: number;
+  paidAmount: number;
+  status: string;
+  expenseItems: ExpenseItem[];
+  sourceEntryCount: number;
 }
 
 interface ExpenseItem {
@@ -195,7 +205,6 @@ export function PropertyDetailsPopup({
   propertyId,
   isOpen,
   onClose,
-  onEdit,
   onSuccess,
   defaultTab = "details",
 }: PropertyDetailsPopupProps) {
@@ -645,8 +654,12 @@ export function PropertyDetailsPopup({
   };
 
   // Calculate days until due
-  const calculateDaysUntilDue = (dueDate: string): number => {
+  const calculateDaysUntilDue = (dueDate: string | undefined): number => {
     // Parse as local date to avoid timezone offset
+    if (!dueDate) {
+      return 0;
+    }
+
     const [year, month, day] = dueDate.split("-").map(Number);
     const due = new Date(year, month - 1, day);
 
@@ -658,7 +671,9 @@ export function PropertyDetailsPopup({
   };
 
   const getEffectiveBillingStatus = (
-    entry: BillingEntry,
+    entry:
+      | BillingEntry
+      | { status: string; due_date?: string; dueDate?: string },
     paidAmount: number,
     totalDue: number,
   ): string => {
@@ -669,7 +684,13 @@ export function PropertyDetailsPopup({
     if (paidAmount > epsilon) return "Partial";
 
     const lowerStatus = entry.status.toLowerCase();
-    const daysUntil = calculateDaysUntilDue(entry.due_date);
+    const dueDateValue =
+      "due_date" in entry
+        ? entry.due_date
+        : "dueDate" in entry
+          ? (entry.dueDate ?? "")
+          : "";
+    const daysUntil = calculateDaysUntilDue(dueDateValue ?? "");
     const isPastDue = daysUntil < 0;
 
     if (
@@ -706,6 +727,42 @@ export function PropertyDetailsPopup({
     }
 
     return "Not Yet Due";
+  };
+
+  const parseExpenseItems = (entry: BillingEntry): ExpenseItem[] => {
+    const fallbackItems: ExpenseItem[] = [
+      {
+        id: `default-${entry.id}`,
+        name: "Miscellaneous",
+        amount: entry.other_charges,
+      },
+    ];
+
+    if (typeof entry.expense_items !== "string") {
+      return fallbackItems;
+    }
+
+    const rawExpenseItems = entry.expense_items.trim();
+    if (!rawExpenseItems) {
+      return fallbackItems;
+    }
+
+    try {
+      const parsed = JSON.parse(rawExpenseItems);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((item) => item && typeof item === "object")
+          .map((item, index) => ({
+            id: String(item.id ?? `${entry.id}-${index}`),
+            name: String(item.name ?? "Miscellaneous"),
+            amount: Number(item.amount ?? 0),
+          }));
+      }
+    } catch (error) {
+      console.error("Failed to parse expense items:", error);
+    }
+
+    return fallbackItems;
   };
 
   // Handle property deletion
@@ -1209,51 +1266,70 @@ export function PropertyDetailsPopup({
     selectedBillingTenantIdx !== null && !Number.isNaN(selectedBillingTenantIdx)
       ? tenantProfiles[selectedBillingTenantIdx]
       : null;
-  const isSelectedTenantEmpty =
-    isIndividualBillingView &&
-    (!selectedBillingTenant?.name || selectedBillingTenant.name.trim() === "");
-  const useIndividualStripView =
-    isIndividualBillingView && !isSelectedTenantEmpty;
-  const selectedBillingTenantKey =
-    selectedBillingTenantIdx !== null &&
-    !Number.isNaN(selectedBillingTenantIdx) &&
-    useIndividualStripView
-      ? selectedBillingTenantIdx.toString()
-      : null;
-  const selectedBillingTenantName = useIndividualStripView
-    ? selectedBillingTenant?.name ||
-      `Tenant ${(selectedBillingTenantIdx ?? 0) + 1}`
-    : "Consolidated";
-
   const selectedBillingTenantId =
     selectedBillingTenantIdx !== null && !Number.isNaN(selectedBillingTenantIdx)
       ? tenantIdsByIndex[selectedBillingTenantIdx] || null
       : null;
 
-  const getViewAmounts = (entry: BillingEntry) => {
-    if (!useIndividualStripView || selectedBillingTenantKey === null) {
-      return {
-        totalDue: entry.gross_due,
-        paidAmount: entry.paid_amount || 0,
-      };
-    }
+  const billingDisplayRows: BillingDisplayRow[] = (() => {
+    const sourceEntries =
+      paxCount > 1 && billingViewMode.startsWith("tenant-")
+        ? selectedBillingTenantId !== null
+          ? billingEntries.filter(
+              (entry) => entry.tenant_id === selectedBillingTenantId,
+            )
+          : []
+        : billingEntries;
 
-    const isSelectedTenantEntry =
-      selectedBillingTenantId !== null &&
-      entry.tenant_id === selectedBillingTenantId;
+    const groupedRows = new Map<string, BillingDisplayRow>();
 
-    const tenantRent = isSelectedTenantEntry ? entry.rent_due : 0;
-    const tenantCharges = isSelectedTenantEntry ? entry.other_charges : 0;
-    const tenantPaid = isSelectedTenantEntry ? entry.paid_amount || 0 : 0;
+    [...sourceEntries]
+      .sort(
+        (a, b) =>
+          new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
+      )
+      .forEach((entry) => {
+        const groupKey =
+          entry.period_id ?? `period-${entry.billing_period}-${entry.due_date}`;
+        const expenseItems = parseExpenseItems(entry);
+        const existingRow = groupedRows.get(groupKey);
 
-    return {
-      totalDue: tenantRent + tenantCharges,
-      paidAmount: tenantPaid,
-    };
-  };
+        if (!existingRow) {
+          groupedRows.set(groupKey, {
+            key: groupKey,
+            dueDate: entry.due_date,
+            billingPeriod: entry.billing_period,
+            rentDue: entry.rent_due,
+            otherCharges: entry.other_charges,
+            grossDue: entry.gross_due,
+            paidAmount: entry.paid_amount || 0,
+            status: entry.status,
+            expenseItems: [...expenseItems],
+            sourceEntryCount: 1,
+          });
+          return;
+        }
+
+        existingRow.rentDue += entry.rent_due;
+        existingRow.otherCharges += entry.other_charges;
+        existingRow.grossDue += entry.gross_due;
+        existingRow.paidAmount += entry.paid_amount || 0;
+        existingRow.sourceEntryCount += 1;
+        existingRow.expenseItems = Array.from(
+          new Map(
+            [...existingRow.expenseItems, ...expenseItems].map((item) => [
+              `${item.name}-${item.amount}`,
+              item,
+            ]),
+          ).values(),
+        );
+      });
+
+    return Array.from(groupedRows.values());
+  })();
 
   // Recent Transactions: Entries that have been paid (Paid or Partial) sorted by most recent
-  const recentPayments = billingEntries
+  const recentPayments: BillingEntry[] = billingEntries
     .filter((entry) => {
       const effectiveStatus = getEffectiveBillingStatus(
         entry,
@@ -1268,7 +1344,7 @@ export function PropertyDetailsPopup({
     .slice(0, 5);
 
   // Upcoming Payments: Unpaid/Partial entries (excluding Not Yet Set), sorted by due date
-  const upcomingPayments = billingEntries
+  const upcomingPayments: BillingEntry[] = billingEntries
     .filter((entry) => {
       const effectiveStatus = getEffectiveBillingStatus(
         entry,
@@ -1285,13 +1361,14 @@ export function PropertyDetailsPopup({
     );
 
   // Calculate financial summaries for the current view mode (consolidated or selected tenant)
-  const totalRevenue = billingEntries.reduce((sum, entry) => {
-    const { paidAmount } = getViewAmounts(entry);
-    return sum + paidAmount;
-  }, 0);
+  const totalRevenue = billingDisplayRows.reduce(
+    (sum, entry) => sum + entry.paidAmount,
+    0,
+  );
 
-  const pendingPayments = billingEntries.reduce((sum, entry) => {
-    const { totalDue, paidAmount } = getViewAmounts(entry);
+  const pendingPayments = billingDisplayRows.reduce((sum, entry) => {
+    const totalDue = entry.grossDue;
+    const paidAmount = entry.paidAmount;
     const effectiveStatus = getEffectiveBillingStatus(
       entry,
       paidAmount,
@@ -1301,8 +1378,9 @@ export function PropertyDetailsPopup({
     return effectiveStatus === "Not Yet Due" ? sum + balance : sum;
   }, 0);
 
-  const unpaidBalance = billingEntries.reduce((sum, entry) => {
-    const { totalDue, paidAmount } = getViewAmounts(entry);
+  const unpaidBalance = billingDisplayRows.reduce((sum, entry) => {
+    const totalDue = entry.grossDue;
+    const paidAmount = entry.paidAmount;
     const effectiveStatus = getEffectiveBillingStatus(
       entry,
       paidAmount,
@@ -1729,7 +1807,7 @@ export function PropertyDetailsPopup({
 
                             // Get tenant-specific amounts and payments for multi-tenant properties
                             const showTenantDetails = paxCount > 1;
-                            let tenantDetails: Array<{
+                            const tenantDetails: Array<{
                               name: string;
                               due: number;
                               paid: number;
@@ -1860,7 +1938,7 @@ export function PropertyDetailsPopup({
                                 if (Array.isArray(parsed)) {
                                   expenseItems = parsed;
                                 }
-                              } catch (e) {
+                              } catch {
                                 expenseItems = [
                                   {
                                     id: `default-${payment.id}`,
@@ -1881,7 +1959,7 @@ export function PropertyDetailsPopup({
 
                             // Get tenant-specific payment details for multi-tenant properties
                             const showTenantDetails = paxCount > 1;
-                            let tenantPaymentDetails: Array<{
+                            const tenantPaymentDetails: Array<{
                               name: string;
                               amount: number;
                             }> = [];
@@ -2263,7 +2341,8 @@ export function PropertyDetailsPopup({
                           </Select>
                         ) : (
                           <span className="text-[11px] text-muted-foreground">
-                            {selectedBillingTenantName}
+                            {selectedBillingTenant?.name ||
+                              `Tenant ${(selectedBillingTenantIdx ?? 0) + 1}`}
                           </span>
                         )}
                       </div>
@@ -2435,8 +2514,8 @@ export function PropertyDetailsPopup({
                               </p>
                               <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1.5 italic">
                                 Each tenant can have their own custom rent and
-                                charges. Use "Edit Billing" to modify individual
-                                amounts.
+                                charges. Use &quot;Edit Billing&quot; to modify
+                                individual amounts.
                               </p>
                             </div>
                           </div>
@@ -2459,10 +2538,11 @@ export function PropertyDetailsPopup({
                                   `Tenant ${parseInt(billingViewMode.split("-")[1]) + 1}`}
                               </p>
                               <p className="text-xs text-purple-700 dark:text-purple-300">
-                                Viewing this tenant's individual billing
+                                Viewing this tenant&apos;s individual billing
                                 account. Amounts shown are specific to this
-                                tenant only. You can edit this tenant's billing
-                                using the "Edit Billing" button.
+                                tenant only. You can edit this tenant&apos;s
+                                billing using the &quot;Edit Billing&quot;
+                                button.
                               </p>
                             </div>
                           </div>
@@ -2480,12 +2560,6 @@ export function PropertyDetailsPopup({
                               const selectedTenantIdx = isIndividualView
                                 ? parseInt(billingViewMode.split("-")[1])
                                 : null;
-                              const selectedTenantName =
-                                selectedTenantIdx !== null
-                                  ? tenantProfiles[selectedTenantIdx]?.name ||
-                                    `Tenant ${selectedTenantIdx + 1}`
-                                  : null;
-
                               // Check if selected tenant slot is vacant
                               const isVacantSlot =
                                 isIndividualView &&
@@ -2562,203 +2636,120 @@ export function PropertyDetailsPopup({
                                           </div>
                                         </td>
                                       </tr>
-                                    ) : billingEntries.length > 0 ? (
-                                      billingEntries
-                                        .sort(
-                                          (a, b) =>
-                                            new Date(a.due_date).getTime() -
-                                            new Date(b.due_date).getTime(),
-                                        )
-                                        .map((entry) => {
-                                          // Parse expense items safely; fallback if malformed/empty JSON exists in legacy rows
-                                          let expenseItems: ExpenseItem[] = [
+                                    ) : billingDisplayRows.length > 0 ? (
+                                      billingDisplayRows.map((row) => {
+                                        const rowStatus =
+                                          getEffectiveBillingStatus(
                                             {
-                                              id: `default-${entry.id}`,
-                                              name: "Miscellaneous",
-                                              amount: entry.other_charges,
+                                              status: row.status,
+                                              dueDate: row.dueDate,
                                             },
-                                          ];
+                                            row.paidAmount,
+                                            row.grossDue,
+                                          );
 
-                                          if (entry.expense_items) {
-                                            try {
-                                              const parsed = JSON.parse(
-                                                entry.expense_items,
-                                              );
-                                              if (Array.isArray(parsed)) {
-                                                expenseItems = parsed;
-                                              }
-                                            } catch (e) {
-                                              expenseItems = [
-                                                {
-                                                  id: `default-${entry.id}`,
-                                                  name: "Miscellaneous",
-                                                  amount: entry.other_charges,
-                                                },
-                                              ];
-                                            }
-                                          }
-
-                                          // Calculate per-tenant amounts if in individual view
-                                          let tenantShareRent = entry.rent_due;
-                                          let tenantShareExpenses =
-                                            entry.other_charges;
-                                          let tenantShareTotal =
-                                            entry.gross_due;
-                                          let tenantPaidAmount =
-                                            entry.paid_amount || 0;
-
-                                          if (
-                                            isIndividualView &&
-                                            selectedTenantIdx !== null
-                                          ) {
-                                            const isSelectedTenantEntry =
-                                              selectedBillingTenantId !==
-                                                null &&
-                                              entry.tenant_id ===
-                                                selectedBillingTenantId;
-
-                                            tenantShareRent =
-                                              isSelectedTenantEntry
-                                                ? entry.rent_due
-                                                : 0;
-                                            tenantShareExpenses =
-                                              isSelectedTenantEntry
-                                                ? entry.other_charges
-                                                : 0;
-                                            tenantShareTotal =
-                                              tenantShareRent +
-                                              tenantShareExpenses;
-                                            tenantPaidAmount =
-                                              isSelectedTenantEntry
-                                                ? entry.paid_amount || 0
-                                                : 0;
-                                          }
-
-                                          const relevantTotal =
-                                            isIndividualView &&
-                                            selectedTenantIdx !== null
-                                              ? tenantShareTotal
-                                              : entry.gross_due;
-                                          const tenantStatus =
-                                            getEffectiveBillingStatus(
-                                              entry,
-                                              tenantPaidAmount,
-                                              relevantTotal,
-                                            );
-
-                                          return (
-                                            <tr
-                                              key={entry.id}
-                                              className="hover:bg-muted/30 transition-colors"
-                                            >
-                                              <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                                <div className="flex items-center">
-                                                  <ClipboardCheck className="h-3 w-3 text-muted-foreground mr-1.5 flex-shrink-0" />
+                                        return (
+                                          <tr
+                                            key={row.key}
+                                            className="hover:bg-muted/30 transition-colors"
+                                          >
+                                            <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                              <div className="flex items-center">
+                                                <ClipboardCheck className="h-3 w-3 text-muted-foreground mr-1.5 flex-shrink-0" />
+                                                <span>
+                                                  {row.billingPeriod > 0 ? (
+                                                    row.billingPeriod
+                                                  ) : (
+                                                    <span className="text-muted-foreground italic">
+                                                      —
+                                                    </span>
+                                                  )}
+                                                </span>
+                                              </div>
+                                            </td>
+                                            <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                              {formatDueDate(row.dueDate)}
+                                            </td>
+                                            <td className="px-3 py-2 text-xs font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
+                                              {formatCurrency(row.rentDue)}
+                                            </td>
+                                            <td className="px-3 py-2 text-xs">
+                                              <div className="group inline-block relative">
+                                                <div className="flex items-center cursor-help gap-1">
                                                   <span>
-                                                    {entry.billing_period >
-                                                    0 ? (
-                                                      entry.billing_period
-                                                    ) : (
-                                                      <span className="text-muted-foreground italic">
-                                                        —
-                                                      </span>
+                                                    {formatCurrency(
+                                                      row.otherCharges,
                                                     )}
                                                   </span>
+                                                  <span className="text-[10px] bg-muted rounded-full px-1 flex items-center justify-center w-4 h-4">
+                                                    {row.expenseItems.length}
+                                                  </span>
                                                 </div>
-                                              </td>
-                                              <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                                {formatDueDate(entry.due_date)}
-                                              </td>
-                                              <td className="px-3 py-2 text-xs font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
-                                                {formatCurrency(
-                                                  tenantShareRent,
-                                                )}
-                                              </td>
-                                              <td className="px-3 py-2 text-xs">
-                                                <div className="group inline-block relative">
-                                                  <div className="flex items-center cursor-help gap-1">
-                                                    <span>
-                                                      {formatCurrency(
-                                                        tenantShareExpenses,
+
+                                                {row.expenseItems.length >
+                                                  0 && (
+                                                  <span className="absolute invisible group-hover:visible z-[100]">
+                                                    <span className="relative block top-full right-0 mt-1 bg-popover shadow-lg rounded-md p-2 min-w-[200px] border">
+                                                      <div className="text-xs font-medium mb-1.5">
+                                                        {row.billingPeriod > 0
+                                                          ? `Expenses for Period ${row.billingPeriod}`
+                                                          : "Additional Charges"}
+                                                        :
+                                                      </div>
+                                                      {row.expenseItems.map(
+                                                        (item) => (
+                                                          <div
+                                                            key={item.id}
+                                                            className="flex justify-between text-xs mb-1.5"
+                                                          >
+                                                            <span className="truncate max-w-[150px] pr-4">
+                                                              {item.name}
+                                                            </span>
+                                                            <span className="text-right font-medium">
+                                                              {formatCurrency(
+                                                                item.amount,
+                                                              )}
+                                                            </span>
+                                                          </div>
+                                                        ),
+                                                      )}
+                                                      {row.expenseItems.length >
+                                                        1 && (
+                                                        <div className="border-t border-border pt-1.5 mt-1.5 flex justify-between text-xs font-medium">
+                                                          <span>
+                                                            Total Expenses
+                                                          </span>
+                                                          <span>
+                                                            {formatCurrency(
+                                                              row.otherCharges,
+                                                            )}
+                                                          </span>
+                                                        </div>
                                                       )}
                                                     </span>
-                                                    {!isIndividualView && (
-                                                      <span className="text-[10px] bg-muted rounded-full px-1 flex items-center justify-center w-4 h-4">
-                                                        {expenseItems.length}
-                                                      </span>
-                                                    )}
-                                                  </div>
-
-                                                  {/* Hover tooltip for expenses - wrapper technique */}
-                                                  {expenseItems.length > 0 &&
-                                                    !isIndividualView && (
-                                                      <span className="absolute invisible group-hover:visible z-[100]">
-                                                        <span className="relative block top-full right-0 mt-1 bg-popover shadow-lg rounded-md p-2 min-w-[200px] border">
-                                                          <div className="text-xs font-medium mb-1.5">
-                                                            {entry.billing_period >
-                                                            0
-                                                              ? `Expenses for Period ${entry.billing_period}`
-                                                              : "Additional Charges"}
-                                                            :
-                                                          </div>
-                                                          {expenseItems.map(
-                                                            (item) => (
-                                                              <div
-                                                                key={item.id}
-                                                                className="flex justify-between text-xs mb-1.5"
-                                                              >
-                                                                <span className="truncate max-w-[150px] pr-4">
-                                                                  {item.name}
-                                                                </span>
-                                                                <span className="text-right font-medium">
-                                                                  {formatCurrency(
-                                                                    item.amount,
-                                                                  )}
-                                                                </span>
-                                                              </div>
-                                                            ),
-                                                          )}
-                                                          {expenseItems.length >
-                                                            1 && (
-                                                            <div className="border-t border-border pt-1.5 mt-1.5 flex justify-between text-xs font-medium">
-                                                              <span>
-                                                                Total Expenses
-                                                              </span>
-                                                              <span>
-                                                                {formatCurrency(
-                                                                  entry.other_charges,
-                                                                )}
-                                                              </span>
-                                                            </div>
-                                                          )}
-                                                        </span>
-                                                      </span>
-                                                    )}
-                                                </div>
-                                              </td>
-                                              <td className="px-3 py-2 text-xs font-semibold whitespace-nowrap">
-                                                {formatCurrency(
-                                                  tenantShareTotal,
+                                                  </span>
                                                 )}
-                                              </td>
-                                              <td className="px-3 py-2 text-xs font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">
-                                                {formatCurrency(
-                                                  tenantPaidAmount,
-                                                )}
-                                              </td>
-                                              <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                                <Badge
-                                                  variant="outline"
-                                                  className={`text-[10px] px-1.5 py-0.5 ${getStatusColorClass(
-                                                    tenantStatus,
-                                                  )}`}
-                                                >
-                                                  {tenantStatus}
-                                                </Badge>
-                                              </td>
-                                            </tr>
-                                          );
-                                        })
+                                              </div>
+                                            </td>
+                                            <td className="px-3 py-2 text-xs font-semibold whitespace-nowrap">
+                                              {formatCurrency(row.grossDue)}
+                                            </td>
+                                            <td className="px-3 py-2 text-xs font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">
+                                              {formatCurrency(row.paidAmount)}
+                                            </td>
+                                            <td className="px-3 py-2 text-xs whitespace-nowrap">
+                                              <Badge
+                                                variant="outline"
+                                                className={`text-[10px] px-1.5 py-0.5 ${getStatusColorClass(
+                                                  rowStatus,
+                                                )}`}
+                                              >
+                                                {rowStatus}
+                                              </Badge>
+                                            </td>
+                                          </tr>
+                                        );
+                                      })
                                     ) : (
                                       <tr>
                                         <td
@@ -2771,8 +2762,8 @@ export function PropertyDetailsPopup({
                                               No billing entries yet
                                             </p>
                                             <p className="text-xs mt-1">
-                                              Click "Edit Property" to add
-                                              billing entries
+                                              Click &quot;Edit Property&quot; to
+                                              add billing entries
                                             </p>
                                           </div>
                                         </td>
@@ -2925,7 +2916,7 @@ export function PropertyDetailsPopup({
 
                   {activityLogs.length > 0 ? (
                     <div className="space-y-3">
-                      {activityLogs.map((log, index) => (
+                      {activityLogs.map((log) => (
                         <div
                           key={log.id}
                           className="flex gap-3 pb-3 border-b last:border-b-0 last:pb-0"
@@ -3120,7 +3111,8 @@ export function PropertyDetailsPopup({
         propertyName={property.unit_name}
         tenantName={
           selectedBillingTenantId
-            ? selectedBillingTenantName
+            ? selectedBillingTenant?.name ||
+              `Tenant ${(selectedBillingTenantIdx ?? 0) + 1}`
             : activeTenant?.tenant_name || ""
         }
       />
