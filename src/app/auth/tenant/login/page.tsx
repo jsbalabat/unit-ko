@@ -14,21 +14,18 @@ import {
 } from "@/components/form";
 import { Input } from "@/components/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Mail, User } from "lucide-react";
+import { ArrowLeft, Mail, Phone, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { checkTenantAuth } from "@/lib/auth";
 
 const formSchema = z.object({
-  identifier: z
+  email: z.string().email({ message: "Enter a valid email address" }),
+  contactNumber: z
     .string()
-    .min(1, {
-      message: "Contact number or email must not be empty",
-    })
-    .max(100, {
-      message: "Input must be at most 100 characters long",
-    }),
+    .min(5, { message: "Contact number is required" })
+    .max(40, { message: "Contact number is too long" }),
 });
 
 export default function TenantLogin() {
@@ -38,7 +35,8 @@ export default function TenantLogin() {
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      identifier: "",
+      email: "",
+      contactNumber: "",
     },
   });
 
@@ -62,12 +60,15 @@ export default function TenantLogin() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ identifier: data.identifier }),
+        body: JSON.stringify({
+          email: data.email,
+          contactNumber: data.contactNumber,
+        }),
       });
 
       if (!response.ok) {
         toast.error(
-          "No tenant account found with this contact number or email address",
+          "Invalid credentials. Check your email and contact number.",
         );
         return;
       }
@@ -112,17 +113,39 @@ export default function TenantLogin() {
             <form onSubmit={handleFormSubmit} className="space-y-4">
               <FormField
                 control={form.control}
-                name="identifier"
+                name="email"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel className="flex items-center gap-2 text-sm">
                       <Mail className="h-3.5 w-3.5" />
-                      Contact Number / Email
+                      Email Address
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type="email"
+                        placeholder="juan.delacruz@gmail.com"
+                        className="h-10"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="contactNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="flex items-center gap-2 text-sm">
+                      <Phone className="h-3.5 w-3.5" />
+                      Contact Number
                     </FormLabel>
                     <FormControl>
                       <Input
                         type="text"
-                        placeholder="09123456789 or juandelacruz@gmail.com"
+                        placeholder="09123456789"
                         className="h-10"
                         {...field}
                       />
@@ -137,8 +160,8 @@ export default function TenantLogin() {
               </Button>
 
               <div className="text-center text-sm text-muted-foreground">
-                Enter your contact number or email to access your tenant
-                dashboard
+                Enter the email and contact number registered to your tenant
+                account
               </div>
             </form>
           </Form>

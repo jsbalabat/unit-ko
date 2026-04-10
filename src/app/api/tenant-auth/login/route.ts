@@ -8,7 +8,8 @@ import {
 } from "@/lib/tenant-session";
 
 const loginSchema = z.object({
-  identifier: z.string().trim().min(1).max(100),
+  email: z.string().trim().email().max(200),
+  contactNumber: z.string().trim().min(5).max(40),
 });
 
 function getSupabaseServerClient() {
@@ -18,24 +19,40 @@ function getSupabaseServerClient() {
   );
 }
 
-async function resolveTenantId(identifier: string): Promise<string | null> {
+async function resolveTenantIdByCredentials(
+  email: string,
+  contactNumber: string,
+): Promise<string | null> {
   const supabase = getSupabaseServerClient();
+  const normalizedEmail = email.trim().toLowerCase();
+  const normalizedContact = contactNumber.trim();
 
   const { data: profile } = await supabase
     .from("profiles")
     .select("tenant_id, role")
-    .eq("email", identifier)
+    .ilike("email", normalizedEmail)
     .eq("role", "tenant")
     .maybeSingle();
 
   if (profile?.tenant_id) {
-    return profile.tenant_id;
+    const { data: profiledTenant } = await supabase
+      .from("tenants")
+      .select("id")
+      .eq("id", profile.tenant_id)
+      .eq("contact_number", normalizedContact)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (profiledTenant?.id) {
+      return profiledTenant.id;
+    }
   }
 
   const { data: tenant } = await supabase
     .from("tenants")
     .select("id")
-    .eq("contact_number", identifier)
+    .ilike("email", normalizedEmail)
+    .eq("contact_number", normalizedContact)
     .eq("is_active", true)
     .maybeSingle();
 
@@ -54,7 +71,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const tenantId = await resolveTenantId(parsed.data.identifier);
+    const tenantId = await resolveTenantIdByCredentials(
+      parsed.data.email,
+      parsed.data.contactNumber,
+    );
 
     if (!tenantId) {
       return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });

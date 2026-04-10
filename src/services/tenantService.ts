@@ -55,28 +55,41 @@ export async function authenticateTenantByEmail(email: string): Promise<string |
 }
 
 /**
- * Authenticate tenant by email or contact number
+ * Authenticate tenant by matching both email and contact number
  */
-export async function authenticateTenant(identifier: string): Promise<string | null> {
+export async function authenticateTenant(email: string, contactNumber: string): Promise<string | null> {
   try {
-    // First, try to authenticate by email (check profiles table)
+    const normalizedEmail = email.trim().toLowerCase()
+    const normalizedContact = contactNumber.trim()
+
+    // First, resolve tenant by email in profiles table
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('tenant_id, role')
-      .eq('email', identifier)
+      .ilike('email', normalizedEmail)
       .eq('role', 'tenant')
       .maybeSingle()
 
-    // If found in profiles by email, return tenant_id
     if (profile && profile.tenant_id) {
-      return profile.tenant_id
+      const { data: tenantByProfile } = await supabase
+        .from('tenants')
+        .select('id')
+        .eq('id', profile.tenant_id)
+        .eq('contact_number', normalizedContact)
+        .eq('is_active', true)
+        .maybeSingle()
+
+      if (tenantByProfile?.id) {
+        return tenantByProfile.id
+      }
     }
 
-    // If not found by email, try to find by contact number in tenants table
+    // Fallback: validate against tenant row email + contact number
     const { data: tenant, error: tenantError } = await supabase
       .from('tenants')
       .select('id')
-      .eq('contact_number', identifier)
+      .ilike('email', normalizedEmail)
+      .eq('contact_number', normalizedContact)
       .eq('is_active', true)
       .maybeSingle()
 
@@ -84,7 +97,6 @@ export async function authenticateTenant(identifier: string): Promise<string | n
       return tenant.id
     }
 
-    // Not found by either method
     return null
   } catch (error) {
     console.error('Error authenticating tenant:', error)
