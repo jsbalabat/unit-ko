@@ -113,9 +113,6 @@ interface BillingEntry {
   created_at: string;
   updated_at: string;
   expense_items?: string; // Add this field for the JSON string of expense items
-  tenant_payments?: string; // JSON string of per-tenant payments: {"0": 1500, "1": 1500}
-  tenant_rent_amounts?: string; // JSON string of per-tenant rent: {"0": 5000, "1": 6000}
-  tenant_other_charges?: string; // JSON string of per-tenant charges: {"0": 200, "1": 300}
 }
 
 interface ExpenseItem {
@@ -1015,7 +1012,6 @@ export function PropertyDetailsPopup({
           .update({
             paid_amount: update.paidAmount,
             status: update.status,
-            tenant_payments: null,
             updated_at: new Date().toISOString(),
           })
           .eq("id", update.id);

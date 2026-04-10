@@ -1037,9 +1037,6 @@ export function EditPropertyPopup({
                 rent_due: entry.rentDue,
                 gross_due: entry.grossDue,
                 paid_amount: entry.paidAmount || 0,
-                tenant_rent_amounts: null,
-                tenant_other_charges: null,
-                tenant_payments: null,
                 updated_at: new Date().toISOString(),
               };
 
@@ -1072,9 +1069,6 @@ export function EditPropertyPopup({
                 status: entry.grossDue === 0 ? "Not Yet Set" : entry.status,
                 paid_amount: entry.paidAmount || 0,
                 billing_period: billingPeriod,
-                tenant_rent_amounts: null,
-                tenant_other_charges: null,
-                tenant_payments: null,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
               };

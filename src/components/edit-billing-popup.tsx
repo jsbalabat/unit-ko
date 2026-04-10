@@ -1214,9 +1214,6 @@ export function EditBillingPopup({
           updateData.gross_due = billing.grossDue;
           updateData.status = billing.status;
           updateData.paid_amount = billing.paidAmount || 0;
-          updateData.tenant_rent_amounts = null;
-          updateData.tenant_other_charges = null;
-          updateData.tenant_payments = null;
 
           const { error } = await supabase
             .from("billing_entries")
@@ -1253,9 +1250,6 @@ export function EditBillingPopup({
           insertData.gross_due = billing.grossDue;
           insertData.status = billing.status;
           insertData.paid_amount = billing.paidAmount || 0;
-          insertData.tenant_rent_amounts = null;
-          insertData.tenant_other_charges = null;
-          insertData.tenant_payments = null;
 
           const { error } = await supabase
             .from("billing_entries")

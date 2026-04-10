@@ -77,9 +77,6 @@ export interface BillingEntry {
   billing_period: number
   paid_amount?: number // Amount already paid for this entry
   expense_items?: string // JSON string of expense breakdown
-  tenant_payments?: string // JSON string of per-tenant payment tracking: {"0": 1500, "1": 1500}
-  tenant_rent_amounts?: string // JSON string of per-tenant rent: {"0": 5000, "1": 6000}
-  tenant_other_charges?: string // JSON string of per-tenant charges: {"0": 200, "1": 300}
   created_at: string
   updated_at: string
 }
