@@ -44,32 +44,6 @@ const setRateLimitFlag = (billingEntryId: string): void => {
   localStorage.setItem(keyStr, new Date().toISOString())
 }
 
-// Format date for SMS message
-const formatDateForMessage = (dateString: string): string => {
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-PH', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  })
-}
-
-// Build SMS message
-const buildSMSMessage = (
-  tenantName: string,
-  propertyName: string,
-  dueDate: string,
-  totalAmount: number
-): string => {
-  const formattedDate = formatDateForMessage(dueDate)
-  const amount = totalAmount.toLocaleString('en-PH', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  })
-
-  return `Hi ${tenantName}, your rent for ${propertyName} is due on ${formattedDate} with a total amount of ₱${amount}. Please settle your account. Thank you!`
-}
-
 export async function sendTenantReminder(payload: ReminderPayload): Promise<{
   success: boolean
   message: string
@@ -105,15 +79,7 @@ export async function sendTenantReminder(payload: ReminderPayload): Promise<{
       }
     }
 
-    // Build SMS message
-    const smsMessage = buildSMSMessage(
-      payload.tenantName,
-      payload.propertyName,
-      payload.dueDate,
-      payload.totalAmount
-    )
-
-    // Send through backend so webhook URL remains server-side.
+    // Send through backend so webhook URL remains server-side and payload is rebuilt from trusted DB data.
     const response = await fetch('/api/reminders/tenant', {
       method: 'POST',
       headers: {
@@ -123,12 +89,6 @@ export async function sendTenantReminder(payload: ReminderPayload): Promise<{
       body: JSON.stringify({
         eventType: 'tenant_reminder',
         timestamp: new Date().toISOString(),
-        tenantName: payload.tenantName,
-        tenantPhone: payload.tenantPhone,
-        propertyName: payload.propertyName,
-        dueDate: payload.dueDate,
-        amount: payload.totalAmount,
-        message: smsMessage,
         billingEntryId: payload.billingEntryId
       })
     })
