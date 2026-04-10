@@ -876,7 +876,6 @@ export function PropertyDetailsPopup({
         id: string;
         paidAmount: number;
         status: string;
-        tenantPayments: string;
       }> = [];
 
       // For POSITIVE payments: First use overflow to pay billing entries, then add excess to overflow
@@ -894,25 +893,6 @@ export function PropertyDetailsPopup({
               const overflowToUse = Math.min(newOverflow, amountDue);
               const newPaidAmount = currentPaid + overflowToUse;
               newOverflow -= overflowToUse;
-
-              // Parse existing tenant payments
-              let tenantPaymentsMap: TenantPaymentMap = {};
-              try {
-                tenantPaymentsMap = entry.tenant_payments
-                  ? JSON.parse(entry.tenant_payments)
-                  : {};
-              } catch (e) {
-                tenantPaymentsMap = {};
-              }
-
-              // Distribute overflow payment proportionally among all tenants
-              const paymentPerTenant = overflowToUse / paxCount;
-              for (let i = 0; i < paxCount; i++) {
-                const tenantKey = i.toString();
-                const currentTenantPaid = tenantPaymentsMap[tenantKey] || 0;
-                tenantPaymentsMap[tenantKey] =
-                  currentTenantPaid + paymentPerTenant;
-              }
 
               // Determine new status
               let newStatus = entry.status;
@@ -933,7 +913,6 @@ export function PropertyDetailsPopup({
                 id: entry.id,
                 paidAmount: newPaidAmount,
                 status: newStatus,
-                tenantPayments: JSON.stringify(tenantPaymentsMap),
               });
             }
           }
@@ -948,176 +927,39 @@ export function PropertyDetailsPopup({
           const currentPaid = existingUpdate
             ? existingUpdate.paidAmount
             : entry.paid_amount || 0;
+          const amountDue = entry.gross_due - currentPaid;
+          if (amountDue > 0) {
+            const paymentToApply = Math.min(remainingPayment, amountDue);
+            const newPaidAmount = currentPaid + paymentToApply;
 
-          // Parse existing tenant payments
-          let tenantPaymentsMap: TenantPaymentMap = {};
-          try {
-            if (existingUpdate) {
-              tenantPaymentsMap = JSON.parse(existingUpdate.tenantPayments);
+            // Determine new status
+            let newStatus = entry.status;
+            const epsilon = 0.01;
+            if (newPaidAmount >= entry.gross_due - epsilon) {
+              newStatus = "Paid";
+            } else if (newPaidAmount > epsilon) {
+              newStatus = "Partial";
             } else {
-              tenantPaymentsMap = entry.tenant_payments
-                ? JSON.parse(entry.tenant_payments)
-                : {};
-            }
-          } catch (e) {
-            tenantPaymentsMap = {};
-          }
-
-          const perPersonShare = entry.gross_due / paxCount;
-          let amountDue: number;
-          let paymentToApply: number;
-
-          if (isPerPersonPayment && selectedTenantIndex !== null) {
-            // Individual tenant payment - apply full payment to specific tenant only
-            const tenantKey = selectedTenantIndex.toString();
-            const tenantPaid = tenantPaymentsMap[tenantKey] || 0;
-
-            // Get the tenant's actual billing amounts from JSON fields
-            let tenantActualRent = 0;
-            let tenantActualCharges = 0;
-
-            try {
-              const tenantRentAmounts = entry.tenant_rent_amounts
-                ? JSON.parse(entry.tenant_rent_amounts)
-                : {};
-              tenantActualRent =
-                tenantKey in tenantRentAmounts
-                  ? tenantRentAmounts[tenantKey]
-                  : entry.rent_due / paxCount;
-            } catch (e) {
-              tenantActualRent = entry.rent_due / paxCount;
+              // Determine overdue vs not yet due
+              const dueDate = new Date(entry.due_date);
+              const today = new Date();
+              today.setHours(0, 0, 0, 0);
+              dueDate.setHours(0, 0, 0, 0);
+              newStatus = dueDate < today ? "overdue" : "Not Yet Due";
             }
 
-            try {
-              const tenantOtherCharges = entry.tenant_other_charges
-                ? JSON.parse(entry.tenant_other_charges)
-                : {};
-              tenantActualCharges =
-                tenantKey in tenantOtherCharges
-                  ? tenantOtherCharges[tenantKey]
-                  : entry.other_charges / paxCount;
-            } catch (e) {
-              tenantActualCharges = entry.other_charges / paxCount;
+            if (existingUpdate) {
+              existingUpdate.paidAmount = newPaidAmount;
+              existingUpdate.status = newStatus;
+            } else {
+              updates.push({
+                id: entry.id,
+                paidAmount: newPaidAmount,
+                status: newStatus,
+              });
             }
 
-            const tenantActualTotal = tenantActualRent + tenantActualCharges;
-            const tenantDue = Math.max(0, tenantActualTotal - tenantPaid);
-
-            // Apply as much payment as possible to this entry, limited by tenant's actual amount due
-            if (remainingPayment > 0 && tenantDue > 0) {
-              paymentToApply = Math.min(remainingPayment, tenantDue);
-              tenantPaymentsMap[tenantKey] = tenantPaid + paymentToApply;
-              const newTotalPaid = Object.values(tenantPaymentsMap).reduce(
-                (sum, val) => sum + val,
-                0,
-              );
-
-              // Determine new status based on all tenant payments
-              let newStatus = "Partial";
-              const epsilon = 0.01;
-
-              // Check if all tenants have paid their actual shares (using custom amounts)
-              const tenantRentAmounts = entry.tenant_rent_amounts
-                ? JSON.parse(entry.tenant_rent_amounts)
-                : {};
-              const tenantOtherChargesAmounts = entry.tenant_other_charges
-                ? JSON.parse(entry.tenant_other_charges)
-                : {};
-
-              const allTenantsPaid = Array.from(
-                { length: paxCount },
-                (_, i) => {
-                  const key = i.toString();
-                  const paid = tenantPaymentsMap[key] || 0;
-                  const rent =
-                    key in tenantRentAmounts
-                      ? tenantRentAmounts[key]
-                      : entry.rent_due / paxCount;
-                  const charges =
-                    key in tenantOtherChargesAmounts
-                      ? tenantOtherChargesAmounts[key]
-                      : entry.other_charges / paxCount;
-                  const tenantTotal = rent + charges;
-                  return paid >= tenantTotal - epsilon;
-                },
-              ).every(Boolean);
-
-              if (allTenantsPaid || newTotalPaid >= entry.gross_due - epsilon) {
-                newStatus = "Paid";
-              } else if (newTotalPaid > epsilon) {
-                newStatus = "Partial";
-              } else {
-                const dueDate = new Date(entry.due_date);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                dueDate.setHours(0, 0, 0, 0);
-                newStatus = dueDate < today ? "overdue" : "Not Yet Due";
-              }
-
-              if (existingUpdate) {
-                existingUpdate.paidAmount = newTotalPaid;
-                existingUpdate.status = newStatus;
-                existingUpdate.tenantPayments =
-                  JSON.stringify(tenantPaymentsMap);
-              } else {
-                updates.push({
-                  id: entry.id,
-                  paidAmount: newTotalPaid,
-                  status: newStatus,
-                  tenantPayments: JSON.stringify(tenantPaymentsMap),
-                });
-              }
-
-              remainingPayment -= paymentToApply;
-            }
-          } else {
-            // Full payment (all tenants) - traditional logic
-            amountDue = entry.gross_due - currentPaid;
-            if (amountDue > 0) {
-              paymentToApply = Math.min(remainingPayment, amountDue);
-              const newPaidAmount = currentPaid + paymentToApply;
-
-              // Distribute payment proportionally among all tenants
-              const paymentPerTenant = paymentToApply / paxCount;
-              for (let i = 0; i < paxCount; i++) {
-                const tenantKey = i.toString();
-                const currentTenantPaid = tenantPaymentsMap[tenantKey] || 0;
-                tenantPaymentsMap[tenantKey] =
-                  currentTenantPaid + paymentPerTenant;
-              }
-
-              // Determine new status
-              let newStatus = entry.status;
-              const epsilon = 0.01;
-              if (newPaidAmount >= entry.gross_due - epsilon) {
-                newStatus = "Paid";
-              } else if (newPaidAmount > epsilon) {
-                newStatus = "Partial";
-              } else {
-                // Determine overdue vs not yet due
-                const dueDate = new Date(entry.due_date);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                dueDate.setHours(0, 0, 0, 0);
-                newStatus = dueDate < today ? "overdue" : "Not Yet Due";
-              }
-
-              if (existingUpdate) {
-                existingUpdate.paidAmount = newPaidAmount;
-                existingUpdate.status = newStatus;
-                existingUpdate.tenantPayments =
-                  JSON.stringify(tenantPaymentsMap);
-              } else {
-                updates.push({
-                  id: entry.id,
-                  paidAmount: newPaidAmount,
-                  status: newStatus,
-                  tenantPayments: JSON.stringify(tenantPaymentsMap),
-                });
-              }
-
-              remainingPayment -= paymentToApply;
-            }
+            remainingPayment -= paymentToApply;
           }
         }
 
@@ -1146,50 +988,8 @@ export function PropertyDetailsPopup({
           const currentPaid = entry.paid_amount || 0;
 
           if (currentPaid > 0) {
-            let deductionAmount: number;
-            let newPaidAmount: number;
-
-            // Parse existing tenant payments
-            let tenantPaymentsMap: TenantPaymentMap = {};
-            try {
-              tenantPaymentsMap = entry.tenant_payments
-                ? JSON.parse(entry.tenant_payments)
-                : {};
-            } catch (e) {
-              tenantPaymentsMap = {};
-            }
-
-            if (isPerPersonPayment && selectedTenantIndex !== null) {
-              // Individual tenant refund
-              const tenantKey = selectedTenantIndex.toString();
-              const tenantPaid = tenantPaymentsMap[tenantKey] || 0;
-              const maxDeduction = Math.min(
-                Math.abs(remainingPayment),
-                tenantPaid,
-              );
-
-              tenantPaymentsMap[tenantKey] = tenantPaid - maxDeduction;
-              newPaidAmount = Object.values(tenantPaymentsMap).reduce(
-                (sum, val) => sum + val,
-                0,
-              );
-              deductionAmount = -maxDeduction;
-            } else {
-              // Full refund (proportional to all tenants)
-              deductionAmount = Math.max(remainingPayment, -currentPaid);
-              newPaidAmount = currentPaid + deductionAmount;
-
-              // Distribute deduction proportionally among all tenants
-              const deductionPerTenant = Math.abs(deductionAmount) / paxCount;
-              for (let i = 0; i < paxCount; i++) {
-                const tenantKey = i.toString();
-                const currentTenantPaid = tenantPaymentsMap[tenantKey] || 0;
-                tenantPaymentsMap[tenantKey] = Math.max(
-                  0,
-                  currentTenantPaid - deductionPerTenant,
-                );
-              }
-            }
+            const deductionAmount = Math.max(remainingPayment, -currentPaid);
+            const newPaidAmount = currentPaid + deductionAmount;
 
             // Determine new status
             let newStatus = entry.status;
@@ -1211,7 +1011,6 @@ export function PropertyDetailsPopup({
               id: entry.id,
               paidAmount: Math.max(0, newPaidAmount),
               status: newStatus,
-              tenantPayments: JSON.stringify(tenantPaymentsMap),
             });
 
             remainingPayment -= deductionAmount;
@@ -1226,7 +1025,7 @@ export function PropertyDetailsPopup({
           .update({
             paid_amount: update.paidAmount,
             status: update.status,
-            tenant_payments: update.tenantPayments,
+            tenant_payments: null,
             updated_at: new Date().toISOString(),
           })
           .eq("id", update.id);
