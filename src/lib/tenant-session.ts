@@ -2,11 +2,8 @@ import crypto from "crypto";
 import { z } from "zod";
 
 const COOKIE_SECRET = process.env.TENANT_SESSION_SECRET;
-
-if (!COOKIE_SECRET) {
-  // Keep startup signal explicit so this is configured before production rollout.
-  console.warn("TENANT_SESSION_SECRET is not set. Tenant session security is reduced.");
-}
+const DEV_FALLBACK_SECRET = crypto.randomBytes(32).toString("hex");
+let hasWarnedMissingSecret = false;
 
 export const TENANT_SESSION_COOKIE = "tenant_session";
 const SESSION_TTL_SECONDS = 60 * 60 * 24; // 24 hours
@@ -19,7 +16,24 @@ const sessionPayloadSchema = z.object({
 type SessionPayload = z.infer<typeof sessionPayloadSchema>;
 
 function getSecret(): string {
-  return COOKIE_SECRET || "insecure-dev-fallback-change-this";
+  if (COOKIE_SECRET) {
+    return COOKIE_SECRET;
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "TENANT_SESSION_SECRET must be set in production to sign tenant session tokens.",
+    );
+  }
+
+  if (!hasWarnedMissingSecret) {
+    hasWarnedMissingSecret = true;
+    console.warn(
+      "TENANT_SESSION_SECRET is not set. Using an ephemeral dev secret for this process only.",
+    );
+  }
+
+  return DEV_FALLBACK_SECRET;
 }
 
 function base64UrlEncode(value: string): string {
