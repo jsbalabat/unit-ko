@@ -108,6 +108,7 @@ interface BillingEntry {
   id: string;
   property_id: string;
   tenant_id: string;
+  period_id?: string;
   due_date: string;
   rent_due: number;
   other_charges: number; // Keep for data compatibility
@@ -720,10 +721,10 @@ export function PropertyDetailsPopup({
     setIsDeleting(true);
 
     try {
-      const activeTenant = property.tenants?.find((t) => t.is_active);
+      const activeTenants = property.tenants?.filter((t) => t.is_active) || [];
 
       // First, delete any billing entries associated with this property
-      if (activeTenant) {
+      if (activeTenants.length > 0) {
         const { error: billingDeleteError } = await supabase
           .from("billing_entries")
           .delete()
@@ -735,7 +736,7 @@ export function PropertyDetailsPopup({
         const { error: tenantDeleteError } = await supabase
           .from("tenants")
           .delete()
-          .eq("id", activeTenant.id);
+          .eq("property_id", propertyId);
 
         if (tenantDeleteError) throw tenantDeleteError;
       }
@@ -779,10 +780,10 @@ export function PropertyDetailsPopup({
       if (
         paxCount > 1 &&
         selectedTenantIndex !== null &&
-        activeTenant.pax_details
+        tenantProfiles.length > selectedTenantIndex
       ) {
         const tenantName =
-          activeTenant.pax_details[selectedTenantIndex]?.name ||
+          tenantProfiles[selectedTenantIndex]?.name ||
           `Tenant ${selectedTenantIndex + 1}`;
         const prefix = `Payment by: ${tenantName} (Share: 1/${paxCount})`;
         finalPaymentNote = paymentNote ? `${prefix}. ${paymentNote}` : prefix;
@@ -852,7 +853,13 @@ export function PropertyDetailsPopup({
       }
 
       // Handle normal rent/other charges payment to billing entries
-      const entries = activeTenant.billing_entries || [];
+      const entries =
+        selectedTenantIndex !== null && tenantIdsByIndex[selectedTenantIndex]
+          ? billingEntries.filter(
+              (entry) =>
+                entry.tenant_id === tenantIdsByIndex[selectedTenantIndex],
+            )
+          : billingEntries;
       const currentOverflow = activeTenant.overflow || 0;
 
       // Sort entries: chronologically for positive payments, reverse for negative payments
@@ -1265,8 +1272,8 @@ export function PropertyDetailsPopup({
 
       // Show success message
       const tenantInfo =
-        isPerPersonPayment && activeTenant.pax_details?.[selectedTenantIndex!]
-          ? ` by ${activeTenant.pax_details[selectedTenantIndex!].name}`
+        isPerPersonPayment && tenantProfiles[selectedTenantIndex!]
+          ? ` by ${tenantProfiles[selectedTenantIndex!].name}`
           : "";
 
       if (newOverflow > currentOverflow) {
@@ -1351,15 +1358,52 @@ export function PropertyDetailsPopup({
 
   if (!property) return null;
 
-  const activeTenant = property.tenants?.find((t) => t.is_active);
-  const billingEntries = activeTenant?.billing_entries || [];
-  // Get pax count with fallback to 1 for existing tenants without pax field
-  // Count only filled-in pax_details entries
-  const filledPaxCount =
-    activeTenant?.pax_details?.filter((p) => p.name && p.name.trim() !== "")
-      .length || 0;
-  const paxCount =
-    filledPaxCount > 0 ? filledPaxCount : (activeTenant?.pax ?? 1);
+  const activeTenants = (property.tenants || []).filter((t) => t.is_active);
+  const activeTenant = activeTenants[0];
+
+  const normalizedTenantProfiles = activeTenants.map((tenant) => ({
+    name: tenant.tenant_name,
+    email: tenant.email || "",
+    phone: tenant.contact_number,
+  }));
+
+  const legacyTenantProfiles =
+    activeTenant?.pax_details?.filter((p) => p.name && p.name.trim() !== "") ||
+    [];
+
+  const tenantProfiles =
+    normalizedTenantProfiles.length > 1
+      ? normalizedTenantProfiles
+      : legacyTenantProfiles.length > 0
+        ? legacyTenantProfiles
+        : activeTenant
+          ? [
+              {
+                name: activeTenant.tenant_name,
+                email: activeTenant.email || "",
+                phone: activeTenant.contact_number,
+              },
+            ]
+          : [];
+
+  const tenantIdsByIndex =
+    normalizedTenantProfiles.length > 1
+      ? activeTenants.map((tenant) => tenant.id)
+      : activeTenant
+        ? [activeTenant.id]
+        : [];
+
+  const paxCount = tenantProfiles.length > 0 ? tenantProfiles.length : 1;
+
+  const billingEntries =
+    activeTenants.length > 1
+      ? activeTenants
+          .flatMap((tenant) => tenant.billing_entries || [])
+          .sort(
+            (a, b) =>
+              new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
+          )
+      : activeTenant?.billing_entries || [];
 
   const currentDate = new Date();
   currentDate.setHours(0, 0, 0, 0);
@@ -1371,7 +1415,7 @@ export function PropertyDetailsPopup({
     : null;
   const selectedBillingTenant =
     selectedBillingTenantIdx !== null && !Number.isNaN(selectedBillingTenantIdx)
-      ? activeTenant?.pax_details?.[selectedBillingTenantIdx]
+      ? tenantProfiles[selectedBillingTenantIdx]
       : null;
   const isSelectedTenantEmpty =
     isIndividualBillingView &&
@@ -1389,6 +1433,11 @@ export function PropertyDetailsPopup({
       `Tenant ${(selectedBillingTenantIdx ?? 0) + 1}`
     : "Consolidated";
 
+  const selectedBillingTenantId =
+    selectedBillingTenantIdx !== null && !Number.isNaN(selectedBillingTenantIdx)
+      ? tenantIdsByIndex[selectedBillingTenantIdx] || null
+      : null;
+
   const getViewAmounts = (entry: BillingEntry) => {
     if (!useIndividualStripView || selectedBillingTenantKey === null) {
       return {
@@ -1401,6 +1450,11 @@ export function PropertyDetailsPopup({
     let tenantCharges = 0;
     let tenantPaid = 0;
 
+    const isNormalizedIndividualEntry =
+      selectedBillingTenantId !== null &&
+      !entry.tenant_rent_amounts &&
+      !entry.tenant_other_charges;
+
     try {
       const tenantRentAmounts = entry.tenant_rent_amounts
         ? JSON.parse(entry.tenant_rent_amounts)
@@ -1408,9 +1462,17 @@ export function PropertyDetailsPopup({
       tenantRent =
         selectedBillingTenantKey in tenantRentAmounts
           ? tenantRentAmounts[selectedBillingTenantKey]
-          : entry.rent_due / paxCount;
+          : isNormalizedIndividualEntry
+            ? entry.tenant_id === selectedBillingTenantId
+              ? entry.rent_due
+              : 0
+            : entry.rent_due / paxCount;
     } catch {
-      tenantRent = entry.rent_due / paxCount;
+      tenantRent = isNormalizedIndividualEntry
+        ? entry.tenant_id === selectedBillingTenantId
+          ? entry.rent_due
+          : 0
+        : entry.rent_due / paxCount;
     }
 
     try {
@@ -1420,9 +1482,17 @@ export function PropertyDetailsPopup({
       tenantCharges =
         selectedBillingTenantKey in tenantOtherCharges
           ? tenantOtherCharges[selectedBillingTenantKey]
-          : entry.other_charges / paxCount;
+          : isNormalizedIndividualEntry
+            ? entry.tenant_id === selectedBillingTenantId
+              ? entry.other_charges
+              : 0
+            : entry.other_charges / paxCount;
     } catch {
-      tenantCharges = entry.other_charges / paxCount;
+      tenantCharges = isNormalizedIndividualEntry
+        ? entry.tenant_id === selectedBillingTenantId
+          ? entry.other_charges
+          : 0
+        : entry.other_charges / paxCount;
     }
 
     try {
@@ -1432,9 +1502,17 @@ export function PropertyDetailsPopup({
       tenantPaid =
         selectedBillingTenantKey in tenantPayments
           ? tenantPayments[selectedBillingTenantKey]
-          : (entry.paid_amount || 0) / paxCount;
+          : isNormalizedIndividualEntry
+            ? entry.tenant_id === selectedBillingTenantId
+              ? entry.paid_amount || 0
+              : 0
+            : (entry.paid_amount || 0) / paxCount;
     } catch {
-      tenantPaid = (entry.paid_amount || 0) / paxCount;
+      tenantPaid = isNormalizedIndividualEntry
+        ? entry.tenant_id === selectedBillingTenantId
+          ? entry.paid_amount || 0
+          : 0
+        : (entry.paid_amount || 0) / paxCount;
     }
 
     return {
@@ -1770,110 +1848,105 @@ export function PropertyDetailsPopup({
                         </div>
 
                         {/* Occupant Details */}
-                        {activeTenant.pax && activeTenant.pax > 0 && (
+                        {paxCount > 0 && (
                           <div className="border-t pt-4">
                             <h4 className="text-sm font-semibold mb-3">
-                              Occupant Details ({paxCount}/{activeTenant.pax}{" "}
-                              Occupied)
+                              Occupant Details ({paxCount}/{paxCount} Occupied)
                             </h4>
                             <div className="space-y-3">
-                              {Array.from(
-                                { length: activeTenant.pax },
-                                (_, index) => {
-                                  const person =
-                                    activeTenant.pax_details?.[index];
-                                  const isOccupied =
-                                    person?.name && person.name.trim() !== "";
+                              {Array.from({ length: paxCount }, (_, index) => {
+                                const person = tenantProfiles[index];
+                                const isOccupied =
+                                  person?.name && person.name.trim() !== "";
 
-                                  return (
-                                    <div
-                                      key={index}
-                                      className={`p-3 rounded-lg border ${
-                                        isOccupied
-                                          ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
-                                          : "bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800 border-dashed"
-                                      }`}
-                                    >
-                                      <div className="flex items-start gap-3">
-                                        <div
-                                          className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                                            isOccupied
-                                              ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
-                                              : "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600"
-                                          }`}
-                                        >
-                                          <User className="h-5 w-5" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-center gap-2 mb-1">
-                                            <p
-                                              className={`font-medium text-sm ${
-                                                isOccupied
-                                                  ? "text-foreground"
-                                                  : "text-muted-foreground italic"
-                                              }`}
-                                            >
-                                              {isOccupied
-                                                ? person.name
-                                                : `Slot ${index + 1} - Vacant`}
-                                            </p>
-                                            {isOccupied && (
-                                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300">
-                                                Occupied
-                                              </span>
-                                            )}
-                                            {!isOccupied && (
-                                              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-                                                Available
-                                              </span>
-                                            )}
-                                          </div>
-                                          {isOccupied ? (
-                                            <>
-                                              {person.email && (
-                                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-                                                  <svg
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    className="h-3 w-3"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    strokeWidth="2"
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                  >
-                                                    <rect
-                                                      width="20"
-                                                      height="16"
-                                                      x="2"
-                                                      y="4"
-                                                      rx="2"
-                                                    />
-                                                    <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                                                  </svg>
-                                                  <span className="truncate">
-                                                    {person.email}
-                                                  </span>
-                                                </div>
-                                              )}
-                                              {person.phone && (
-                                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                                  <Phone className="h-3 w-3" />
-                                                  <span>{person.phone}</span>
-                                                </div>
-                                              )}
-                                            </>
-                                          ) : (
-                                            <p className="text-xs text-muted-foreground">
-                                              No tenant assigned to this slot
-                                            </p>
+                                return (
+                                  <div
+                                    key={index}
+                                    className={`p-3 rounded-lg border ${
+                                      isOccupied
+                                        ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
+                                        : "bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800 border-dashed"
+                                    }`}
+                                  >
+                                    <div className="flex items-start gap-3">
+                                      <div
+                                        className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                                          isOccupied
+                                            ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
+                                            : "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600"
+                                        }`}
+                                      >
+                                        <User className="h-5 w-5" />
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 mb-1">
+                                          <p
+                                            className={`font-medium text-sm ${
+                                              isOccupied
+                                                ? "text-foreground"
+                                                : "text-muted-foreground italic"
+                                            }`}
+                                          >
+                                            {isOccupied
+                                              ? person.name
+                                              : `Slot ${index + 1} - Vacant`}
+                                          </p>
+                                          {isOccupied && (
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300">
+                                              Occupied
+                                            </span>
+                                          )}
+                                          {!isOccupied && (
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+                                              Available
+                                            </span>
                                           )}
                                         </div>
+                                        {isOccupied ? (
+                                          <>
+                                            {person.email && (
+                                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+                                                <svg
+                                                  xmlns="http://www.w3.org/2000/svg"
+                                                  className="h-3 w-3"
+                                                  viewBox="0 0 24 24"
+                                                  fill="none"
+                                                  stroke="currentColor"
+                                                  strokeWidth="2"
+                                                  strokeLinecap="round"
+                                                  strokeLinejoin="round"
+                                                >
+                                                  <rect
+                                                    width="20"
+                                                    height="16"
+                                                    x="2"
+                                                    y="4"
+                                                    rx="2"
+                                                  />
+                                                  <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                                                </svg>
+                                                <span className="truncate">
+                                                  {person.email}
+                                                </span>
+                                              </div>
+                                            )}
+                                            {person.phone && (
+                                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                <Phone className="h-3 w-3" />
+                                                <span>{person.phone}</span>
+                                              </div>
+                                            )}
+                                          </>
+                                        ) : (
+                                          <p className="text-xs text-muted-foreground">
+                                            No tenant assigned to this slot
+                                          </p>
+                                        )}
                                       </div>
                                     </div>
-                                  );
-                                },
-                              )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -1935,7 +2008,7 @@ export function PropertyDetailsPopup({
                             if (showTenantDetails) {
                               for (let i = 0; i < paxCount; i++) {
                                 const tenantKey = i.toString();
-                                const person = activeTenant?.pax_details?.[i];
+                                const person = tenantProfiles[i];
                                 const tenantName =
                                   person?.name || `Tenant ${i + 1}`;
 
@@ -2114,7 +2187,7 @@ export function PropertyDetailsPopup({
                             if (showTenantDetails) {
                               for (let i = 0; i < paxCount; i++) {
                                 const tenantKey = i.toString();
-                                const person = activeTenant?.pax_details?.[i];
+                                const person = tenantProfiles[i];
                                 const tenantName =
                                   person?.name || `Tenant ${i + 1}`;
 
@@ -2484,7 +2557,7 @@ export function PropertyDetailsPopup({
                               <SelectItem value="consolidated">
                                 Consolidated (All Tenants)
                               </SelectItem>
-                              {activeTenant?.pax_details?.map((person, idx) => (
+                              {tenantProfiles.map((person, idx) => (
                                 <SelectItem key={idx} value={`tenant-${idx}`}>
                                   {person.name || `Tenant ${idx + 1}`}
                                 </SelectItem>
@@ -2683,7 +2756,7 @@ export function PropertyDetailsPopup({
                             <div className="flex-1">
                               <p className="text-xs font-medium text-purple-900 dark:text-purple-100 mb-1">
                                 Individual Account View:{" "}
-                                {activeTenant?.pax_details?.[
+                                {tenantProfiles[
                                   parseInt(billingViewMode.split("-")[1])
                                 ]?.name ||
                                   `Tenant ${parseInt(billingViewMode.split("-")[1]) + 1}`}
@@ -2712,18 +2785,16 @@ export function PropertyDetailsPopup({
                                 : null;
                               const selectedTenantName =
                                 selectedTenantIdx !== null
-                                  ? activeTenant?.pax_details?.[
-                                      selectedTenantIdx
-                                    ]?.name || `Tenant ${selectedTenantIdx + 1}`
+                                  ? tenantProfiles[selectedTenantIdx]?.name ||
+                                    `Tenant ${selectedTenantIdx + 1}`
                                   : null;
 
                               // Check if selected tenant slot is vacant
                               const isVacantSlot =
                                 isIndividualView &&
                                 selectedTenantIdx !== null &&
-                                (!activeTenant?.pax_details?.[selectedTenantIdx]
-                                  ?.name ||
-                                  activeTenant?.pax_details?.[
+                                (!tenantProfiles[selectedTenantIdx]?.name ||
+                                  tenantProfiles[
                                     selectedTenantIdx
                                   ]?.name.trim() === "");
 
@@ -3178,7 +3249,7 @@ export function PropertyDetailsPopup({
                           </h4>
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {Array.from({ length: paxCount }, (_, i) => {
-                              const person = activeTenant?.pax_details?.[i];
+                              const person = tenantProfiles[i];
                               const tenantKey = i.toString();
 
                               // Calculate totals for this tenant across all billing entries
@@ -3487,8 +3558,9 @@ export function PropertyDetailsPopup({
       {isEditBillingPopupOpen && activeTenant && (
         <EditBillingPopup
           propertyId={propertyId}
-          tenantId={activeTenant.id}
+          tenantId={selectedBillingTenantId || activeTenant.id}
           tenantIndex={
+            normalizedTenantProfiles.length <= 1 &&
             billingViewMode.startsWith("tenant-")
               ? parseInt(billingViewMode.split("-")[1])
               : undefined
@@ -3515,14 +3587,15 @@ export function PropertyDetailsPopup({
         isOpen={isResetDialogOpen}
         onClose={() => setIsResetDialogOpen(false)}
         onConfirm={async (remarks) => {
-          if (!activeTenant) {
+          const targetTenantId = selectedBillingTenantId || activeTenant?.id;
+          if (!targetTenantId) {
             toast.error("No active tenant found");
             return;
           }
 
           const result = await archiveAndResetProperty({
             propertyId: propertyId,
-            tenantId: activeTenant.id,
+            tenantId: targetTenantId,
             remarks: remarks,
           });
 
@@ -3539,7 +3612,11 @@ export function PropertyDetailsPopup({
           }
         }}
         propertyName={property.unit_name}
-        tenantName={activeTenant?.tenant_name || ""}
+        tenantName={
+          selectedBillingTenantId
+            ? selectedBillingTenantName
+            : activeTenant?.tenant_name || ""
+        }
       />
 
       <AlertDialog
@@ -3568,10 +3645,9 @@ export function PropertyDetailsPopup({
                     <>
                       <li>
                         Tenant information for{" "}
-                        {activeTenant.pax_details &&
-                        activeTenant.pax_details.length > 1 ? (
+                        {tenantProfiles.length > 1 ? (
                           <strong>
-                            Multiple Tenants ({activeTenant.pax_details.length})
+                            Multiple Tenants ({tenantProfiles.length})
                           </strong>
                         ) : (
                           <strong>{activeTenant.tenant_name}</strong>
@@ -3623,7 +3699,7 @@ export function PropertyDetailsPopup({
               Enter payment amount and type. Rent applies to billing entries.
             </DialogDescription>
             {selectedTenantIndex !== null &&
-              activeTenant?.pax_details?.[selectedTenantIndex] && (
+              tenantProfiles[selectedTenantIndex] && (
                 <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-2 mt-2">
                   <div className="flex items-center gap-2">
                     <div className="h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0">
@@ -3632,7 +3708,7 @@ export function PropertyDetailsPopup({
                     <p className="text-xs text-blue-900 dark:text-blue-100">
                       <span className="font-medium">Applying to: </span>
                       <span className="font-semibold">
-                        {activeTenant.pax_details[selectedTenantIndex].name}
+                        {tenantProfiles[selectedTenantIndex].name}
                       </span>
                     </p>
                   </div>

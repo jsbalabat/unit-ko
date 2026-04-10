@@ -26,6 +26,7 @@ interface PropertyWithTenant {
       id: string
       property_id: string
       tenant_id: string | null
+      period_id?: string
       due_date: string
       status: string
       billing_period: number
@@ -112,6 +113,7 @@ export function useProperties() {
               id,
               property_id,
               tenant_id,
+              period_id,
               due_date,
               status,
               billing_period,

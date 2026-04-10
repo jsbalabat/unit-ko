@@ -20,6 +20,7 @@ export interface TenantDashboardData {
   }
   billingEntries: {
     id: string
+    period_id?: string
     due_date: string
     rent_due: number
     other_charges: number
@@ -124,7 +125,7 @@ export async function fetchTenantDashboardData(tenantId: string): Promise<Tenant
     // 3. Fetch billing entries
     const { data: billingEntries, error: billingError } = await supabase
       .from('billing_entries')
-      .select('id, due_date, rent_due, other_charges, gross_due, status, billing_period')
+      .select('id, period_id, due_date, rent_due, other_charges, gross_due, status, billing_period')
       .eq('tenant_id', tenantId)
       .order('due_date', { ascending: true })
 

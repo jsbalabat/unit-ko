@@ -59,7 +59,7 @@ export async function GET(request: Request) {
 
   const { data: billingEntries, error: billingError } = await supabase
     .from("billing_entries")
-    .select("id, due_date, rent_due, other_charges, gross_due, status, billing_period")
+    .select("id, period_id, due_date, rent_due, other_charges, gross_due, status, billing_period")
     .eq("tenant_id", tenant.id)
     .order("due_date", { ascending: true });
 

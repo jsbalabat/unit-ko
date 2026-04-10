@@ -704,7 +704,54 @@ function LandlordDashboard() {
               {properties.length > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-5">
                   {filteredAndSortedProperties.map((property) => {
-                    const activeTenant = property.tenants.find(
+                    const activeTenants = property.tenants.filter(
+                      (t) => t.is_active,
+                    ) as ((typeof property.tenants)[0] & {
+                      billing_entries?: BillingEntry[];
+                    })[];
+
+                    const activeTenant = activeTenants[0];
+                    const propertyBillingEntries = activeTenants.flatMap(
+                      (tenant) => tenant.billing_entries || [],
+                    );
+
+                    const tenantProfiles =
+                      activeTenants.length > 1
+                        ? activeTenants.map((tenant) => ({
+                            name: tenant.tenant_name,
+                          }))
+                        : activeTenant?.pax_details?.filter(
+                            (p) => p.name && p.name.trim() !== "",
+                          ) || [];
+
+                    const totalSlots =
+                      activeTenants.length > 1
+                        ? activeTenants.length
+                        : activeTenant?.pax || tenantProfiles.length;
+
+                    const occupiedCount =
+                      tenantProfiles.length > 0
+                        ? tenantProfiles.length
+                        : activeTenants.length;
+
+                    const occupancyCount =
+                      property.occupancy_status === "occupied"
+                        ? occupiedCount
+                        : 0;
+
+                    const occupancyText =
+                      property.occupancy_status === "occupied" &&
+                      occupancyCount > 0
+                        ? `${occupancyCount} ${occupancyCount === 1 ? "person" : "people"}`
+                        : "Vacant";
+
+                    const perPersonRent =
+                      property.occupancy_status === "occupied" &&
+                      occupancyCount > 1
+                        ? property.rent_amount / occupancyCount
+                        : null;
+
+                    const legacyActiveTenant = property.tenants.find(
                       (t) => t.is_active,
                     ) as (typeof property.tenants)[0] & {
                       billing_entries?: BillingEntry[];
@@ -714,7 +761,7 @@ function LandlordDashboard() {
                     const propertyStatus = (() => {
                       if (
                         property.occupancy_status !== "occupied" ||
-                        !activeTenant
+                        !legacyActiveTenant
                       ) {
                         return {
                           text: "Vacant",
@@ -724,8 +771,8 @@ function LandlordDashboard() {
 
                       // If no billing entries, return Good Standing
                       if (
-                        !activeTenant.billing_entries ||
-                        activeTenant.billing_entries.length === 0
+                        !propertyBillingEntries ||
+                        propertyBillingEntries.length === 0
                       ) {
                         return {
                           text: "Good Standing",
@@ -737,9 +784,7 @@ function LandlordDashboard() {
                       const currentDate = new Date();
 
                       // Sort billing entries by billing period (month number)
-                      const sortedEntries = [
-                        ...activeTenant.billing_entries,
-                      ].sort(
+                      const sortedEntries = [...propertyBillingEntries].sort(
                         (a, b) =>
                           (a.billing_period || 0) - (b.billing_period || 0),
                       );
@@ -801,24 +846,7 @@ function LandlordDashboard() {
                       };
                     })();
 
-                    // Count only filled-in pax_details entries
-                    const filledPaxCount =
-                      activeTenant?.pax_details?.filter(
-                        (p) => p.name && p.name.trim() !== "",
-                      ).length || 0;
-                    const paxCount =
-                      filledPaxCount > 0
-                        ? filledPaxCount
-                        : activeTenant?.pax || 0;
-                    const occupancyText =
-                      property.occupancy_status === "occupied" && paxCount > 0
-                        ? `${paxCount} ${paxCount === 1 ? "person" : "people"}`
-                        : "Vacant";
-
-                    const perPersonRent =
-                      property.occupancy_status === "occupied" && paxCount > 1
-                        ? property.rent_amount / paxCount
-                        : null;
+                    const paxCount = occupancyCount;
 
                     return (
                       <Card
@@ -887,13 +915,11 @@ function LandlordDashboard() {
                             <span className="text-xs text-muted-foreground">
                               Tenant Occupancy
                             </span>
-                            {activeTenant &&
-                            activeTenant.pax_details &&
-                            activeTenant.pax_details.length > 0 ? (
+                            {tenantProfiles.length > 0 ? (
                               <div className="group">
                                 <span className="font-medium text-sm cursor-help">
-                                  {filledPaxCount}/
-                                  {activeTenant.pax_details.length}
+                                  {occupancyCount}/
+                                  {totalSlots || occupancyCount}
                                 </span>
                                 {/* Hover tooltip - positioned upwards - wrapper technique */}
                                 <span className="absolute invisible group-hover:visible z-[100]">
@@ -902,25 +928,23 @@ function LandlordDashboard() {
                                       Tenants:
                                     </div>
                                     <div className="space-y-1">
-                                      {activeTenant.pax_details.map(
-                                        (person, idx) => (
-                                          <div key={idx} className="text-xs">
-                                            {person.name &&
-                                            person.name.trim() !== "" ? (
-                                              <span>
-                                                {idx + 1}. {person.name}
+                                      {tenantProfiles.map((person, idx) => (
+                                        <div key={idx} className="text-xs">
+                                          {person.name &&
+                                          person.name.trim() !== "" ? (
+                                            <span>
+                                              {idx + 1}. {person.name}
+                                            </span>
+                                          ) : (
+                                            <span className="text-muted-foreground">
+                                              {idx + 1}.{" "}
+                                              <span className="italic">
+                                                Slot Vacant
                                               </span>
-                                            ) : (
-                                              <span className="text-muted-foreground">
-                                                {idx + 1}.{" "}
-                                                <span className="italic">
-                                                  Slot Vacant
-                                                </span>
-                                              </span>
-                                            )}
-                                          </div>
-                                        ),
-                                      )}
+                                            </span>
+                                          )}
+                                        </div>
+                                      ))}
                                     </div>
                                   </span>
                                 </span>

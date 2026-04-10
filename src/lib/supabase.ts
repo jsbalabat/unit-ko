@@ -68,6 +68,7 @@ export interface BillingEntry {
   id: string
   property_id: string
   tenant_id: string | null
+  period_id?: string
   due_date: string
   rent_due: number
   other_charges: number
