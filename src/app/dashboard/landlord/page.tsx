@@ -157,20 +157,21 @@ function LandlordDashboard() {
       return "Vacant";
     }
 
-    const activeTenant = property.tenants.find((t) => t.is_active) as
-      | ((typeof property.tenants)[0] & { billing_entries?: BillingEntry[] })
-      | undefined;
+    const activeTenants = property.tenants.filter(
+      (t) => t.is_active,
+    ) as ((typeof property.tenants)[0] & {
+      billing_entries?: BillingEntry[];
+    })[];
+    const propertyBillingEntries = activeTenants.flatMap(
+      (tenant) => tenant.billing_entries || [],
+    );
 
-    if (
-      !activeTenant ||
-      !activeTenant.billing_entries ||
-      activeTenant.billing_entries.length === 0
-    ) {
+    if (propertyBillingEntries.length === 0) {
       return "Good Standing";
     }
 
     const currentDate = new Date();
-    const sortedEntries = [...activeTenant.billing_entries].sort(
+    const sortedEntries = [...propertyBillingEntries].sort(
       (a, b) => (a.billing_period || 0) - (b.billing_period || 0),
     );
 
@@ -291,82 +292,88 @@ function LandlordDashboard() {
     }[] = [];
 
     properties.forEach((property) => {
-      const activeTenant = property.tenants.find((t) => t.is_active) as
-        | ((typeof property.tenants)[0] & { billing_entries?: BillingEntry[] })
-        | undefined;
+      const activeTenants = property.tenants.filter(
+        (t) => t.is_active,
+      ) as ((typeof property.tenants)[0] & {
+        billing_entries?: BillingEntry[];
+      })[];
 
-      if (!activeTenant?.billing_entries?.length) {
-        return;
-      }
-
-      let totalAmount = 0;
-      let unpaidPeriods = 0;
-      let oldestDueTime: number | null = null;
-
-      activeTenant.billing_entries.forEach((entry) => {
-        const dueDate = new Date(entry.due_date);
-
-        if (Number.isNaN(dueDate.getTime())) {
+      activeTenants.forEach((activeTenant) => {
+        if (!activeTenant.billing_entries?.length) {
           return;
         }
 
-        const normalizedStatus = entry.status.toLowerCase();
-        const paidAmount = entry.paid_amount ?? 0;
-        const grossDue = entry.gross_due ?? 0;
-        const hasAmountData = grossDue > 0;
-        const hasOutstandingBalance = hasAmountData
-          ? grossDue - paidAmount > 0.01
-          : !normalizedStatus.includes("paid") &&
-            !normalizedStatus.includes("settled") &&
-            !normalizedStatus.includes("good standing");
-        const isSettled =
-          normalizedStatus.includes("paid") ||
-          normalizedStatus.includes("settled") ||
-          normalizedStatus.includes("good standing");
-        const isFlaggedOverdue =
-          normalizedStatus.includes("overdue") ||
-          normalizedStatus.includes("urgent") ||
-          normalizedStatus.includes("problem") ||
-          normalizedStatus.includes("delayed");
-        const isPastDue = dueDate < today;
-        const outstandingAmount = hasAmountData
-          ? Math.max(0, grossDue - paidAmount)
-          : 0;
+        let totalAmount = 0;
+        let unpaidPeriods = 0;
+        let oldestDueTime: number | null = null;
 
-        if (
-          (isPastDue || isFlaggedOverdue) &&
-          !isSettled &&
-          hasOutstandingBalance
-        ) {
-          totalAmount += outstandingAmount;
-          unpaidPeriods += 1;
+        activeTenant.billing_entries.forEach((entry) => {
+          const dueDate = new Date(entry.due_date);
 
-          const dueTime = dueDate.getTime();
-          if (oldestDueTime === null || dueTime < oldestDueTime) {
-            oldestDueTime = dueTime;
+          if (Number.isNaN(dueDate.getTime())) {
+            return;
           }
+
+          const normalizedStatus = entry.status.toLowerCase();
+          const paidAmount = entry.paid_amount ?? 0;
+          const grossDue = entry.gross_due ?? 0;
+          const hasAmountData = grossDue > 0;
+          const hasOutstandingBalance = hasAmountData
+            ? grossDue - paidAmount > 0.01
+            : !normalizedStatus.includes("paid") &&
+              !normalizedStatus.includes("settled") &&
+              !normalizedStatus.includes("good standing");
+          const isSettled =
+            normalizedStatus.includes("paid") ||
+            normalizedStatus.includes("settled") ||
+            normalizedStatus.includes("good standing");
+          const isFlaggedOverdue =
+            normalizedStatus.includes("overdue") ||
+            normalizedStatus.includes("urgent") ||
+            normalizedStatus.includes("problem") ||
+            normalizedStatus.includes("delayed");
+          const isPastDue = dueDate < today;
+          const outstandingAmount = hasAmountData
+            ? Math.max(0, grossDue - paidAmount)
+            : 0;
+
+          if (
+            (isPastDue || isFlaggedOverdue) &&
+            !isSettled &&
+            hasOutstandingBalance
+          ) {
+            totalAmount += outstandingAmount;
+            unpaidPeriods += 1;
+
+            const dueTime = dueDate.getTime();
+            if (oldestDueTime === null || dueTime < oldestDueTime) {
+              oldestDueTime = dueTime;
+            }
+          }
+        });
+
+        if (unpaidPeriods > 0 && oldestDueTime !== null) {
+          const daysOverdue = Math.max(
+            1,
+            Math.ceil(
+              (today.getTime() - oldestDueTime) / (1000 * 60 * 60 * 24),
+            ),
+          );
+
+          items.push({
+            id: `${property.id}-${activeTenant.id}`,
+            propertyId: property.id,
+            propertyName: property.unit_name,
+            location: property.property_location,
+            dueDate: new Date(oldestDueTime).toISOString(),
+            daysOverdue,
+            unpaidPeriods,
+            tenantName: activeTenant.tenant_name,
+            tenantPhone: activeTenant.contact_number,
+            totalAmount,
+          });
         }
       });
-
-      if (unpaidPeriods > 0 && oldestDueTime !== null) {
-        const daysOverdue = Math.max(
-          1,
-          Math.ceil((today.getTime() - oldestDueTime) / (1000 * 60 * 60 * 24)),
-        );
-
-        items.push({
-          id: `${property.id}-${activeTenant.id}`,
-          propertyId: property.id,
-          propertyName: property.unit_name,
-          location: property.property_location,
-          dueDate: new Date(oldestDueTime).toISOString(),
-          daysOverdue,
-          unpaidPeriods,
-          tenantName: activeTenant.tenant_name,
-          tenantPhone: activeTenant.contact_number,
-          totalAmount,
-        });
-      }
     });
 
     return items.sort((a, b) => {
@@ -751,18 +758,9 @@ function LandlordDashboard() {
                         ? property.rent_amount / occupancyCount
                         : null;
 
-                    const legacyActiveTenant = property.tenants.find(
-                      (t) => t.is_active,
-                    ) as (typeof property.tenants)[0] & {
-                      billing_entries?: BillingEntry[];
-                    };
-
                     // Get the status for this property
                     const propertyStatus = (() => {
-                      if (
-                        property.occupancy_status !== "occupied" ||
-                        !legacyActiveTenant
-                      ) {
+                      if (property.occupancy_status !== "occupied") {
                         return {
                           text: "Vacant",
                           color: getStatusColor("Neutral / Administrative"),
