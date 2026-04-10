@@ -21,16 +21,10 @@
  *    - Edit Billing button is ENABLED (edits only this tenant's billing)
  *    - Allows tenant-specific payment tracking
  *
- * Payment Tracking:
- * - tenant_payments JSON field tracks individual payments: {"0": 1500, "1": 1500}
- * - Payments are applied to individual tenant accounts
- * - Status calculated per tenant (Paid/Partial/Overdue)
- *
  * Data Model:
  * - Property.rent_amount: Total property rent
- * - BillingEntry.gross_due: Total amount for all tenants
- * - BillingEntry.tenant_payments: Individual payment breakdown (JSON)
- * - Individual amounts calculated: gross_due ÷ paxCount
+ * - BillingEntry rows are persisted per tenant account
+ * - BillingEntry.gross_due and paid_amount are treated as direct row amounts
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -122,10 +116,6 @@ interface BillingEntry {
   tenant_payments?: string; // JSON string of per-tenant payments: {"0": 1500, "1": 1500}
   tenant_rent_amounts?: string; // JSON string of per-tenant rent: {"0": 5000, "1": 6000}
   tenant_other_charges?: string; // JSON string of per-tenant charges: {"0": 200, "1": 300}
-}
-
-interface TenantPaymentMap {
-  [tenantIndex: string]: number;
 }
 
 interface ExpenseItem {
@@ -1245,74 +1235,13 @@ export function PropertyDetailsPopup({
       };
     }
 
-    let tenantRent = 0;
-    let tenantCharges = 0;
-    let tenantPaid = 0;
-
-    const isNormalizedIndividualEntry =
+    const isSelectedTenantEntry =
       selectedBillingTenantId !== null &&
-      !entry.tenant_rent_amounts &&
-      !entry.tenant_other_charges;
+      entry.tenant_id === selectedBillingTenantId;
 
-    try {
-      const tenantRentAmounts = entry.tenant_rent_amounts
-        ? JSON.parse(entry.tenant_rent_amounts)
-        : {};
-      tenantRent =
-        selectedBillingTenantKey in tenantRentAmounts
-          ? tenantRentAmounts[selectedBillingTenantKey]
-          : isNormalizedIndividualEntry
-            ? entry.tenant_id === selectedBillingTenantId
-              ? entry.rent_due
-              : 0
-            : entry.rent_due / paxCount;
-    } catch {
-      tenantRent = isNormalizedIndividualEntry
-        ? entry.tenant_id === selectedBillingTenantId
-          ? entry.rent_due
-          : 0
-        : entry.rent_due / paxCount;
-    }
-
-    try {
-      const tenantOtherCharges = entry.tenant_other_charges
-        ? JSON.parse(entry.tenant_other_charges)
-        : {};
-      tenantCharges =
-        selectedBillingTenantKey in tenantOtherCharges
-          ? tenantOtherCharges[selectedBillingTenantKey]
-          : isNormalizedIndividualEntry
-            ? entry.tenant_id === selectedBillingTenantId
-              ? entry.other_charges
-              : 0
-            : entry.other_charges / paxCount;
-    } catch {
-      tenantCharges = isNormalizedIndividualEntry
-        ? entry.tenant_id === selectedBillingTenantId
-          ? entry.other_charges
-          : 0
-        : entry.other_charges / paxCount;
-    }
-
-    try {
-      const tenantPayments = entry.tenant_payments
-        ? JSON.parse(entry.tenant_payments)
-        : {};
-      tenantPaid =
-        selectedBillingTenantKey in tenantPayments
-          ? tenantPayments[selectedBillingTenantKey]
-          : isNormalizedIndividualEntry
-            ? entry.tenant_id === selectedBillingTenantId
-              ? entry.paid_amount || 0
-              : 0
-            : (entry.paid_amount || 0) / paxCount;
-    } catch {
-      tenantPaid = isNormalizedIndividualEntry
-        ? entry.tenant_id === selectedBillingTenantId
-          ? entry.paid_amount || 0
-          : 0
-        : (entry.paid_amount || 0) / paxCount;
-    }
+    const tenantRent = isSelectedTenantEntry ? entry.rent_due : 0;
+    const tenantCharges = isSelectedTenantEntry ? entry.other_charges : 0;
+    const tenantPaid = isSelectedTenantEntry ? entry.paid_amount || 0 : 0;
 
     return {
       totalDue: tenantRent + tenantCharges,
@@ -1805,59 +1734,30 @@ export function PropertyDetailsPopup({
                             }> = [];
 
                             if (showTenantDetails) {
-                              for (let i = 0; i < paxCount; i++) {
-                                const tenantKey = i.toString();
-                                const person = tenantProfiles[i];
-                                const tenantName =
-                                  person?.name || `Tenant ${i + 1}`;
+                              const tenantIdx = tenantIdsByIndex.findIndex(
+                                (id) => id === payment.tenant_id,
+                              );
+                              const person =
+                                tenantIdx >= 0
+                                  ? tenantProfiles[tenantIdx]
+                                  : undefined;
+                              const tenantName =
+                                person?.name ||
+                                (tenantIdx >= 0
+                                  ? `Tenant ${tenantIdx + 1}`
+                                  : "Tenant");
 
-                                // Get tenant rent and charges
-                                let tenantRent = 0;
-                                let tenantCharges = 0;
-                                try {
-                                  const tenantRentAmounts =
-                                    payment.tenant_rent_amounts
-                                      ? JSON.parse(payment.tenant_rent_amounts)
-                                      : {};
-                                  tenantRent =
-                                    tenantRentAmounts[tenantKey] || 0;
-                                } catch (e) {
-                                  tenantRent = 0;
-                                }
-                                try {
-                                  const tenantOtherCharges =
-                                    payment.tenant_other_charges
-                                      ? JSON.parse(payment.tenant_other_charges)
-                                      : {};
-                                  tenantCharges =
-                                    tenantOtherCharges[tenantKey] || 0;
-                                } catch (e) {
-                                  tenantCharges = 0;
-                                }
+                              const tenantDue = payment.gross_due;
+                              const tenantPaid = payment.paid_amount || 0;
+                              const tenantBalance = tenantDue - tenantPaid;
 
-                                // Get tenant payment
-                                let tenantPaid = 0;
-                                try {
-                                  const tenantPayments = payment.tenant_payments
-                                    ? JSON.parse(payment.tenant_payments)
-                                    : {};
-                                  tenantPaid = tenantPayments[tenantKey] || 0;
-                                } catch (e) {
-                                  tenantPaid = 0;
-                                }
-
-                                const tenantDue = tenantRent + tenantCharges;
-                                const tenantBalance = tenantDue - tenantPaid;
-
-                                // Only include if tenant has outstanding balance
-                                if (tenantBalance > 0.01) {
-                                  tenantDetails.push({
-                                    name: tenantName,
-                                    due: tenantDue,
-                                    paid: tenantPaid,
-                                    balance: tenantBalance,
-                                  });
-                                }
+                              if (tenantBalance > 0.01) {
+                                tenantDetails.push({
+                                  name: tenantName,
+                                  due: tenantDue,
+                                  paid: tenantPaid,
+                                  balance: tenantBalance,
+                                });
                               }
                             }
 
@@ -1984,30 +1884,25 @@ export function PropertyDetailsPopup({
                             }> = [];
 
                             if (showTenantDetails) {
-                              for (let i = 0; i < paxCount; i++) {
-                                const tenantKey = i.toString();
-                                const person = tenantProfiles[i];
-                                const tenantName =
-                                  person?.name || `Tenant ${i + 1}`;
+                              const tenantIdx = tenantIdsByIndex.findIndex(
+                                (id) => id === payment.tenant_id,
+                              );
+                              const person =
+                                tenantIdx >= 0
+                                  ? tenantProfiles[tenantIdx]
+                                  : undefined;
+                              const tenantName =
+                                person?.name ||
+                                (tenantIdx >= 0
+                                  ? `Tenant ${tenantIdx + 1}`
+                                  : "Tenant");
+                              const tenantPaid = payment.paid_amount || 0;
 
-                                // Get tenant payment
-                                let tenantPaid = 0;
-                                try {
-                                  const tenantPayments = payment.tenant_payments
-                                    ? JSON.parse(payment.tenant_payments)
-                                    : {};
-                                  tenantPaid = tenantPayments[tenantKey] || 0;
-                                } catch (e) {
-                                  tenantPaid = 0;
-                                }
-
-                                // Only include if tenant made a payment
-                                if (tenantPaid > 0.01) {
-                                  tenantPaymentDetails.push({
-                                    name: tenantName,
-                                    amount: tenantPaid,
-                                  });
-                                }
+                              if (tenantPaid > 0.01) {
+                                tenantPaymentDetails.push({
+                                  name: tenantName,
+                                  amount: tenantPaid,
+                                });
                               }
                             }
 
@@ -2706,84 +2601,34 @@ export function PropertyDetailsPopup({
                                             entry.other_charges;
                                           let tenantShareTotal =
                                             entry.gross_due;
-
-                                          if (
-                                            isIndividualView &&
-                                            selectedTenantIdx !== null
-                                          ) {
-                                            const tenantKey =
-                                              selectedTenantIdx.toString();
-
-                                            // Get individual rent from tenant_rent_amounts JSON
-                                            try {
-                                              const tenantRentAmounts =
-                                                entry.tenant_rent_amounts
-                                                  ? JSON.parse(
-                                                      entry.tenant_rent_amounts,
-                                                    )
-                                                  : {};
-                                              tenantShareRent =
-                                                tenantKey in tenantRentAmounts
-                                                  ? tenantRentAmounts[tenantKey]
-                                                  : entry.rent_due / paxCount;
-                                            } catch (e) {
-                                              console.error(
-                                                "Error parsing tenant_rent_amounts:",
-                                                e,
-                                              );
-                                              tenantShareRent =
-                                                entry.rent_due / paxCount;
-                                            }
-
-                                            // Get individual charges from tenant_other_charges JSON
-                                            try {
-                                              const tenantOtherCharges =
-                                                entry.tenant_other_charges
-                                                  ? JSON.parse(
-                                                      entry.tenant_other_charges,
-                                                    )
-                                                  : {};
-                                              tenantShareExpenses =
-                                                tenantKey in tenantOtherCharges
-                                                  ? tenantOtherCharges[
-                                                      tenantKey
-                                                    ]
-                                                  : entry.other_charges /
-                                                    paxCount;
-                                            } catch (e) {
-                                              console.error(
-                                                "Error parsing tenant_other_charges:",
-                                                e,
-                                              );
-                                              tenantShareExpenses =
-                                                entry.other_charges / paxCount;
-                                            }
-
-                                            // Calculate total from individual amounts
-                                            tenantShareTotal =
-                                              tenantShareRent +
-                                              tenantShareExpenses;
-                                          }
-
-                                          // Get tenant's paid amount from tenant_payments
                                           let tenantPaidAmount =
                                             entry.paid_amount || 0;
 
-                                          // If in individual view, get the specific tenant's paid amount
                                           if (
                                             isIndividualView &&
                                             selectedTenantIdx !== null
                                           ) {
-                                            const tenantPayments: TenantPaymentMap =
-                                              entry.tenant_payments
-                                                ? JSON.parse(
-                                                    entry.tenant_payments,
-                                                  )
-                                                : {};
+                                            const isSelectedTenantEntry =
+                                              selectedBillingTenantId !==
+                                                null &&
+                                              entry.tenant_id ===
+                                                selectedBillingTenantId;
+
+                                            tenantShareRent =
+                                              isSelectedTenantEntry
+                                                ? entry.rent_due
+                                                : 0;
+                                            tenantShareExpenses =
+                                              isSelectedTenantEntry
+                                                ? entry.other_charges
+                                                : 0;
+                                            tenantShareTotal =
+                                              tenantShareRent +
+                                              tenantShareExpenses;
                                             tenantPaidAmount =
-                                              tenantPayments[
-                                                selectedTenantIdx.toString()
-                                              ] || 0;
+                                              isSelectedTenantEntry
+                                                ? entry.paid_amount || 0
+                                                : 0;
                                           }
 
                                           const relevantTotal =
@@ -2894,109 +2739,8 @@ export function PropertyDetailsPopup({
                                                 )}
                                               </td>
                                               <td className="px-3 py-2 text-xs font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">
-                                                {paxCount > 1 &&
-                                                entry.tenant_payments &&
-                                                !isIndividualView ? (
-                                                  <div className="group inline-block cursor-help relative">
-                                                    <div>
-                                                      {formatCurrency(
-                                                        entry.paid_amount || 0,
-                                                      )}
-                                                    </div>
-                                                    {/* Per-tenant payment breakdown tooltip - wrapper technique */}
-                                                    <span className="absolute invisible group-hover:visible z-[100]">
-                                                      <span className="relative block bottom-full right-0 mb-1 bg-popover shadow-lg rounded-md p-3 min-w-[220px] border">
-                                                        <div className="text-xs font-medium mb-2">
-                                                          Individual Account
-                                                          Payments:
-                                                        </div>
-                                                        <div className="space-y-1.5">
-                                                          {(() => {
-                                                            const tenantPayments: TenantPaymentMap =
-                                                              JSON.parse(
-                                                                entry.tenant_payments ||
-                                                                  "{}",
-                                                              );
-                                                            const perPersonShare =
-                                                              entry.gross_due /
-                                                              paxCount;
-                                                            return Array.from(
-                                                              {
-                                                                length:
-                                                                  paxCount,
-                                                              },
-                                                              (_, i) => {
-                                                                const person =
-                                                                  activeTenant
-                                                                    ?.pax_details?.[
-                                                                    i
-                                                                  ];
-                                                                const paid =
-                                                                  tenantPayments[
-                                                                    i.toString()
-                                                                  ] || 0;
-                                                                const isPaid =
-                                                                  paid >=
-                                                                  perPersonShare -
-                                                                    0.01;
-                                                                return (
-                                                                  <div
-                                                                    key={i}
-                                                                    className="flex items-center justify-between text-xs"
-                                                                  >
-                                                                    <div className="flex items-center gap-1.5">
-                                                                      <div
-                                                                        className={`w-2 h-2 rounded-full ${isPaid ? "bg-green-500" : "bg-gray-300 dark:bg-gray-600"}`}
-                                                                      />
-                                                                      <span className="truncate max-w-[100px]">
-                                                                        {person?.name ||
-                                                                          `Tenant ${i + 1}`}
-                                                                      </span>
-                                                                    </div>
-                                                                    <span
-                                                                      className={`font-medium ${isPaid ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}
-                                                                    >
-                                                                      {formatCurrency(
-                                                                        paid,
-                                                                      )}
-                                                                    </span>
-                                                                  </div>
-                                                                );
-                                                              },
-                                                            );
-                                                          })()}
-                                                        </div>
-                                                        <div className="border-t border-border mt-2 pt-2 text-xs">
-                                                          <div className="flex justify-between font-medium">
-                                                            <span>
-                                                              Total Paid:
-                                                            </span>
-                                                            <span className="text-green-600 dark:text-green-400">
-                                                              {formatCurrency(
-                                                                entry.paid_amount ||
-                                                                  0,
-                                                              )}
-                                                            </span>
-                                                          </div>
-                                                          <div className="flex justify-between text-muted-foreground mt-1">
-                                                            <span>
-                                                              Per Person:
-                                                            </span>
-                                                            <span>
-                                                              {formatCurrency(
-                                                                entry.gross_due /
-                                                                  paxCount,
-                                                              )}
-                                                            </span>
-                                                          </div>
-                                                        </div>
-                                                      </span>
-                                                    </span>
-                                                  </div>
-                                                ) : (
-                                                  formatCurrency(
-                                                    tenantPaidAmount,
-                                                  )
+                                                {formatCurrency(
+                                                  tenantPaidAmount,
                                                 )}
                                               </td>
                                               <td className="px-3 py-2 text-xs whitespace-nowrap">
@@ -3049,56 +2793,16 @@ export function PropertyDetailsPopup({
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {Array.from({ length: paxCount }, (_, i) => {
                               const person = tenantProfiles[i];
-                              const tenantKey = i.toString();
+                              const tenantId = tenantIdsByIndex[i];
 
                               // Calculate totals for this tenant across all billing entries
                               let tenantTotalDue = 0;
                               let tenantTotalPaid = 0;
 
                               billingEntries.forEach((entry) => {
-                                // Get individual tenant's amounts from JSON fields
-                                let tenantRent = 0;
-                                let tenantCharges = 0;
-
-                                try {
-                                  const tenantRentAmounts =
-                                    entry.tenant_rent_amounts
-                                      ? JSON.parse(entry.tenant_rent_amounts)
-                                      : {};
-                                  tenantRent =
-                                    tenantKey in tenantRentAmounts
-                                      ? tenantRentAmounts[tenantKey]
-                                      : entry.rent_due / paxCount;
-                                } catch (e) {
-                                  tenantRent = entry.rent_due / paxCount;
-                                }
-
-                                try {
-                                  const tenantOtherCharges =
-                                    entry.tenant_other_charges
-                                      ? JSON.parse(entry.tenant_other_charges)
-                                      : {};
-                                  tenantCharges =
-                                    tenantKey in tenantOtherCharges
-                                      ? tenantOtherCharges[tenantKey]
-                                      : entry.other_charges / paxCount;
-                                } catch (e) {
-                                  tenantCharges =
-                                    entry.other_charges / paxCount;
-                                }
-
-                                const perPersonShare =
-                                  tenantRent + tenantCharges;
-                                tenantTotalDue += perPersonShare;
-
-                                if (entry.tenant_payments) {
-                                  try {
-                                    const payments: TenantPaymentMap =
-                                      JSON.parse(entry.tenant_payments);
-                                    tenantTotalPaid += payments[tenantKey] || 0;
-                                  } catch (e) {
-                                    // Ignore parse errors
-                                  }
+                                if (tenantId && entry.tenant_id === tenantId) {
+                                  tenantTotalDue += entry.gross_due;
+                                  tenantTotalPaid += entry.paid_amount || 0;
                                 }
                               });
 
