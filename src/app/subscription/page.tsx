@@ -22,6 +22,7 @@ import {
   Crown,
   Zap,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -257,7 +258,7 @@ function SubscriptionPage() {
   const getStatusBadge = (status: string) => {
     const variants: Record<
       string,
-      { variant: "default" | "destructive" | "outline"; icon: any }
+      { variant: "default" | "destructive" | "outline"; icon: LucideIcon }
     > = {
       paid: { variant: "default", icon: CheckCircle },
       pending: { variant: "outline", icon: AlertCircle },

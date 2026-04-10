@@ -114,7 +114,7 @@ Important schema additions in migrations include:
 
 ### Implemented
 - Landlord session uses Supabase Auth.
-- Tenant session uses sessionStorage tenantId.
+- Tenant session uses a server-backed HTTP-only signed cookie.
 - Route guards use client-side HOCs.
 - Server-side request handling exists in src/proxy.ts for session handling and selected redirects.
 - RLS migrations exist to enforce landlord data isolation at database level.
@@ -129,6 +129,7 @@ Create .env.local and provide:
 
 - NEXT_PUBLIC_SUPABASE_URL
 - NEXT_PUBLIC_SUPABASE_ANON_KEY
+- TENANT_SESSION_SECRET
 - NEXT_PUBLIC_ZAPIER_TENANT_REMINDER_URL
 - ZAPIER_RENT_DUE_WEBHOOK
 - ZAPIER_PAYMENT_SUBMITTED_WEBHOOK

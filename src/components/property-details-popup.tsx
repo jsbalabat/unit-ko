@@ -171,8 +171,15 @@ interface ActivityLog {
   user_id: string | null;
   action_type: string;
   description: string;
-  metadata: any;
+  metadata: Record<string, unknown>;
   created_at: string;
+}
+
+interface PropertyNote {
+  id: string;
+  text: string;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 interface PropertyDetailsPopupProps {
@@ -2130,7 +2137,7 @@ export function PropertyDetailsPopup({
                     JSON.parse(property.notes).length > 0 ? (
                       <div className="space-y-3 max-h-[400px] overflow-y-auto">
                         {JSON.parse(property.notes).map(
-                          (note: any, index: number) => (
+                          (note: PropertyNote, index: number) => (
                             <div
                               key={note.id}
                               className="p-3 rounded-lg border bg-muted/20 group hover:bg-muted/30 transition-colors"

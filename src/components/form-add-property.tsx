@@ -2405,7 +2405,7 @@ export function MultiStepPopup({
                                     key={basis}
                                     type="button"
                                     onClick={() =>
-                                      updateFormData("formBasis", basis as any)
+                                      updateFormData("formBasis", basis)
                                     }
                                     className={cn(
                                       "h-9 px-2 text-xs font-medium rounded-md border transition-all",

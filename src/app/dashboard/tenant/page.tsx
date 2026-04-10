@@ -39,13 +39,17 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { LandlordPaymentInfo } from "@/components/landlord-payment-info";
 
+type BillingEntry = TenantDashboardData["billingEntries"][number];
+
 function TenantDashboard() {
   const router = useRouter();
   const [dashboardData, setDashboardData] =
     useState<TenantDashboardData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
-  const [selectedBilling, setSelectedBilling] = useState<any>(null);
+  const [selectedBilling, setSelectedBilling] = useState<BillingEntry | null>(
+    null,
+  );
   const [isTraditionalPaymentOpen, setIsTraditionalPaymentOpen] =
     useState(false);
 
@@ -92,7 +96,7 @@ function TenantDashboard() {
     }
   };
 
-  const handlePayNow = (billing: any) => {
+  const handlePayNow = (billing: BillingEntry) => {
     setSelectedBilling(billing);
     setIsPaymentDialogOpen(true);
   };

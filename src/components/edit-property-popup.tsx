@@ -1030,7 +1030,7 @@ export function EditPropertyPopup({
           for (const entry of formData.billingSchedule) {
             // For existing entries, update them
             if (!entry.id.startsWith("temp-")) {
-              const updateData: any = {
+              const updateData: Record<string, unknown> = {
                 due_date: entry.dueDate,
                 status: entry.grossDue === 0 ? "Not Yet Set" : entry.status,
                 other_charges: entry.otherCharges,
@@ -1059,7 +1059,7 @@ export function EditPropertyPopup({
                   .filter((e) => !e.id.startsWith("temp-additional-")).length;
               }
 
-              const insertData: any = {
+              const insertData: Record<string, unknown> = {
                 property_id: formData.id,
                 tenant_id: formData.tenantId,
                 due_date: entry.dueDate,
@@ -1152,7 +1152,11 @@ export function EditPropertyPopup({
         errorMessage = err.message;
       } else if (typeof err === "object" && err !== null) {
         // Handle Supabase error format
-        const supabaseError = err as any;
+        const supabaseError = err as {
+          message?: string;
+          error_description?: string;
+          hint?: string;
+        };
         if (supabaseError.message) {
           errorMessage = supabaseError.message;
         } else if (supabaseError.error_description) {

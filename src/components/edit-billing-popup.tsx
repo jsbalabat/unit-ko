@@ -1202,7 +1202,7 @@ export function EditBillingPopup({
         // For existing entries, update them
         if (!billing.id.startsWith("temp-")) {
           // Prepare update data
-          let updateData: any = {
+          const updateData: Record<string, unknown> = {
             expense_items:
               expenseItems.length > 0 ? JSON.stringify(expenseItems) : null,
             updated_at: new Date().toISOString(),
@@ -1235,7 +1235,7 @@ export function EditBillingPopup({
               .filter((b) => !b.id.startsWith("temp-additional-")).length;
           }
 
-          let insertData: any = {
+          const insertData: Record<string, unknown> = {
             property_id: propertyId,
             tenant_id: tenantId,
             due_date: billing.dueDate,
