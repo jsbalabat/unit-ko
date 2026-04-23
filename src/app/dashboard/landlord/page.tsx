@@ -7,7 +7,6 @@ import {
   Card,
   CardContent,
   CardDescription,
-  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -737,18 +736,6 @@ function LandlordDashboard() {
                         ? occupiedCount
                         : 0;
 
-                    const occupancyText =
-                      property.occupancy_status === "occupied" &&
-                      occupancyCount > 0
-                        ? `${occupancyCount} ${occupancyCount === 1 ? "person" : "people"}`
-                        : "Vacant";
-
-                    const perPersonRent =
-                      property.occupancy_status === "occupied" &&
-                      occupancyCount > 1
-                        ? property.rent_amount / occupancyCount
-                        : null;
-
                     // Get the status for this property
                     const propertyStatus = (() => {
                       if (property.occupancy_status !== "occupied") {
@@ -834,8 +821,6 @@ function LandlordDashboard() {
                         color: getStatusColor("Good Standing"),
                       };
                     })();
-
-                    const paxCount = occupancyCount;
 
                     return (
                       <Card
@@ -1043,43 +1028,6 @@ function LandlordDashboard() {
         />
       )}
     </>
-  );
-}
-
-// New StatCard component for better UI
-interface StatCardProps {
-  title: string;
-  value: number | string;
-  icon?: React.ReactNode;
-  trend?: "positive" | "negative" | "warning" | "neutral";
-}
-
-function StatCard({ title, value, icon, trend = "neutral" }: StatCardProps) {
-  const trendColors = {
-    positive: "text-green-600 dark:text-green-400",
-    negative: "text-red-600 dark:text-red-400",
-    warning: "text-amber-600 dark:text-amber-400",
-    neutral: "text-primary",
-  };
-
-  return (
-    <Card>
-      <CardContent className="py-1 px-3 flex flex-col">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground font-medium">
-            {title}
-          </span>
-          {icon && (
-            <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center">
-              {icon}
-            </div>
-          )}
-        </div>
-        <div className={cn("text-xl font-bold mt-1.5", trendColors[trend])}>
-          {value}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

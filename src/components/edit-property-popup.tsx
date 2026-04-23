@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import {
@@ -33,7 +33,6 @@ import {
   Save,
   Lock,
   Unlock,
-  DollarSign,
   ArrowRightLeft,
   Plus,
   Minus,
@@ -146,12 +145,6 @@ interface PropertyFormData {
   }>;
 }
 
-interface ExpenseItem {
-  id: string;
-  name: string;
-  amount: number;
-}
-
 interface EditPropertyPopupProps {
   propertyId: string;
   isOpen: boolean;
@@ -228,98 +221,127 @@ export function EditPropertyPopup({
     null,
   );
 
-  const calculatePeriodDueDate = (
-    startDate: Date,
-    periodIndex: number,
-    formBasis: BillingFrequency,
-    dueDay: string,
-  ): Date => {
-    const base = new Date(startDate);
+  const calculatePeriodDueDate = useCallback(
+    (
+      startDate: Date,
+      periodIndex: number,
+      formBasis: BillingFrequency,
+      dueDay: string,
+    ): Date => {
+      const base = new Date(startDate);
 
-    if (formBasis === "weekly") {
-      if (isWeekDayValue(dueDay)) {
-        const dayMap: Record<(typeof WEEK_DAYS)[number], number> = {
-          monday: 1,
-          tuesday: 2,
-          wednesday: 3,
-          thursday: 4,
-          friday: 5,
-          saturday: 6,
-          sunday: 0,
-        };
-        const targetDay = dayMap[dueDay];
-        const currentDay = base.getDay();
-        const offset = (targetDay - currentDay + 7) % 7;
-        base.setDate(base.getDate() + offset + periodIndex * 7);
+      if (formBasis === "weekly") {
+        if (isWeekDayValue(dueDay)) {
+          const dayMap: Record<(typeof WEEK_DAYS)[number], number> = {
+            monday: 1,
+            tuesday: 2,
+            wednesday: 3,
+            thursday: 4,
+            friday: 5,
+            saturday: 6,
+            sunday: 0,
+          };
+          const targetDay = dayMap[dueDay];
+          const currentDay = base.getDay();
+          const offset = (targetDay - currentDay + 7) % 7;
+          base.setDate(base.getDate() + offset + periodIndex * 7);
+        } else {
+          base.setDate(base.getDate() + periodIndex * 7);
+        }
+        return base;
+      }
+
+      if (formBasis === "bi-weekly") {
+        const { firstDay, secondDay } = parseBiWeeklyDueDay(dueDay);
+        const [date1, date2] = [firstDay, secondDay].sort((a, b) => a - b);
+        const currentMonth = new Date(base);
+        currentMonth.setDate(1);
+        let useFirstDate = true;
+        let useSecondDate = true;
+
+        const firstDateInStartMonth = new Date(
+          currentMonth.getFullYear(),
+          currentMonth.getMonth(),
+          date1,
+        );
+        const secondDateInStartMonth = new Date(
+          currentMonth.getFullYear(),
+          currentMonth.getMonth(),
+          date2,
+        );
+
+        useFirstDate = firstDateInStartMonth > base;
+        useSecondDate = secondDateInStartMonth > base;
+
+        if (!useFirstDate && !useSecondDate) {
+          currentMonth.setMonth(currentMonth.getMonth() + 1);
+          useFirstDate = true;
+          useSecondDate = true;
+        }
+
+        const generatedDates: Date[] = [];
+
+        while (generatedDates.length <= periodIndex) {
+          const year = currentMonth.getFullYear();
+          const month = currentMonth.getMonth();
+          const lastDay = new Date(year, month + 1, 0).getDate();
+
+          if (useFirstDate && generatedDates.length <= periodIndex) {
+            generatedDates.push(
+              new Date(year, month, Math.min(date1, lastDay)),
+            );
+          }
+
+          if (useSecondDate && generatedDates.length <= periodIndex) {
+            generatedDates.push(
+              new Date(year, month, Math.min(date2, lastDay)),
+            );
+          }
+
+          currentMonth.setMonth(currentMonth.getMonth() + 1);
+          useFirstDate = true;
+          useSecondDate = true;
+        }
+
+        return generatedDates[periodIndex] || base;
+      }
+
+      const monthStep =
+        formBasis === "quarterly"
+          ? 3
+          : formBasis === "semi-annually"
+            ? 6
+            : formBasis === "annually"
+              ? 12
+              : 1;
+
+      base.setMonth(base.getMonth() + periodIndex * monthStep);
+      const month = base.getMonth();
+
+      if (dueDay === "last" || dueDay === "30th/31st - Last Day") {
+        base.setMonth(month + 1, 0);
+      } else if (dueDay === "1" || dueDay === "1st - First Day") {
+        base.setDate(1);
+      } else if (dueDay === "15" || dueDay === "15th - Mid Month") {
+        base.setDate(15);
       } else {
-        base.setDate(base.getDate() + periodIndex * 7);
+        const dayNumber = Number.parseInt(dueDay, 10);
+        if (Number.isFinite(dayNumber) && dayNumber >= 1 && dayNumber <= 31) {
+          const lastDayOfMonth = new Date(
+            base.getFullYear(),
+            month + 1,
+            0,
+          ).getDate();
+          base.setDate(Math.min(dayNumber, lastDayOfMonth));
+        } else {
+          base.setMonth(month + 1, 0);
+        }
       }
+
       return base;
-    }
-
-    if (formBasis === "bi-weekly") {
-      const { firstDay, secondDay } = parseBiWeeklyDueDay(dueDay);
-      const [date1, date2] = [firstDay, secondDay].sort((a, b) => a - b);
-      const currentMonth = new Date(base);
-      currentMonth.setDate(1);
-      let useFirstDate = true;
-      let useSecondDate = true;
-
-      const firstDateInStartMonth = new Date(
-        currentMonth.getFullYear(),
-        currentMonth.getMonth(),
-        date1,
-      );
-      const secondDateInStartMonth = new Date(
-        currentMonth.getFullYear(),
-        currentMonth.getMonth(),
-        date2,
-      );
-
-      useFirstDate = firstDateInStartMonth > base;
-      useSecondDate = secondDateInStartMonth > base;
-
-      if (!useFirstDate && !useSecondDate) {
-        currentMonth.setMonth(currentMonth.getMonth() + 1);
-        useFirstDate = true;
-        useSecondDate = true;
-      }
-
-      const generatedDates: Date[] = [];
-
-      while (generatedDates.length <= periodIndex) {
-        const year = currentMonth.getFullYear();
-        const month = currentMonth.getMonth();
-        const lastDay = new Date(year, month + 1, 0).getDate();
-
-        if (useFirstDate && generatedDates.length <= periodIndex) {
-          generatedDates.push(new Date(year, month, Math.min(date1, lastDay)));
-        }
-
-        if (useSecondDate && generatedDates.length <= periodIndex) {
-          generatedDates.push(new Date(year, month, Math.min(date2, lastDay)));
-        }
-
-        currentMonth.setMonth(currentMonth.getMonth() + 1);
-        useFirstDate = true;
-        useSecondDate = true;
-      }
-
-      return generatedDates[periodIndex] || base;
-    }
-
-    const monthStep =
-      formBasis === "quarterly"
-        ? 3
-        : formBasis === "semi-annually"
-          ? 6
-          : formBasis === "annually"
-            ? 12
-            : 1;
-
-    base.setMonth(base.getMonth() + periodIndex * monthStep);
-    return calculateDueDate(base, dueDay);
-  };
+    },
+    [],
+  );
 
   // Fetch property data when the popup opens
   useEffect(() => {
@@ -445,7 +467,6 @@ export function EditPropertyPopup({
           );
 
           // Initialize expense items for each billing entry
-          const initialExpenseItems: Record<string, ExpenseItem[]> = {};
         }
 
         // After preparing the initial form data
@@ -517,40 +538,7 @@ export function EditPropertyPopup({
     };
 
     fetchPropertyDetails();
-  }, [propertyId, isOpen]);
-
-  // Add this helper function to calculate the proper due date based on dueDay setting
-  const calculateDueDate = (baseDate: Date, dueDay: string): Date => {
-    const month = baseDate.getMonth();
-    const result = new Date(baseDate);
-
-    // Handle new numeric format (1-31) and special values
-    if (dueDay === "last" || dueDay === "30th/31st - Last Day") {
-      // Set to last day of month
-      result.setMonth(month + 1, 0);
-    } else if (dueDay === "1" || dueDay === "1st - First Day") {
-      result.setDate(1);
-    } else if (dueDay === "15" || dueDay === "15th - Mid Month") {
-      result.setDate(15);
-    } else {
-      // Handle custom numeric day (1-31)
-      const dayNumber = parseInt(dueDay);
-      if (!isNaN(dayNumber) && dayNumber >= 1 && dayNumber <= 31) {
-        const lastDayOfMonth = new Date(
-          result.getFullYear(),
-          month + 1,
-          0,
-        ).getDate();
-        // Set to the specified day, or last day if the month doesn't have that many days
-        result.setDate(Math.min(dayNumber, lastDayOfMonth));
-      } else {
-        // Default to last day if format is unrecognized
-        result.setMonth(month + 1, 0);
-      }
-    }
-
-    return result;
-  };
+  }, [propertyId, isOpen, calculatePeriodDueDate]);
 
   const formatDueDate = (date: Date): string => {
     const monthNames = [

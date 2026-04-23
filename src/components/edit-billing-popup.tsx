@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import {
@@ -32,7 +32,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import {
-  Calendar,
   Loader2,
   Save,
   Lock,
@@ -145,7 +144,7 @@ export function EditBillingPopup({
   const [paymentNote, setPaymentNote] = useState<string>("");
   const [receiptDate, setReceiptDate] = useState<string>("");
   const [originalBillingIds, setOriginalBillingIds] = useState<string[]>([]);
-  const [tenantPax, setTenantPax] = useState<number>(1);
+  const [, setTenantPax] = useState<number>(1);
   const [tenantOverflow, setTenantOverflow] = useState<number>(0);
   const [pendingOverflow, setPendingOverflow] = useState<number>(0);
   const [deletedEntriesPaidAmounts, setDeletedEntriesPaidAmounts] = useState<
@@ -156,7 +155,7 @@ export function EditBillingPopup({
   const [editingDateIndex, setEditingDateIndex] = useState<number | null>(null);
   const [editingDateValue, setEditingDateValue] = useState<string>("");
   const [tenantName, setTenantName] = useState<string>("");
-  const [propertyTotalRent, setPropertyTotalRent] = useState<number>(0);
+  const [, setPropertyTotalRent] = useState<number>(0);
   const [pendingPaymentLogs, setPendingPaymentLogs] = useState<
     Array<{
       amount: number;
@@ -505,7 +504,7 @@ export function EditBillingPopup({
     };
 
     fetchBillingData();
-  }, [isOpen, propertyId, tenantId]);
+  }, [isOpen, paxCount, propertyId, tenantId, tenantIndex]);
 
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
@@ -1193,7 +1192,6 @@ export function EditBillingPopup({
 
     try {
       // Determine if we're in individual tenant mode
-      const isIndividualMode = tenantIndex !== undefined;
 
       // Update billing entries
       for (const billing of formData.billingSchedule) {
@@ -1458,13 +1456,6 @@ export function EditBillingPopup({
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-PH", {
-      style: "currency",
-      currency: "PHP",
-    }).format(amount);
   };
 
   const formatDate = (dateString: string) => {

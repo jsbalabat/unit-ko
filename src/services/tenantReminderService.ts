@@ -55,6 +55,6 @@ export async function sendTenantReminder(payload: ReminderPayload): Promise<{
 }
 
 // Check if SMS can be sent today for a specific billing entry
-export function canSendReminderToday(billingEntryId: string): boolean {
+export function canSendReminderToday(): boolean {
   return true
 }

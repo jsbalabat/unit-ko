@@ -190,6 +190,16 @@ export default function LandlordLogin() {
     setError(null);
 
     try {
+      if (
+        !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+        !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      ) {
+        setError(
+          "Supabase configuration is missing. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.",
+        );
+        return;
+      }
+
       // Proceed with login without clearing session first
       const { data: authData, error } = await supabase.auth.signInWithPassword({
         email: data.email,
@@ -220,6 +230,17 @@ export default function LandlordLogin() {
       await clearInvalidSession();
       const errorMessage =
         error instanceof Error ? error.message : "An unexpected error occurred";
+
+      if (
+        error instanceof TypeError ||
+        /Failed to fetch|NetworkError|Load failed/i.test(errorMessage)
+      ) {
+        setError(
+          "Cannot reach Supabase right now. Check your internet connection, NEXT_PUBLIC_SUPABASE_URL value, and any VPN/firewall settings.",
+        );
+        return;
+      }
+
       setError(errorMessage);
     } finally {
       setIsLoading(false);
