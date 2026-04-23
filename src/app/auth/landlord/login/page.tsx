@@ -17,7 +17,7 @@ import { Input } from "@/components/input";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ModeToggle } from "@/components/mode-toggle";
-import { supabase } from "@/lib/supabase";
+import { getSupabaseConfigError, supabase } from "@/lib/supabase";
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -190,13 +190,9 @@ export default function LandlordLogin() {
     setError(null);
 
     try {
-      if (
-        !process.env.NEXT_PUBLIC_SUPABASE_URL ||
-        !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-      ) {
-        setError(
-          "Supabase configuration is missing. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local.",
-        );
+      const configError = getSupabaseConfigError();
+      if (configError) {
+        setError(configError);
         return;
       }
 
