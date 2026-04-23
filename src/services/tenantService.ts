@@ -63,7 +63,7 @@ export async function authenticateTenant(email: string, contactNumber: string): 
     const normalizedContact = contactNumber.trim()
 
     // First, resolve tenant by email in profiles table
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile } = await supabase
       .from('profiles')
       .select('tenant_id, role')
       .ilike('email', normalizedEmail)
@@ -85,7 +85,7 @@ export async function authenticateTenant(email: string, contactNumber: string): 
     }
 
     // Fallback: validate against tenant row email + contact number
-    const { data: tenant, error: tenantError } = await supabase
+    const { data: tenant } = await supabase
       .from('tenants')
       .select('id')
       .ilike('email', normalizedEmail)

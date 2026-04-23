@@ -57,12 +57,7 @@ function ArchivesPage() {
   );
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
 
-  useEffect(() => {
-    loadArchivedTenants();
-  }, []);
-
-  const loadArchivedTenants = async () => {
-    setLoading(true);
+  async function loadArchivedTenants() {
     setError(null);
     const { data, error: fetchError } = await fetchArchivedTenants();
     if (fetchError) {
@@ -71,7 +66,17 @@ function ArchivesPage() {
       setArchivedTenants(data || []);
     }
     setLoading(false);
-  };
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadArchivedTenants();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, []);
 
   const handleViewDetails = (archive: ArchivedTenant) => {
     setSelectedArchive(archive);

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -55,6 +55,12 @@ export function OtherChargesPopup({
   const [newItemName, setNewItemName] = useState("");
   const [newItemAmount, setNewItemAmount] = useState("");
   const [showCustomForm, setShowCustomForm] = useState(false);
+  const nextExpenseIdRef = useRef(0);
+
+  const createExpenseId = () => {
+    nextExpenseIdRef.current += 1;
+    return `exp-${nextExpenseIdRef.current}`;
+  };
 
   // Predefined expense suggestions
   const suggestedExpenses: SuggestedExpense[] = [
@@ -108,19 +114,13 @@ export function OtherChargesPopup({
     },
   ];
 
-  useEffect(() => {
-    if (existingItems.length > 0) {
-      setExpenseItems(existingItems);
-    }
-  }, [existingItems]);
-
   const calculateTotal = () => {
     return expenseItems.reduce((sum, item) => sum + item.amount, 0);
   };
 
   const addSuggestedExpense = (suggestion: SuggestedExpense) => {
     const newItem: ExpenseItem = {
-      id: `exp-${Date.now()}-${Math.random()}`,
+      id: createExpenseId(),
       name: suggestion.name,
       amount: 0,
     };
@@ -143,7 +143,7 @@ export function OtherChargesPopup({
     }
 
     const newItem: ExpenseItem = {
-      id: `exp-${Date.now()}-${Math.random()}`,
+      id: createExpenseId(),
       name: newItemName.trim(),
       amount: amount,
     };

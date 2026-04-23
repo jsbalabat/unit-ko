@@ -179,7 +179,7 @@ export default function LandlordLogin() {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []); // Empty dependency array - only run once on mount
+  }, [clearInvalidSession, isNavigating, validateAndNavigate]);
 
   const onSubmit = async (data: LoginFormData) => {
     if (isNavigating) {

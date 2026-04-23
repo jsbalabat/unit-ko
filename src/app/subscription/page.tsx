@@ -213,13 +213,15 @@ function SubscriptionPage() {
   };
 
   const handlePayNow = (statementId: string) => {
-    toast.info("Redirecting to payment gateway...");
+    toast.info(
+      `Redirecting to payment gateway for statement ${statementId}...`,
+    );
     // In production, redirect to actual payment gateway
     window.open("https://www.gcash.com", "_blank");
   };
 
   const handleDownloadStatement = (statementId: string) => {
-    toast.success("Downloading statement...");
+    toast.success(`Downloading statement ${statementId}...`);
     // In production, generate and download PDF
   };
 

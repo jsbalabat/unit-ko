@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -40,14 +40,10 @@ export function LandlordPaymentInfo({
   const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchLandlordPaymentDetails();
-  }, [landlordId, propertyId]);
-
-  const fetchLandlordPaymentDetails = async () => {
+  const fetchLandlordPaymentDetails = useCallback(async () => {
     try {
       let landlordIdToUse = landlordId;
-      let propertyIdToUse = propertyId;
+      const propertyIdToUse = propertyId;
 
       // If no landlordId provided, fetch from property
       if (!landlordIdToUse && propertyId) {
@@ -111,13 +107,17 @@ export function LandlordPaymentInfo({
 
       // No landlordId or propertyId available
       setPaymentDetails({});
-    } catch (error) {
+    } catch {
       // Silently handle any unexpected errors
       setPaymentDetails({});
     } finally {
       setLoading(false);
     }
-  };
+  }, [landlordId, propertyId]);
+
+  useEffect(() => {
+    fetchLandlordPaymentDetails();
+  }, [fetchLandlordPaymentDetails]);
 
   const handleCopy = (text: string, fieldName: string) => {
     navigator.clipboard.writeText(text);

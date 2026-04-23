@@ -10,7 +10,6 @@ import {
   LogOut,
   User,
   FileText,
-  CreditCard,
   Bell,
 } from "lucide-react";
 import { MultiStepPopup } from "@/components/form-add-property";

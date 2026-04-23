@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -17,14 +17,10 @@ import {
   Wifi,
   Tv,
   Snowflake,
-  // Wind,
-  // Droplets,
   Car,
   Warehouse,
   Fence,
   Home,
-  // Bed,
-  // Bath,
   UtensilsCrossed,
   Refrigerator,
   Microwave,
@@ -50,12 +46,11 @@ import {
 interface Amenity {
   id: string;
   name: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   category: "essentials" | "facilities" | "comfort" | "security";
 }
 
 const AVAILABLE_AMENITIES: Amenity[] = [
-  // Essentials
   {
     id: "wifi",
     name: "WiFi",
@@ -98,8 +93,6 @@ const AVAILABLE_AMENITIES: Amenity[] = [
     icon: <Microwave className="h-4 w-4" />,
     category: "essentials",
   },
-
-  // Facilities
   {
     id: "parking",
     name: "Free parking",
@@ -142,8 +135,6 @@ const AVAILABLE_AMENITIES: Amenity[] = [
     icon: <Warehouse className="h-4 w-4" />,
     category: "facilities",
   },
-
-  // Comfort
   {
     id: "workspace",
     name: "Dedicated workspace",
@@ -198,8 +189,6 @@ const AVAILABLE_AMENITIES: Amenity[] = [
     icon: <Ban className="h-4 w-4" />,
     category: "comfort",
   },
-
-  // Security & Safety
   {
     id: "security",
     name: "Security cameras",
@@ -242,29 +231,21 @@ export function AmenitiesPopup({
   const [selectedAmenities, setSelectedAmenities] =
     useState<string[]>(currentAmenities);
 
-  useEffect(() => {
-    setSelectedAmenities(currentAmenities);
-  }, [currentAmenities, isOpen]);
-
   const handleToggleAmenity = (amenityId: string) => {
     setSelectedAmenities((prev) => {
       const isCurrentlySelected = prev.includes(amenityId);
 
-      // Handle mutually exclusive pets options
       if (amenityId === "pets_allowed" || amenityId === "no_pets") {
         const otherPetOption =
           amenityId === "pets_allowed" ? "no_pets" : "pets_allowed";
 
         if (isCurrentlySelected) {
-          // Deselect the current option
           return prev.filter((id) => id !== amenityId);
-        } else {
-          // Select this option and remove the other pet option if it exists
-          return [...prev.filter((id) => id !== otherPetOption), amenityId];
         }
+
+        return [...prev.filter((id) => id !== otherPetOption), amenityId];
       }
 
-      // Normal toggle behavior for other amenities
       return isCurrentlySelected
         ? prev.filter((id) => id !== amenityId)
         : [...prev, amenityId];
@@ -377,3 +358,4 @@ export function AmenitiesPopup({
 }
 
 export { AVAILABLE_AMENITIES };
+
