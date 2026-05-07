@@ -1,4 +1,145 @@
 import { supabase } from '@/lib/supabase'
+import type { Tenant } from '@/lib/supabase'
+
+export interface CreateTenantInput {
+  tenantName: string
+  tenantEmail?: string
+  contactNumber: string
+  propertyId?: string | null // omit / null / '' for an unhoused tenant
+}
+
+export interface CreateTenantResult {
+  success: boolean
+  tenant?: Tenant
+  error?: string
+}
+
+/**
+ * Create a tenant. If `propertyId` is provided, the RPC validates landlord
+ * ownership, picks the next free tenant_slot, and flips the property to
+ * 'occupied' if it was vacant. Otherwise the tenant is created without an
+ * assignment (NULL property_id, NULL lease fields) and can be assigned later.
+ */
+export async function createTenant(
+  input: CreateTenantInput,
+): Promise<CreateTenantResult> {
+  try {
+    const { data, error } = await supabase.rpc('create_unhoused_tenant_atomic', {
+      payload: {
+        tenantName: input.tenantName.trim(),
+        tenantEmail: input.tenantEmail?.trim() ?? '',
+        contactNumber: input.contactNumber.trim(),
+        propertyId: input.propertyId?.trim() || '',
+      },
+    })
+
+    if (error) {
+      return {
+        success: false,
+        error: error.message || 'Failed to create tenant',
+      }
+    }
+
+    if (!data || typeof data !== 'object' || !('tenant' in data)) {
+      return {
+        success: false,
+        error: 'Tenant creation returned invalid response',
+      }
+    }
+
+    return {
+      success: true,
+      tenant: (data as { tenant: Tenant }).tenant,
+    }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}
+
+export interface TenantListRow {
+  id: string
+  tenant_name: string
+  email: string | null
+  contact_number: string
+  property_id: string | null
+  is_active: boolean
+  created_at: string
+  property_unit_name: string | null
+}
+
+/**
+ * List every tenant the current landlord owns, with their property's unit name
+ * (or null when unassigned). Sorted: unassigned first, then by property name.
+ */
+export async function listLandlordTenants(): Promise<TenantListRow[]> {
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
+  if (userError || !user) {
+    throw new Error(userError?.message ?? 'Not authenticated')
+  }
+
+  const { data, error } = await supabase
+    .from('tenants')
+    .select(`
+      id,
+      tenant_name,
+      email,
+      contact_number,
+      property_id,
+      is_active,
+      created_at,
+      properties:property_id (
+        unit_name
+      )
+    `)
+    .eq('landlord_id', user.id)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  type RawRow = {
+    id: string
+    tenant_name: string
+    email: string | null
+    contact_number: string
+    property_id: string | null
+    is_active: boolean
+    created_at: string
+    properties: { unit_name: string } | { unit_name: string }[] | null
+  }
+
+  const rows = (data ?? []) as RawRow[]
+
+  return rows
+    .map((row) => {
+      const propertyJoin = Array.isArray(row.properties)
+        ? row.properties[0] ?? null
+        : row.properties
+      return {
+        id: row.id,
+        tenant_name: row.tenant_name,
+        email: row.email,
+        contact_number: row.contact_number,
+        property_id: row.property_id,
+        is_active: row.is_active,
+        created_at: row.created_at,
+        property_unit_name: propertyJoin?.unit_name ?? null,
+      }
+    })
+    .sort((a, b) => {
+      // Unassigned first, then alphabetic by property name.
+      if (a.property_unit_name === null && b.property_unit_name !== null) return -1
+      if (a.property_unit_name !== null && b.property_unit_name === null) return 1
+      if (a.property_unit_name && b.property_unit_name) {
+        return a.property_unit_name.localeCompare(b.property_unit_name)
+      }
+      return a.tenant_name.localeCompare(b.tenant_name)
+    })
+}
 
 export interface TenantDashboardData {
   tenant: {

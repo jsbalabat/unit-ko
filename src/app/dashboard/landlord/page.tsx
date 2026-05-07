@@ -24,6 +24,11 @@ import {
 import { MultiStepPopup } from "@/components/form-add-property";
 import { PropertyDetailsPopup } from "@/components/property-details-popup";
 import { SendReminderConfirm } from "@/components/send-reminder-confirm";
+import {
+  AddTenantPopup,
+  type AddTenantPropertyOption,
+} from "@/components/add-tenant-popup";
+import { TenantsListPopup } from "@/components/tenants-list-popup";
 import { useProperties } from "@/hooks/useProperties";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
@@ -34,6 +39,8 @@ import { toast } from "sonner";
 
 function LandlordDashboard() {
   const [isAddPopupOpen, setIsAddPopupOpen] = useState(false);
+  const [isAddTenantPopupOpen, setIsAddTenantPopupOpen] = useState(false);
+  const [isTenantsListOpen, setIsTenantsListOpen] = useState(false);
   const [isDetailsPopupOpen, setIsDetailsPopupOpen] = useState(false);
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
@@ -68,6 +75,17 @@ function LandlordDashboard() {
   const handlePropertyComplete = () => {
     refetch();
   };
+
+  const propertyOptions = useMemo<AddTenantPropertyOption[]>(
+    () =>
+      properties.map((p) => ({
+        id: p.id,
+        unit_name: p.unit_name,
+        max_tenants: p.max_tenants ?? 1,
+        active_tenant_count: (p.tenants || []).filter((t) => t.is_active).length,
+      })),
+    [properties],
+  );
 
   const handleViewDetails = (propertyId: string, tab: string = "details") => {
     setSelectedPropertyId(propertyId);
@@ -687,19 +705,75 @@ function LandlordDashboard() {
                     No Properties Yet
                   </h3>
                   <p className="text-muted-foreground max-w-md mx-auto mb-4">
-                    Start building your property portfolio by adding your first
-                    property.
+                    Start building your portfolio by adding a property, or
+                    onboard a tenant to assign later.
                   </p>
-                  <Button onClick={() => setIsAddPopupOpen(true)}>
-                    <Plus className="mr-1.5 h-4 w-4" />
-                    Add Your First Property
-                  </Button>
+                  <div className="flex flex-col sm:flex-row gap-2 justify-center flex-wrap">
+                    <Button onClick={() => setIsAddPopupOpen(true)}>
+                      <Plus className="mr-1.5 h-4 w-4" />
+                      Add Your First Property
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsAddTenantPopupOpen(true)}
+                    >
+                      <Plus className="mr-1.5 h-4 w-4" />
+                      Add Tenant
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsTenantsListOpen(true)}
+                    >
+                      <Eye className="mr-1.5 h-4 w-4" />
+                      View Tenants
+                    </Button>
+                  </div>
                 </div>
               )}
 
               {/* Individual Property Cards Grid */}
               {properties.length > 0 && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 md:gap-5">
+                  {/* Quick Add Card */}
+                  <Card className="border-dashed hover:border-solid transition-all bg-muted/10 hover:bg-muted/20">
+                    <CardContent className="flex flex-col items-center justify-center h-full py-8">
+                      <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                        <Plus className="h-6 w-6 text-primary" />
+                      </div>
+                      <h3 className="text-lg font-medium mb-1.5">Quick Add</h3>
+                      <p className="text-muted-foreground text-center text-sm mb-4 max-w-[250px]">
+                        Add a new property, onboard a tenant, or browse all
+                        tenants you&apos;ve added
+                      </p>
+                      <div className="flex flex-col sm:flex-row flex-wrap gap-2 justify-center w-full sm:w-auto">
+                        <Button
+                          onClick={() => setIsAddPopupOpen(true)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          <Building className="h-4 w-4 mr-2" />
+                          Add Property
+                        </Button>
+                        <Button
+                          onClick={() => setIsAddTenantPopupOpen(true)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Tenant
+                        </Button>
+                        <Button
+                          onClick={() => setIsTenantsListOpen(true)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          View Tenants
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
                   {filteredAndSortedProperties.map((property) => {
                     const activeTenants = property.tenants.filter(
                       (t) => t.is_active,
@@ -707,33 +781,20 @@ function LandlordDashboard() {
                       billing_entries?: BillingEntry[];
                     })[];
 
-                    const activeTenant = activeTenants[0];
                     const propertyBillingEntries = activeTenants.flatMap(
                       (tenant) => tenant.billing_entries || [],
                     );
 
-                    const tenantProfiles =
-                      activeTenants.length > 1
-                        ? activeTenants.map((tenant) => ({
-                            name: tenant.tenant_name,
-                          }))
-                        : activeTenant?.pax_details?.filter(
-                            (p) => p.name && p.name.trim() !== "",
-                          ) || [];
+                    const tenantProfiles = activeTenants.map((tenant) => ({
+                      name: tenant.tenant_name,
+                    }));
 
                     const totalSlots =
-                      activeTenants.length > 1
-                        ? activeTenants.length
-                        : activeTenant?.pax || tenantProfiles.length;
-
-                    const occupiedCount =
-                      tenantProfiles.length > 0
-                        ? tenantProfiles.length
-                        : activeTenants.length;
+                      property.max_tenants ?? activeTenants.length;
 
                     const occupancyCount =
                       property.occupancy_status === "occupied"
-                        ? occupiedCount
+                        ? activeTenants.length
                         : 0;
 
                     // Get the status for this property
@@ -946,27 +1007,6 @@ function LandlordDashboard() {
                     );
                   })}
 
-                  {/* Add New Property Card */}
-                  <Card className="border-dashed hover:border-solid transition-all cursor-pointer bg-muted/10 hover:bg-muted/20">
-                    <CardContent className="flex flex-col items-center justify-center h-full py-8">
-                      <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
-                        <Plus className="h-6 w-6 text-primary" />
-                      </div>
-                      <h3 className="text-lg font-medium mb-1.5">
-                        Add New Property
-                      </h3>
-                      <p className="text-muted-foreground text-center text-sm mb-4 max-w-[250px]">
-                        Expand your portfolio with another rental property
-                      </p>
-                      <Button
-                        onClick={() => setIsAddPopupOpen(true)}
-                        variant="outline"
-                        size="sm"
-                      >
-                        Add Property
-                      </Button>
-                    </CardContent>
-                  </Card>
                 </div>
               )}
             </div>
@@ -979,6 +1019,20 @@ function LandlordDashboard() {
         isOpen={isAddPopupOpen}
         onClose={() => setIsAddPopupOpen(false)}
         onComplete={handlePropertyComplete}
+      />
+
+      {/* Add Tenant Popup (with optional property assignment) */}
+      <AddTenantPopup
+        isOpen={isAddTenantPopupOpen}
+        onClose={() => setIsAddTenantPopupOpen(false)}
+        onCreated={() => refetch()}
+        properties={propertyOptions}
+      />
+
+      {/* Tenants list */}
+      <TenantsListPopup
+        isOpen={isTenantsListOpen}
+        onClose={() => setIsTenantsListOpen(false)}
       />
 
       {/* Property Details Popup */}

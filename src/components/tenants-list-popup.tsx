@@ -1,0 +1,160 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  Building,
+  Loader2,
+  Mail,
+  Phone,
+  RefreshCw,
+  UserX,
+  Users,
+} from "lucide-react";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/button";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+import {
+  listLandlordTenants,
+  type TenantListRow,
+} from "@/services/tenantService";
+
+interface TenantsListPopupProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export function TenantsListPopup({ isOpen, onClose }: TenantsListPopupProps) {
+  const [tenants, setTenants] = useState<TenantListRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const rows = await listLandlordTenants();
+      setTenants(rows);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load tenants");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      void load();
+    }
+  }, [isOpen]);
+
+  const unassignedCount = tenants.filter((t) => !t.property_id).length;
+  const assignedCount = tenants.length - unassignedCount;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => (!open ? onClose() : null)}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Users className="h-5 w-5 text-primary" />
+            All Tenants
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            {tenants.length} total
+            {tenants.length > 0 && (
+              <>
+                {" — "}
+                <span>{assignedCount} assigned</span>
+                {", "}
+                <span>{unassignedCount} not assigned</span>
+              </>
+            )}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void load()}
+            disabled={loading}
+          >
+            <RefreshCw
+              className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`}
+            />
+            Refresh
+          </Button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : error ? (
+          <div className="text-center py-8 text-destructive text-sm">
+            {error}
+          </div>
+        ) : tenants.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <Users className="h-10 w-10 mx-auto mb-2 opacity-50" />
+            <p className="text-sm">No tenants yet.</p>
+            <p className="text-xs">Use Add Tenant to onboard your first one.</p>
+          </div>
+        ) : (
+          <ScrollArea className="h-[420px] pr-4">
+            <ul className="space-y-2">
+              {tenants.map((t) => (
+                <li
+                  key={t.id}
+                  className="flex items-start justify-between gap-3 p-3 rounded-md border bg-card hover:bg-muted/30 transition-colors"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium truncate">{t.tenant_name}</div>
+                    <div className="text-xs text-muted-foreground flex flex-col gap-0.5 mt-1">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Phone className="h-3 w-3" />
+                        {t.contact_number || "—"}
+                      </span>
+                      {t.email && (
+                        <span className="inline-flex items-center gap-1.5 truncate">
+                          <Mail className="h-3 w-3 flex-shrink-0" />
+                          {t.email}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex-shrink-0">
+                    {t.property_unit_name ? (
+                      <Badge variant="secondary" className="gap-1">
+                        <Building className="h-3 w-3" />
+                        {t.property_unit_name}
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="gap-1 text-muted-foreground">
+                        <UserX className="h-3 w-3" />
+                        Not assigned
+                      </Badge>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </ScrollArea>
+        )}
+
+        <div className="flex justify-end pt-2">
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
