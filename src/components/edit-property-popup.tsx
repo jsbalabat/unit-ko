@@ -78,6 +78,14 @@ interface PersonDetail {
   phone: string;
 }
 
+// Per-occupant tenant linkage so the save path can map paxDetails entries back
+// to specific tenants rows. tenantIds[i] is the tenant.id for paxDetails[i],
+// or undefined if that occupant was added in this dialog session.
+interface OccupantLinkage {
+  tenantIds: (string | undefined)[];
+  removedTenantIds: string[];
+}
+
 type BillingFrequency =
   | "weekly"
   | "bi-weekly"
@@ -88,16 +96,17 @@ type BillingFrequency =
 
 interface Tenant {
   id: string;
-  property_id: string;
+  property_id: string | null;
+  landlord_id?: string;
   tenant_name: string;
+  email?: string | null;
   contact_number: string;
-  pax?: number;
-  pax_details?: PersonDetail[];
-  contract_months: number;
+  tenant_slot?: number | null;
+  contract_months: number | null;
   billing_frequency?: BillingFrequency;
   rent_per_person?: number;
-  rent_start_date: string;
-  due_day: string;
+  rent_start_date: string | null;
+  due_day: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -220,6 +229,10 @@ export function EditPropertyPopup({
   const [editingPersonIndex, setEditingPersonIndex] = useState<number | null>(
     null,
   );
+  const [occupantLinkage, setOccupantLinkage] = useState<OccupantLinkage>({
+    tenantIds: [],
+    removedTenantIds: [],
+  });
 
   const calculatePeriodDueDate = useCallback(
     (
@@ -375,20 +388,41 @@ export function EditPropertyPopup({
         const propertyData = data as Property;
         setProperty(propertyData);
 
-        // Find the active tenant
-        const activeTenant = propertyData.tenants?.find((t) => t.is_active);
+        // Active tenants are sibling rows post-normalization, sorted by slot.
+        const activeTenants = (propertyData.tenants ?? [])
+          .filter((t) => t.is_active)
+          .sort((a, b) => (a.tenant_slot ?? 0) - (b.tenant_slot ?? 0));
 
-        // Prepare form data
+        // Person 1 (the lease anchor for legacy fields) is the first slot.
+        const firstTenant = activeTenants[0];
+
+        const initialPax = activeTenants.length || 1;
+
+        // Build paxDetails + tenantIds in lockstep so save can map back.
+        const paxDetails: PersonDetail[] =
+          activeTenants.length > 0
+            ? activeTenants.map((t) => ({
+                name: t.tenant_name || "",
+                email: t.email || "",
+                phone: t.contact_number || "",
+              }))
+            : [{ name: "", email: "", phone: "" }];
+
+        const tenantIds: (string | undefined)[] =
+          activeTenants.length > 0
+            ? activeTenants.map((t) => t.id)
+            : [undefined];
+
         const inferredFrequency = inferBillingFrequency(
-          activeTenant?.billing_entries,
+          firstTenant?.billing_entries,
         );
-        const initialPax = activeTenant?.pax || 1;
         const normalizedDueDay =
-          activeTenant?.billing_frequency === "bi-weekly"
-            ? isValidBiWeeklyDueDayPair(activeTenant?.due_day || "")
-              ? activeTenant.due_day
+          firstTenant?.billing_frequency === "bi-weekly"
+            ? isValidBiWeeklyDueDayPair(firstTenant?.due_day || "")
+              ? firstTenant.due_day || "1,16"
               : "1,16"
-            : activeTenant?.due_day || "last";
+            : firstTenant?.due_day || "last";
+
         const initialFormData: PropertyFormData = {
           id: propertyData.id,
           unitName: propertyData.unit_name,
@@ -396,18 +430,18 @@ export function EditPropertyPopup({
           propertyLocation: propertyData.property_location,
           occupancyStatus: propertyData.occupancy_status,
           rentAmount: propertyData.rent_amount,
-          tenantId: activeTenant?.id,
-          tenantName: activeTenant?.tenant_name || "",
-          contactNumber: activeTenant?.contact_number || "",
+          tenantId: firstTenant?.id,
+          tenantName: firstTenant?.tenant_name || "",
+          contactNumber: firstTenant?.contact_number || "",
           pax: initialPax,
-          paxDetails: activeTenant?.pax_details || [],
-          contractMonths: activeTenant?.contract_months || 0,
-          rentStartDate: activeTenant?.rent_start_date || "",
-          formBasis: activeTenant?.billing_frequency || inferredFrequency,
+          paxDetails,
+          contractMonths: firstTenant?.contract_months ?? 0,
+          rentStartDate: firstTenant?.rent_start_date || "",
+          formBasis: firstTenant?.billing_frequency || inferredFrequency,
           rentPerPerson:
-            activeTenant?.rent_per_person !== undefined &&
-            activeTenant?.rent_per_person !== null
-              ? Number(activeTenant.rent_per_person)
+            firstTenant?.rent_per_person !== undefined &&
+            firstTenant?.rent_per_person !== null
+              ? Number(firstTenant.rent_per_person)
               : initialPax > 0
                 ? Number((propertyData.rent_amount / initialPax).toFixed(2))
                 : propertyData.rent_amount,
@@ -418,43 +452,20 @@ export function EditPropertyPopup({
           billingSchedule: [],
         };
 
-        // Ensure Person 1 is populated with the tenant's info
-        if (activeTenant) {
-          const tenantAsPerson1 = {
-            name: activeTenant.tenant_name || "",
-            email: "",
-            phone: activeTenant.contact_number || "",
-          };
+        setOccupantLinkage({
+          tenantIds,
+          removedTenantIds: [],
+        });
 
-          // If pax_details exists and has Person 1, merge with tenant data
-          if (
-            initialFormData.paxDetails.length > 0 &&
-            initialFormData.paxDetails[0]
-          ) {
-            initialFormData.paxDetails[0] = {
-              ...tenantAsPerson1,
-              email: initialFormData.paxDetails[0].email || "",
-            };
-          } else {
-            // Ensure paxDetails array has at least Person 1
-            initialFormData.paxDetails = [
-              tenantAsPerson1,
-              ...initialFormData.paxDetails.slice(1),
-            ];
-          }
-
-          // Ensure paxDetails array matches pax count
-          while (initialFormData.paxDetails.length < initialFormData.pax) {
-            initialFormData.paxDetails.push({ name: "", email: "", phone: "" });
-          }
-        }
-
-        // Add billing entries if tenant exists
+        // Billing schedule comes off the first active tenant's rows. Edits here
+        // currently only persist for that one tenant; multi-tenant fan-out is
+        // tracked as a follow-up and the per-tenant edit-billing-popup handles
+        // the rest.
         if (
-          activeTenant?.billing_entries &&
-          activeTenant.billing_entries.length > 0
+          firstTenant?.billing_entries &&
+          firstTenant.billing_entries.length > 0
         ) {
-          initialFormData.billingSchedule = activeTenant.billing_entries.map(
+          initialFormData.billingSchedule = firstTenant.billing_entries.map(
             (entry) => ({
               id: entry.id,
               dueDate: entry.due_date,
@@ -465,8 +476,6 @@ export function EditPropertyPopup({
               paidAmount: entry.paid_amount || 0,
             }),
           );
-
-          // Initialize expense items for each billing entry
         }
 
         // After preparing the initial form data
@@ -763,6 +772,10 @@ export function EditPropertyPopup({
       pax: newPax,
       paxDetails: updatedPaxDetails,
     });
+    setOccupantLinkage((prev) => ({
+      ...prev,
+      tenantIds: [...prev.tenantIds, undefined],
+    }));
     setEditingPersonIndex(updatedPaxDetails.length - 1);
   };
 
@@ -781,12 +794,20 @@ export function EditPropertyPopup({
       return;
     }
 
+    const removedTenantId = occupantLinkage.tenantIds[index];
+
     const updatedPaxDetails = formData.paxDetails.filter((_, i) => i !== index);
     setFormData({
       ...formData,
       pax: formData.pax - 1,
       paxDetails: updatedPaxDetails,
     });
+    setOccupantLinkage((prev) => ({
+      tenantIds: prev.tenantIds.filter((_, i) => i !== index),
+      removedTenantIds: removedTenantId
+        ? [...prev.removedTenantIds, removedTenantId]
+        : prev.removedTenantIds,
+    }));
   };
 
   const handleUpdatePersonDetail = (
@@ -812,24 +833,31 @@ export function EditPropertyPopup({
     if (!formData) return;
 
     const updatedPaxDetails = [...formData.paxDetails];
+    const updatedTenantIds = [...occupantLinkage.tenantIds];
+    const newlyRemovedTenantIds: string[] = [];
 
-    // Ensure Person 1 always exists
+    // Ensure Person 1 always exists in lockstep arrays.
     if (updatedPaxDetails.length === 0) {
       updatedPaxDetails.push({
         name: formData.tenantName,
         email: "",
         phone: formData.contactNumber,
       });
+      updatedTenantIds.push(undefined);
     }
 
-    // Add empty person details if increasing pax
+    // Add empty person details if increasing pax.
     while (updatedPaxDetails.length < newPax) {
       updatedPaxDetails.push({ name: "", email: "", phone: "" });
+      updatedTenantIds.push(undefined);
     }
 
-    // Remove person details if decreasing pax (but never remove Person 1)
+    // Remove from the tail if decreasing pax (Person 1 is sticky). Capture
+    // any popped tenantIds so the save path can soft-delete them.
     while (updatedPaxDetails.length > newPax && updatedPaxDetails.length > 1) {
       updatedPaxDetails.pop();
+      const poppedId = updatedTenantIds.pop();
+      if (poppedId) newlyRemovedTenantIds.push(poppedId);
     }
 
     const updatedData: PropertyFormData = {
@@ -837,6 +865,14 @@ export function EditPropertyPopup({
       pax: newPax,
       paxDetails: updatedPaxDetails,
     };
+
+    setOccupantLinkage((prev) => ({
+      tenantIds: updatedTenantIds,
+      removedTenantIds:
+        newlyRemovedTenantIds.length > 0
+          ? [...prev.removedTenantIds, ...newlyRemovedTenantIds]
+          : prev.removedTenantIds,
+    }));
 
     if (updatedData.rentPerPerson > 0) {
       const recalculatedTotalRent = updatedData.rentPerPerson * newPax;
@@ -930,89 +966,70 @@ export function EditPropertyPopup({
     setError(null);
 
     try {
-      // Automatically determine occupancy status based on tenant data
-      // If tenant exists (Person 1 has a name) → occupied
-      // If no tenant (Person 1 has no name) → vacant
+      // Build the occupants payload from paxDetails + tenantIds. Skip blank
+      // rows beyond Person 1 — those are placeholders the user never filled.
+      const occupantsPayload = formData.paxDetails
+        .map((person, index) => ({
+          id: occupantLinkage.tenantIds[index] || undefined,
+          name: person.name?.trim() ?? "",
+          email: person.email?.trim() ?? "",
+          phone: person.phone?.trim() ?? "",
+        }))
+        .filter(
+          (occ, i) =>
+            // Always include Person 1 (so the lease anchor stays). Skip later
+            // blanks-without-id (placeholders); blanks-with-id mean an existing
+            // tenant we'd be wiping — also skip and let them stand on existing
+            // values (the RPC's COALESCE handles partial updates).
+            i === 0 ||
+            occ.id !== undefined ||
+            occ.name !== "" ||
+            occ.phone !== "",
+        );
+
+      // The lease block applies to every active tenant on the property.
+      const leasePayload = hasPaxData
+        ? {
+            contract_months: formData.contractMonths || null,
+            rent_start_date: formData.rentStartDate || null,
+            due_day: formData.dueDay || null,
+            billing_frequency: formData.formBasis,
+            rent_per_person: formData.rentPerPerson,
+          }
+        : {};
+
+      const { data: rpcData, error: rpcError } = await supabase.rpc(
+        "update_property_atomic",
+        {
+          payload: {
+            propertyId: formData.id,
+            property: {
+              unit_name: formData.unitName,
+              property_type: formData.propertyType,
+              property_location: formData.propertyLocation,
+              rent_amount: formData.rentAmount,
+            },
+            occupants: occupantsPayload,
+            removedTenantIds: occupantLinkage.removedTenantIds,
+            lease: leasePayload,
+          },
+        },
+      );
+
+      if (rpcError) throw rpcError;
+
+      // After the RPC: if Person 1 was a fresh insert, the RPC just created the
+      // row. Pick its id off the response so the billing-schedule writes below
+      // can target it.
+      const updatedTenants =
+        (rpcData as { tenants?: Tenant[] } | null)?.tenants ?? [];
+      const firstActiveTenantId =
+        updatedTenants.find((t) => t.is_active)?.id ?? formData.tenantId;
+      formData.tenantId = firstActiveTenantId;
+
       const finalOccupancyStatus = hasPaxData ? "occupied" : "vacant";
 
-      // Update property info (including occupancy status)
-      const { error: propertyError } = await supabase
-        .from("properties")
-        .update({
-          unit_name: formData.unitName,
-          property_type: formData.propertyType,
-          property_location: formData.propertyLocation,
-          rent_amount: formData.rentAmount,
-          occupancy_status: finalOccupancyStatus,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", formData.id);
-
-      if (propertyError) throw propertyError;
-
       if (formData.occupancyStatus === "occupied" || hasPaxData) {
-        // Get tenant name and contact from Person 1 (first person in paxDetails)
-        const person1Data = formData.paxDetails[0] || {
-          name: "",
-          phone: "",
-          email: "",
-        };
-
-        const tenantData = {
-          tenant_name: person1Data.name || formData.tenantName,
-          contact_number: person1Data.phone || formData.contactNumber,
-          rent_start_date: formData.rentStartDate,
-          contract_months: formData.contractMonths || 0,
-          billing_frequency: formData.formBasis,
-          rent_per_person: formData.rentPerPerson,
-          due_day: formData.dueDay,
-          pax: formData.pax,
-          pax_details: formData.paxDetails,
-          updated_at: new Date().toISOString(),
-        };
-
-        if (formData.tenantId) {
-          // Update existing tenant
-          console.log("Updating tenant with data:", tenantData);
-
-          const { error: tenantError } = await supabase
-            .from("tenants")
-            .update(tenantData)
-            .eq("id", formData.tenantId);
-
-          if (tenantError) {
-            console.error("Tenant update error:", tenantError);
-            throw tenantError;
-          }
-        } else {
-          // Create new tenant for previously vacant property
-          console.log("Creating new tenant with data:", tenantData);
-
-          const { data: newTenant, error: tenantError } = await supabase
-            .from("tenants")
-            .insert({
-              ...tenantData,
-              property_id: formData.id,
-              is_active: true,
-              contract_months: formData.contractMonths || 12,
-              billing_frequency: formData.formBasis,
-              rent_per_person: formData.rentPerPerson,
-              created_at: new Date().toISOString(),
-            })
-            .select()
-            .single();
-
-          if (tenantError) {
-            console.error("Tenant creation error:", tenantError);
-            throw tenantError;
-          }
-
-          // Update formData with new tenant ID for billing entries
-          if (newTenant) {
-            formData.tenantId = newTenant.id;
-          }
-        }
-
         // Handle billing entries only for occupied properties
         if (formData.occupancyStatus === "occupied") {
           for (const entry of formData.billingSchedule) {

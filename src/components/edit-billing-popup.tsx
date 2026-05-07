@@ -65,9 +65,6 @@ interface BillingEntry {
   billing_period: number;
   paid_amount?: number;
   expense_items?: string;
-  tenant_payments?: string; // JSON string of per-tenant payments: {"0": 1500, "1": 1500}
-  tenant_rent_amounts?: string; // JSON string of per-tenant rent: {"0": 5000, "1": 5000}
-  tenant_other_charges?: string; // JSON string of per-tenant charges: {"0": 200, "1": 150}
   created_at: string;
   updated_at: string;
 }
@@ -96,8 +93,6 @@ interface BillingFormData {
 interface EditBillingPopupProps {
   propertyId: string;
   tenantId: string;
-  tenantIndex?: number; // Index in pax_details array for individual tenant billing
-  paxCount?: number; // Total number of tenants in the property
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
@@ -119,8 +114,6 @@ function safeParseJson<T>(value: unknown, fallback: T): T {
 export function EditBillingPopup({
   propertyId,
   tenantId,
-  tenantIndex,
-  paxCount = 1,
   isOpen,
   onClose,
   onSuccess,
@@ -144,7 +137,6 @@ export function EditBillingPopup({
   const [paymentNote, setPaymentNote] = useState<string>("");
   const [receiptDate, setReceiptDate] = useState<string>("");
   const [originalBillingIds, setOriginalBillingIds] = useState<string[]>([]);
-  const [, setTenantPax] = useState<number>(1);
   const [tenantOverflow, setTenantOverflow] = useState<number>(0);
   const [pendingOverflow, setPendingOverflow] = useState<number>(0);
   const [deletedEntriesPaidAmounts, setDeletedEntriesPaidAmounts] = useState<
@@ -162,7 +154,6 @@ export function EditBillingPopup({
       paymentType: string;
       note: string;
       receiptDate: string;
-      tenantIndex: number | null;
     }>
   >([]);
 
@@ -331,21 +322,8 @@ export function EditBillingPopup({
 
         if (tenantError) throw tenantError;
 
-        // Set tenant pax for per-person billing display
-        // Count only filled-in pax_details entries
-        const filledPaxCount =
-          tenantData.pax_details?.filter(
-            (p: { name: string }) => p.name && p.name.trim() !== "",
-          ).length || 0;
-        setTenantPax(filledPaxCount > 0 ? filledPaxCount : tenantData.pax || 1);
         setTenantOverflow(tenantData.overflow || 0);
         setTenantName(tenantData.tenant_name || "Tenant");
-
-        // Store tenant name for individual mode banner
-        if (tenantIndex !== undefined && tenantData.pax_details) {
-          const person = tenantData.pax_details[tenantIndex];
-          setTenantName(person?.name || `Tenant ${tenantIndex + 1}`);
-        }
 
         const billingEntries = (tenantData.billing_entries ||
           []) as BillingEntry[];
@@ -357,97 +335,34 @@ export function EditBillingPopup({
           return dateA - dateB;
         });
 
-        // Determine if we're in individual tenant mode
-        const isIndividualMode = tenantIndex !== undefined;
-
-        // Calculate individual tenant's rent amount if in individual mode
-        let individualRentAmount = propertyData.rent_amount;
-        if (isIndividualMode && sortedBillingEntries.length > 0) {
-          const tenantKey = tenantIndex.toString();
-          // Get the first billing entry to determine this tenant's base rent
-          const firstEntry = sortedBillingEntries[0];
-          const tenantRentAmounts = safeParseJson<Record<string, number>>(
-            firstEntry.tenant_rent_amounts,
-            {},
-          );
-          // Only fall back to equal division if the key doesn't exist
-          individualRentAmount =
-            tenantKey in tenantRentAmounts
-              ? tenantRentAmounts[tenantKey]
-              : firstEntry.rent_due / paxCount;
-        } else if (isIndividualMode) {
-          // No billing entries exist, use equal division
-          individualRentAmount = propertyData.rent_amount / paxCount;
-        } else if (sortedBillingEntries.length > 0) {
-          // Normalized mode (one tenant per row): use this tenant row's rent
-          individualRentAmount = sortedBillingEntries[0].rent_due;
-        }
+        // Each tenant row owns its own billing entries post-normalization,
+        // so amounts come straight off the row.
+        const baseRentAmount =
+          sortedBillingEntries.length > 0
+            ? sortedBillingEntries[0].rent_due
+            : propertyData.rent_amount;
 
         const initialFormData: BillingFormData = {
-          rentAmount: individualRentAmount,
+          rentAmount: baseRentAmount,
           dueDay: tenantData.due_day || "30th/31st - Last Day",
           rentStartDate: tenantData.rent_start_date || "",
           billingSchedule: sortedBillingEntries.map((entry) => {
-            // For individual tenant mode, extract their specific amounts
-            let individualRent = 0;
-            let individualCharges = 0;
-            let individualPaid = 0;
+            const entryRent = entry.rent_due;
+            const entryCharges = entry.other_charges;
+            const entryPaid = entry.paid_amount || 0;
 
-            if (isIndividualMode) {
-              const tenantKey = tenantIndex.toString();
+            const grossDue = entryRent + entryCharges;
 
-              // Get individual rent amount
-              const tenantRentAmounts = safeParseJson<Record<string, number>>(
-                entry.tenant_rent_amounts,
-                {},
-              );
-              // Only fall back to equal division if the key doesn't exist
-              individualRent =
-                tenantKey in tenantRentAmounts
-                  ? tenantRentAmounts[tenantKey]
-                  : entry.rent_due / paxCount;
-
-              // Get individual other charges
-              const tenantOtherCharges = safeParseJson<Record<string, number>>(
-                entry.tenant_other_charges,
-                {},
-              );
-              // Only fall back to equal division if the key doesn't exist
-              individualCharges =
-                tenantKey in tenantOtherCharges
-                  ? tenantOtherCharges[tenantKey]
-                  : entry.other_charges / paxCount;
-
-              // Get individual paid amount
-              const tenantPayments = safeParseJson<Record<string, number>>(
-                entry.tenant_payments,
-                {},
-              );
-              // Check if tenant has a payment entry, default to 0 if not
-              individualPaid =
-                tenantKey in tenantPayments ? tenantPayments[tenantKey] : 0;
-            } else {
-              individualRent = entry.rent_due;
-              individualCharges = entry.other_charges;
-              individualPaid = entry.paid_amount || 0;
-            }
-
-            // Calculate gross due for this tenant
-            const grossDue = individualRent + individualCharges;
-
-            // Recalculate status based on individual amounts
             let calculatedStatus: string;
             const epsilon = 0.01;
 
             if (grossDue < epsilon) {
-              // Account total is 0 - not yet set
               calculatedStatus = "Not Yet Set";
-            } else if (individualPaid >= grossDue - epsilon) {
+            } else if (entryPaid >= grossDue - epsilon) {
               calculatedStatus = "Paid";
-            } else if (individualPaid > epsilon) {
+            } else if (entryPaid > epsilon) {
               calculatedStatus = "Partial";
             } else {
-              // No payment - check if overdue or not yet due
               const dueDate = new Date(entry.due_date);
               const today = new Date();
               today.setHours(0, 0, 0, 0);
@@ -463,11 +378,11 @@ export function EditBillingPopup({
             return {
               id: entry.id,
               dueDate: entry.due_date,
-              rentDue: individualRent,
-              otherCharges: individualCharges,
+              rentDue: entryRent,
+              otherCharges: entryCharges,
               grossDue: grossDue,
               status: calculatedStatus,
-              paidAmount: individualPaid,
+              paidAmount: entryPaid,
             };
           }),
         };
@@ -504,7 +419,7 @@ export function EditBillingPopup({
     };
 
     fetchBillingData();
-  }, [isOpen, paxCount, propertyId, tenantId, tenantIndex]);
+  }, [isOpen, propertyId, tenantId]);
 
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
@@ -670,7 +585,6 @@ export function EditBillingPopup({
             note: paymentNote || null,
             receipt_date: receiptDate || null,
             new_value: newValue,
-            tenant_index: tenantIndex ?? null,
           },
         });
 
@@ -787,7 +701,6 @@ export function EditBillingPopup({
         paymentType,
         note: paymentNote,
         receiptDate,
-        tenantIndex: tenantIndex ?? null,
       },
     ]);
 
@@ -1115,7 +1028,7 @@ export function EditBillingPopup({
 
     // Remove the entry from the form data
     const updatedSchedule = formData.billingSchedule.filter(
-      (entry, i) => i !== index,
+      (_, i) => i !== index,
     );
     setFormData({ ...formData, billingSchedule: updatedSchedule });
 
@@ -1414,14 +1327,11 @@ export function EditBillingPopup({
         description:
           tenantName && tenantName.trim() !== ""
             ? `Statement of account updated for ${tenantName}`
-            : tenantIndex !== undefined
-              ? `Statement of account updated for Tenant ${tenantIndex + 1}`
-              : "Statement of account updated",
+            : "Statement of account updated",
         metadata: {
           billing_entries: formData.billingSchedule.length,
           deleted_entries: deletedEntryIds.length,
           pending_overflow: pendingOverflow,
-          tenant_index: tenantIndex ?? null,
         },
       });
 
@@ -1437,7 +1347,6 @@ export function EditBillingPopup({
               payment_type: paymentLog.paymentType || "rent",
               note: paymentLog.note || null,
               receipt_date: paymentLog.receiptDate || null,
-              tenant_index: paymentLog.tenantIndex,
             },
           });
         }
@@ -1593,8 +1502,7 @@ export function EditBillingPopup({
             <div className="text-center py-12 text-red-600">{error}</div>
           ) : formData ? (
             <div className="space-y-6">
-              {/* Individual Tenant Mode Indicator */}
-              {(tenantIndex !== undefined || paxCount > 1) && (
+              {tenantName && (
                 <div className="bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
                   <div className="flex items-start gap-3">
                     <div className="h-6 w-6 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -1602,14 +1510,12 @@ export function EditBillingPopup({
                     </div>
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-purple-900 dark:text-purple-100 mb-1">
-                        Editing Individual Account: {tenantName}
+                        Editing Account: {tenantName}
                       </p>
                       <p className="text-xs text-purple-700 dark:text-purple-300">
-                        You are editing billing for{" "}
-                        <span className="font-medium">{tenantName}</span> only.
-                        {paxCount > 1
-                          ? ` This is one of ${paxCount} tenant accounts. Changes will only affect this individual's billing record.`
-                          : " Changes will only affect this tenant's billing record."}
+                        Changes will only affect{" "}
+                        <span className="font-medium">{tenantName}</span>&apos;s
+                        billing record.
                       </p>
                     </div>
                   </div>

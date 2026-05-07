@@ -131,20 +131,12 @@ interface ExpenseItem {
   amount: number;
 }
 
-interface PersonDetail {
-  name: string;
-  email: string;
-  phone: string;
-}
-
 interface Tenant {
   id: string;
   property_id: string;
   tenant_name: string;
   email?: string;
   contact_number: string;
-  pax?: number;
-  pax_details?: PersonDetail[];
   tenant_slot?: number;
   contract_months: number; // Number of billing periods (weekly, monthly, quarterly, etc.)
   rent_start_date: string;
@@ -1210,39 +1202,15 @@ export function PropertyDetailsPopup({
   const activeTenants = (property.tenants || []).filter((t) => t.is_active);
   const activeTenant = activeTenants[0];
 
-  const normalizedTenantProfiles = activeTenants.map((tenant) => ({
+  const tenantProfiles = activeTenants.map((tenant) => ({
     name: tenant.tenant_name,
     email: tenant.email || "",
     phone: tenant.contact_number,
   }));
 
-  const legacyTenantProfiles =
-    activeTenant?.pax_details?.filter((p) => p.name && p.name.trim() !== "") ||
-    [];
+  const tenantIdsByIndex = activeTenants.map((tenant) => tenant.id);
 
-  const tenantProfiles =
-    normalizedTenantProfiles.length > 1
-      ? normalizedTenantProfiles
-      : legacyTenantProfiles.length > 0
-        ? legacyTenantProfiles
-        : activeTenant
-          ? [
-              {
-                name: activeTenant.tenant_name,
-                email: activeTenant.email || "",
-                phone: activeTenant.contact_number,
-              },
-            ]
-          : [];
-
-  const tenantIdsByIndex =
-    normalizedTenantProfiles.length > 1
-      ? activeTenants.map((tenant) => tenant.id)
-      : activeTenant
-        ? [activeTenant.id]
-        : [];
-
-  const paxCount = tenantProfiles.length > 0 ? tenantProfiles.length : 1;
+  const paxCount = activeTenants.length || 1;
 
   const billingEntries =
     activeTenants.length > 1
@@ -1519,9 +1487,9 @@ export function PropertyDetailsPopup({
                         </span>
                         <span className="font-medium text-xs md:text-sm">
                           {property.occupancy_status === "occupied" &&
-                          activeTenant?.pax ? (
+                          property.max_tenants ? (
                             <span className="text-green-600 dark:text-green-400">
-                              Occupied ({paxCount}/{activeTenant.pax})
+                              Occupied ({paxCount}/{property.max_tenants})
                             </span>
                           ) : (
                             <span className="capitalize">
@@ -1565,8 +1533,8 @@ export function PropertyDetailsPopup({
                               Number of Occupants
                             </span>
                             <span className="font-medium text-xs md:text-sm">
-                              {activeTenant.pax || 1}{" "}
-                              {(activeTenant.pax || 1) === 1
+                              {activeTenants.length}{" "}
+                              {activeTenants.length === 1
                                 ? "person"
                                 : "people"}
                             </span>
@@ -3056,13 +3024,6 @@ export function PropertyDetailsPopup({
         <EditBillingPopup
           propertyId={propertyId}
           tenantId={selectedBillingTenantId || activeTenant.id}
-          tenantIndex={
-            normalizedTenantProfiles.length <= 1 &&
-            billingViewMode.startsWith("tenant-")
-              ? parseInt(billingViewMode.split("-")[1])
-              : undefined
-          }
-          paxCount={paxCount}
           isOpen={isEditBillingPopupOpen}
           onClose={() => setIsEditBillingPopupOpen(false)}
           onSuccess={() => {

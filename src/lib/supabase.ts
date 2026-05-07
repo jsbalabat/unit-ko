@@ -46,22 +46,17 @@ export interface Property {
 
 export interface Tenant {
   id: string
-  property_id: string
+  landlord_id: string
+  property_id: string | null // NULL for unhoused tenants awaiting assignment
   tenant_name: string
   email: string
   contact_number: string
-  pax?: number
-  pax_details?: Array<{
-    name: string
-    email: string
-    phone: string
-  }> // JSONB array of individual person details
   tenant_slot?: number // Bed space slot number
-  contract_months: number // Number of billing periods (can be weekly, monthly, quarterly, semi-annually, or annually)
+  contract_months: number | null // NULL for unhoused tenants
   billing_frequency?: 'weekly' | 'bi-weekly' | 'monthly' | 'quarterly' | 'semi-annually' | 'annually'
   rent_per_person?: number
-  rent_start_date: string
-  due_day: string
+  rent_start_date: string | null // NULL for unhoused tenants
+  due_day: string | null // NULL for unhoused tenants
   is_active: boolean
   advance_payment?: number // Accounting field
   security_deposit?: number // Accounting field
@@ -95,6 +90,7 @@ export interface BillingEntry {
   billing_period: number
   paid_amount?: number // Amount already paid for this entry
   expense_items?: string // JSON string of expense breakdown
+  last_reminded_at?: string | null
   created_at: string
   updated_at: string
 }
