@@ -418,8 +418,14 @@ export function PropertyDetailsPopup({
         .order("created_at", { ascending: false })
         .limit(50);
 
-      if (!logsError && logs) {
-        setActivityLogs(logs);
+      if (logsError) {
+        console.error("Activity log fetch failed:", logsError);
+        setActivityLogs([]);
+        toast.error("Could not load activity log", {
+          description: logsError.message,
+        });
+      } else {
+        setActivityLogs(logs ?? []);
       }
     } catch (err) {
       console.error("Error fetching property details:", err);
