@@ -37,6 +37,30 @@ function buildSMSMessage(
   return `Hi ${tenantName}, your rent for ${propertyName} is due on ${formattedDate} with a total amount of ₱${amount}. Please settle your account. Thank you!`;
 }
 
+function normalizePhoneToE164(phone: string): string | null {
+  const digitsOnly = phone.replace(/\D/g, "");
+
+  // Already E.164 format for PH (+639xxxxxxxxx).
+  if (/^\+639\d{9}$/.test(phone.trim())) {
+    return phone.trim();
+  }
+
+  // Common PH local formats.
+  if (/^09\d{9}$/.test(digitsOnly)) {
+    return `+63${digitsOnly.slice(1)}`;
+  }
+
+  if (/^9\d{9}$/.test(digitsOnly)) {
+    return `+63${digitsOnly}`;
+  }
+
+  if (/^639\d{9}$/.test(digitsOnly)) {
+    return `+${digitsOnly}`;
+  }
+
+  return null;
+}
+
 function getStartOfTodayIso(): string {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString();
@@ -109,20 +133,37 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Tenant not found" }, { status: 404 });
     }
 
+    const tenantPhoneE164 = normalizePhoneToE164(tenant.contact_number ?? "");
+    if (!tenantPhoneE164) {
+      return NextResponse.json(
+        {
+          error:
+            "Tenant contact number must be a valid PH mobile number (e.g. +639XXXXXXXXX or 09XXXXXXXXX).",
+        },
+        { status: 422 },
+      );
+    }
+
+    const message = buildSMSMessage(
+      tenant.tenant_name,
+      property.unit_name,
+      billingEntry.due_date,
+      Number(billingEntry.gross_due ?? 0),
+    );
+
     const webhookPayload = {
       eventType: "tenant_reminder",
       timestamp: new Date().toISOString(),
       tenantName: tenant.tenant_name,
       tenantPhone: tenant.contact_number,
+      tenantPhoneE164,
       propertyName: property.unit_name,
       dueDate: billingEntry.due_date,
       amount: Number(billingEntry.gross_due ?? 0),
-      message: buildSMSMessage(
-        tenant.tenant_name,
-        property.unit_name,
-        billingEntry.due_date,
-        Number(billingEntry.gross_due ?? 0),
-      ),
+      message,
+      // UniSMS-ready aliases for easier Zap mapping.
+      recipient: tenantPhoneE164,
+      content: message,
       billingEntryId: billingEntry.id,
     };
 
@@ -174,6 +215,7 @@ export async function POST(request: Request) {
       description: `SMS reminder sent to ${tenant.tenant_name}`,
       metadata: {
         tenant_phone: tenant.contact_number,
+        tenant_phone_e164: tenantPhoneE164,
         property_name: property.unit_name,
         due_date: billingEntry.due_date,
         amount: Number(billingEntry.gross_due ?? 0),

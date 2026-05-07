@@ -21,6 +21,7 @@ import {
   Loader2,
   Crown,
   Zap,
+  RefreshCcw,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -227,6 +228,11 @@ function SubscriptionPage() {
 
   const handleUpgradePlan = (plan: string) => {
     toast.info(`Upgrade to ${plan} coming soon!`);
+  };
+
+  const handleRefreshStatements = () => {
+    toast.info("Refreshing statement of account...");
+    void fetchSubscriptionData();
   };
 
   const formatDate = (dateString: string) => {
@@ -451,13 +457,21 @@ function SubscriptionPage() {
           {/* Monthly Statements */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Monthly Statements
-              </CardTitle>
-              <CardDescription>
-                View and manage your monthly billing statements
-              </CardDescription>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5" />
+                    Monthly Statements
+                  </CardTitle>
+                  <CardDescription>
+                    View and manage your monthly billing statements
+                  </CardDescription>
+                </div>
+                <Button variant="outline" onClick={handleRefreshStatements}>
+                  <RefreshCcw className="h-4 w-4 mr-2" />
+                  Refresh
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {statements.length === 0 ? (
