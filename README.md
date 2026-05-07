@@ -49,7 +49,22 @@ UnitKo is a real-estate rental management application focused on landlord and te
 - /dashboard/tenant
 
 ### API routes
-- /api/webhooks/test (development-only webhook test endpoint)
+
+Implemented:
+- POST /api/tenant-auth/login — issues HMAC-signed `tenant_session` cookie.
+- POST /api/tenant-auth/logout — clears the cookie.
+- GET  /api/tenant-auth/session — verifies the cookie, returns `{ tenantId }`.
+- GET  /api/tenant/dashboard — tenant-scoped reads.
+- POST /api/reminders/tenant — landlord triggers an SMS reminder; server rebuilds the payload from Supabase and posts to `ZAPIER_TENANT_REMINDER_WEBHOOK`.
+- GET  /api/webhooks/test — development-only smoke test for the planned Zapier webhooks (gated by `NODE_ENV === 'development'`).
+
+Stubbed (empty directories under `src/app/api/`, **not** live endpoints — return 404 today):
+- /api/webhooks/rent-due-today
+- /api/webhooks/payment-submitted
+- /api/webhooks/landlord-confirms
+- /api/zapier/config
+
+See [docs/ZAPIER_WEBHOOK_INTEGRATION.md](docs/ZAPIER_WEBHOOK_INTEGRATION.md) for the implementation plan and [docs/SMS_REMINDER_SETUP.md](docs/SMS_REMINDER_SETUP.md) for the Zapier + UniSMS setup runbook.
 
 ## 4) Core Features and Status
 
@@ -78,8 +93,11 @@ UnitKo is a real-estate rental management application focused on landlord and te
 - Some data is still mock-like or non-enforced in critical paths.
 
 ### Reminder and webhook integration
-- Tenant reminder flow exists and uses NEXT_PUBLIC_ZAPIER_TENANT_REMINDER_URL.
-- A development webhook test API exists for three Zapier endpoints.
+- Tenant reminder flow exists and uses server-side `ZAPIER_TENANT_REMINDER_WEBHOOK` via `/api/reminders/tenant`.
+- Reminder throttling is enforced server-side: `/api/reminders/tenant` claims `billing_entries.last_reminded_at` with a conditional update, allowing one reminder per billing entry per UTC day. The earlier client-side `localStorage` check has been replaced.
+- PH phone numbers are normalized to E.164 (`+639XXXXXXXXX`) on the server before the webhook is invoked; invalid numbers return `422`.
+- An activity log entry (`tenant_reminder_sent`) is written after a successful webhook call, including the claim timestamp.
+- A development-only webhook test API (`/api/webhooks/test`) exercises the three Zapier endpoints. It is gated to `NODE_ENV === 'development'`.
 
 ## 5) Data Model Snapshot
 
@@ -113,15 +131,15 @@ Important schema additions in migrations include:
 ## 6) Security and Access Control
 
 ### Implemented
-- Landlord session uses Supabase Auth.
-- Tenant session uses a server-backed HTTP-only signed cookie.
-- Route guards use client-side HOCs.
-- Server-side request handling exists in src/proxy.ts for session handling and selected redirects.
-- RLS migrations exist to enforce landlord data isolation at database level.
+- Landlord session uses Supabase Auth (cookies via `@supabase/ssr`).
+- Tenant session uses an HMAC-signed, HTTP-only cookie (`tenant_session`, 24h TTL) issued by `/api/tenant-auth/login` and verified server-side via `/api/tenant-auth/session`. See `src/lib/tenant-session.ts`.
+- Route guards use client-side HOCs (`withLandlordAuth`, `withTenantAuth`) in `src/components/auth/`.
+- Server-side request handling is in `src/proxy.ts` (Next.js proxy/middleware export). It refreshes the Supabase session and redirects already-authenticated landlords away from auth pages. It does not enforce protection on `/dashboard/*`; that is intentionally delegated to the client HOCs to avoid redirect loops.
+- RLS migrations enforce landlord data isolation at the database level.
 
 ### Important notes
-- Some security docs refer to middleware.ts, but the current code uses src/proxy.ts.
-- Tenant auth is intentionally lightweight and should be treated as lower assurance than landlord auth.
+- Tenant auth uses email + contact_number lookup (knowledge-based) — treat it as a lower assurance level than landlord auth.
+- `TENANT_SESSION_SECRET` is **required** in production. In development, an ephemeral per-process secret is generated as a fallback (sessions reset on restart).
 
 ## 7) Environment Configuration
 
@@ -206,9 +224,9 @@ Findings below are based on direct code review as of April 2026.
 	- Risk: weaker assurance than passwordless OTP or full auth provider flow.
 
 #### Medium
-- Tenant reminder rate limit is local-browser-only.
-	- Evidence: `src/services/tenantReminderService.ts` uses `localStorage` key checks.
-	- Risk: easy bypass across devices/sessions; no server-enforced throttling.
+- Tenant login is knowledge-based and not rate-limited at the API.
+	- Evidence: `src/app/api/tenant-auth/login/route.ts` accepts unlimited attempts; only credential match is required.
+	- Risk: enumeration / brute-force of email+phone pairs.
 
 ### Reliability issues
 
@@ -246,7 +264,7 @@ Findings below are based on direct code review as of April 2026.
 ### 31-60 days (stability and operability)
 1. Add migration verification scripts or SQL health checks after deploy.
 2. Introduce structured error taxonomy and consistent error handling across service layer.
-3. Add audit logging coverage for remaining mutation paths.
+3. Add audit logging coverage for remaining mutation paths (see `docs/ACTIVITY_LOG_ISSUES.md` for the current gap list).
 4. Refine dashboard query strategy for large landlord portfolios.
 5. Expand test coverage to include tenant dashboard and reminder workflows.
 
@@ -299,7 +317,12 @@ Current documentation quality is mixed:
 - Some docs appear stale versus current implementation.
 - Some docs are currently empty in repository state.
 
-Use this README as the primary source of current project context, then verify behavior directly in code for critical paths.
+Use this README as the primary source of current project context, then verify behavior directly in code for critical paths. See [docs/IMPLEMENTATION_GUIDE.md](docs/IMPLEMENTATION_GUIDE.md) for an index of feature docs grouped by topic with a stale/current marker.
+
+### Known doc drift to be aware of
+- Older docs (`PROPERTY_RESET_GUIDE.md`, `LANDLORD_PROPERTY_SEPARATION.md`, etc.) describe migrations as standalone files. Treat the canonical RPC and RLS state as whatever `database/migrations/zz_canonicalize_atomic_rpc_functions.sql` and the latest RLS migration declare.
+- Anything claiming tenant auth uses `sessionStorage` is outdated: tenant auth now uses an HMAC-signed HTTP-only cookie. See `src/lib/tenant-session.ts` and `/api/tenant-auth/*`.
+- Anything referring to `src/middleware.ts` is outdated: the file is now `src/proxy.ts`.
 
 ## 15) Suggested Next Documentation Tasks
 
