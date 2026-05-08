@@ -1494,9 +1494,18 @@ export function PropertyDetailsPopup({
                         <span className="font-medium text-xs md:text-sm">
                           {property.occupancy_status === "occupied" &&
                           property.max_tenants ? (
-                            <span className="text-green-600 dark:text-green-400">
-                              Occupied ({paxCount}/{property.max_tenants})
-                            </span>
+                            paxCount > property.max_tenants ? (
+                              <span
+                                className="text-amber-600 dark:text-amber-400"
+                                title="Over capacity — adjust capacity in Edit Property or remove tenants"
+                              >
+                                Occupied ({paxCount}/{property.max_tenants}) ⚠
+                              </span>
+                            ) : (
+                              <span className="text-green-600 dark:text-green-400">
+                                Occupied ({paxCount}/{property.max_tenants})
+                              </span>
+                            )
                           ) : (
                             <span className="capitalize">
                               {property.occupancy_status}

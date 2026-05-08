@@ -120,6 +120,7 @@ interface Property {
   occupancy_status: "occupied" | "vacant";
   property_location: string;
   rent_amount: number;
+  max_tenants?: number | null;
   created_at: string;
   updated_at: string;
   tenants?: Tenant[];
@@ -133,6 +134,7 @@ interface PropertyFormData {
   propertyLocation: string;
   occupancyStatus: "occupied" | "vacant";
   rentAmount: number;
+  maxTenants: number;
   tenantId?: string;
   tenantName: string;
   contactNumber: string;
@@ -430,6 +432,7 @@ export function EditPropertyPopup({
           propertyLocation: propertyData.property_location,
           occupancyStatus: propertyData.occupancy_status,
           rentAmount: propertyData.rent_amount,
+          maxTenants: propertyData.max_tenants ?? activeTenants.length ?? 1,
           tenantId: firstTenant?.id,
           tenantName: firstTenant?.tenant_name || "",
           contactNumber: firstTenant?.contact_number || "",
@@ -1008,6 +1011,7 @@ export function EditPropertyPopup({
               property_type: formData.propertyType,
               property_location: formData.propertyLocation,
               rent_amount: formData.rentAmount,
+              max_tenants: formData.maxTenants,
             },
             occupants: occupantsPayload,
             removedTenantIds: occupantLinkage.removedTenantIds,
@@ -1402,30 +1406,44 @@ export function EditPropertyPopup({
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="occupancyStatus">Occupancy Status</Label>
-                    <Select
-                      value={formData.occupancyStatus}
-                      onValueChange={(value) =>
-                        handleChange("occupancyStatus", value)
-                      }
+                    <Label htmlFor="maxTenants">
+                      Property Capacity (max tenants)
+                    </Label>
+                    <Input
+                      id="maxTenants"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={formData.maxTenants ?? ""}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/^0+(?=\d)/, "");
+                        const next = parseInt(raw) || 1;
+                        handleChange("maxTenants", next);
+                      }}
                       disabled={isLocked}
-                    >
-                      <SelectTrigger
-                        id="occupancyStatus"
-                        className={isLocked ? "opacity-70" : ""}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="vacant">Vacant</SelectItem>
-                        <SelectItem value="occupied">Occupied</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      className={isLocked ? "opacity-70" : ""}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {(() => {
+                        const assigned = formData.pax;
+                        const cap = formData.maxTenants || 1;
+                        if (assigned > cap) {
+                          return `${assigned} currently assigned — over capacity (${assigned}/${cap}). Adjust capacity or remove tenants.`;
+                        }
+                        return `${assigned} of ${cap} slot${cap === 1 ? "" : "s"} currently assigned. Capacity is record-keeping only; you can add tenants past it.`;
+                      })()}
+                    </p>
                   </div>
 
                   <div className="space-y-2 bg-muted/20 p-3 rounded-md">
                     <p className="text-xs text-muted-foreground">
                       Property ID: {formData.id}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Status auto-derived from active tenants: currently{" "}
+                      <span className="font-medium capitalize">
+                        {formData.pax > 0 ? "occupied" : "vacant"}
+                      </span>
                     </p>
                   </div>
                 </div>

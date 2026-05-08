@@ -20,6 +20,7 @@ import {
   Home,
   Eye,
   Send,
+  UserX,
 } from "lucide-react";
 import { MultiStepPopup } from "@/components/form-add-property";
 import { PropertyDetailsPopup } from "@/components/property-details-popup";
@@ -28,7 +29,10 @@ import {
   AddTenantPopup,
   type AddTenantPropertyOption,
 } from "@/components/add-tenant-popup";
-import { TenantsListPopup } from "@/components/tenants-list-popup";
+import {
+  TenantsListPopup,
+  type TenantsListFilter,
+} from "@/components/tenants-list-popup";
 import { useProperties } from "@/hooks/useProperties";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
@@ -41,6 +45,13 @@ function LandlordDashboard() {
   const [isAddPopupOpen, setIsAddPopupOpen] = useState(false);
   const [isAddTenantPopupOpen, setIsAddTenantPopupOpen] = useState(false);
   const [isTenantsListOpen, setIsTenantsListOpen] = useState(false);
+  const [tenantsListFilter, setTenantsListFilter] =
+    useState<TenantsListFilter>("all");
+
+  const openTenantsList = (filter: TenantsListFilter) => {
+    setTenantsListFilter(filter);
+    setIsTenantsListOpen(true);
+  };
   const [isDetailsPopupOpen, setIsDetailsPopupOpen] = useState(false);
   const [isEditPopupOpen, setIsEditPopupOpen] = useState(false);
   const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(
@@ -722,10 +733,17 @@ function LandlordDashboard() {
                     </Button>
                     <Button
                       variant="outline"
-                      onClick={() => setIsTenantsListOpen(true)}
+                      onClick={() => openTenantsList("all")}
                     >
                       <Eye className="mr-1.5 h-4 w-4" />
                       View Tenants
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => openTenantsList("unassigned")}
+                    >
+                      <UserX className="mr-1.5 h-4 w-4" />
+                      Unassigned
                     </Button>
                   </div>
                 </div>
@@ -763,12 +781,20 @@ function LandlordDashboard() {
                           Add Tenant
                         </Button>
                         <Button
-                          onClick={() => setIsTenantsListOpen(true)}
+                          onClick={() => openTenantsList("all")}
                           variant="outline"
                           size="sm"
                         >
                           <Eye className="h-4 w-4 mr-2" />
                           View Tenants
+                        </Button>
+                        <Button
+                          onClick={() => openTenantsList("unassigned")}
+                          variant="outline"
+                          size="sm"
+                        >
+                          <UserX className="h-4 w-4 mr-2" />
+                          Unassigned
                         </Button>
                       </div>
                     </CardContent>
@@ -952,9 +978,23 @@ function LandlordDashboard() {
                             </span>
                             {tenantProfiles.length > 0 ? (
                               <div className="group">
-                                <span className="font-medium text-sm cursor-help">
+                                <span
+                                  className={`font-medium text-sm cursor-help ${
+                                    occupancyCount > totalSlots
+                                      ? "text-amber-600 dark:text-amber-400"
+                                      : ""
+                                  }`}
+                                  title={
+                                    occupancyCount > totalSlots
+                                      ? "Over capacity — adjust capacity in Edit Property or remove tenants"
+                                      : undefined
+                                  }
+                                >
                                   {occupancyCount}/
                                   {totalSlots || occupancyCount}
+                                  {occupancyCount > totalSlots && (
+                                    <span className="ml-1">⚠</span>
+                                  )}
                                 </span>
                                 {/* Hover tooltip - positioned upwards - wrapper technique */}
                                 <span className="absolute invisible group-hover:visible z-[100]">
@@ -1033,6 +1073,7 @@ function LandlordDashboard() {
       <TenantsListPopup
         isOpen={isTenantsListOpen}
         onClose={() => setIsTenantsListOpen(false)}
+        initialFilter={tenantsListFilter}
       />
 
       {/* Property Details Popup */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -78,12 +78,6 @@ export function AddTenantPopup({
 }: AddTenantPopupProps) {
   const [submitting, setSubmitting] = useState(false);
 
-  const eligibleProperties = useMemo(
-    () =>
-      properties.filter((p) => p.active_tenant_count < (p.max_tenants ?? 1)),
-    [properties],
-  );
-
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -122,7 +116,7 @@ export function AddTenantPopup({
     }
 
     const assignedProperty = propertyId
-      ? eligibleProperties.find((p) => p.id === propertyId)
+      ? properties.find((p) => p.id === propertyId)
       : null;
 
     toast.success(`Tenant added: ${result.tenant.tenant_name}`, {
@@ -229,22 +223,32 @@ export function AddTenantPopup({
                     </FormControl>
                     <SelectContent>
                       <SelectItem value={UNASSIGNED_VALUE}>
-                        Not assigned (unhoused)
+                        Not assigned (unassigned)
                       </SelectItem>
-                      {eligibleProperties.length === 0 ? (
+                      {properties.length === 0 ? (
                         <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                          No properties with open slots.
+                          You don&apos;t have any properties yet.
                         </div>
                       ) : (
-                        eligibleProperties.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.unit_name}
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              ({p.active_tenant_count}/{p.max_tenants ?? 1}{" "}
-                              filled)
-                            </span>
-                          </SelectItem>
-                        ))
+                        properties.map((p) => {
+                          const cap = p.max_tenants ?? 1;
+                          const over = p.active_tenant_count >= cap;
+                          return (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.unit_name}
+                              <span
+                                className={`ml-2 text-xs ${
+                                  over
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : "text-muted-foreground"
+                                }`}
+                              >
+                                ({p.active_tenant_count}/{cap}
+                                {over ? " — over capacity" : " filled"})
+                              </span>
+                            </SelectItem>
+                          );
+                        })
                       )}
                     </SelectContent>
                   </Select>

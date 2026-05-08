@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Building,
   Loader2,
@@ -26,15 +26,24 @@ import {
   type TenantListRow,
 } from "@/services/tenantService";
 
+export type TenantsListFilter = "all" | "unassigned";
+
 interface TenantsListPopupProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Pre-selects the filter when the popup opens. Defaults to "all". */
+  initialFilter?: TenantsListFilter;
 }
 
-export function TenantsListPopup({ isOpen, onClose }: TenantsListPopupProps) {
+export function TenantsListPopup({
+  isOpen,
+  onClose,
+  initialFilter = "all",
+}: TenantsListPopupProps) {
   const [tenants, setTenants] = useState<TenantListRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<TenantsListFilter>(initialFilter);
 
   const load = async () => {
     setLoading(true);
@@ -51,12 +60,23 @@ export function TenantsListPopup({ isOpen, onClose }: TenantsListPopupProps) {
 
   useEffect(() => {
     if (isOpen) {
+      // Reset filter to the caller's chosen initial state every time the
+      // popup opens so each entry point lands on the right view.
+      setFilter(initialFilter);
       void load();
     }
-  }, [isOpen]);
+  }, [isOpen, initialFilter]);
 
   const unassignedCount = tenants.filter((t) => !t.property_id).length;
   const assignedCount = tenants.length - unassignedCount;
+
+  const visibleTenants = useMemo(
+    () =>
+      filter === "unassigned"
+        ? tenants.filter((t) => !t.property_id)
+        : tenants,
+    [tenants, filter],
+  );
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => (!open ? onClose() : null)}>
@@ -68,7 +88,7 @@ export function TenantsListPopup({ isOpen, onClose }: TenantsListPopupProps) {
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-sm text-muted-foreground">
           <span>
             {tenants.length} total
             {tenants.length > 0 && (
@@ -80,17 +100,43 @@ export function TenantsListPopup({ isOpen, onClose }: TenantsListPopupProps) {
               </>
             )}
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void load()}
-            disabled={loading}
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-md border bg-muted/30 p-0.5">
+              <button
+                type="button"
+                onClick={() => setFilter("all")}
+                className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                  filter === "all"
+                    ? "bg-background shadow-sm font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilter("unassigned")}
+                className={`px-2.5 py-1 text-xs rounded transition-colors ${
+                  filter === "unassigned"
+                    ? "bg-background shadow-sm font-medium text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Unassigned ({unassignedCount})
+              </button>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void load()}
+              disabled={loading}
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`}
+              />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         {loading ? (
@@ -107,10 +153,19 @@ export function TenantsListPopup({ isOpen, onClose }: TenantsListPopupProps) {
             <p className="text-sm">No tenants yet.</p>
             <p className="text-xs">Use Add Tenant to onboard your first one.</p>
           </div>
+        ) : visibleTenants.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <UserX className="h-10 w-10 mx-auto mb-2 opacity-50" />
+            <p className="text-sm">No unassigned tenants.</p>
+            <p className="text-xs">
+              Switch to All to see {tenants.length} assigned tenant
+              {tenants.length === 1 ? "" : "s"}.
+            </p>
+          </div>
         ) : (
           <ScrollArea className="h-[420px] pr-4">
             <ul className="space-y-2">
-              {tenants.map((t) => (
+              {visibleTenants.map((t) => (
                 <li
                   key={t.id}
                   className="flex items-start justify-between gap-3 p-3 rounded-md border bg-card hover:bg-muted/30 transition-colors"

@@ -250,16 +250,24 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
                 {formData.propertyType || "Property Type"}
               </p>
             </div>
-            <div
-              className={cn(
-                "px-2 py-1 rounded text-xs font-medium",
-                formData.occupancyStatus === "occupied"
-                  ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
-                  : "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
-              )}
-            >
-              {formData.occupancyStatus === "occupied" ? "Occupied" : "Vacant"}
-            </div>
+            {(() => {
+              const previewIsOccupied =
+                formData.maxTenants > 1
+                  ? filledTenantsCount > 0
+                  : Boolean(formData.tenantName?.trim());
+              return (
+                <div
+                  className={cn(
+                    "px-2 py-1 rounded text-xs font-medium",
+                    previewIsOccupied
+                      ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
+                      : "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
+                  )}
+                >
+                  {previewIsOccupied ? "Occupied" : "Vacant"}
+                </div>
+              );
+            })()}
           </div>
 
           {formData.propertyLocation && (
@@ -556,7 +564,7 @@ export function MultiStepPopup({
   const [formData, setFormData] = useState<PropertyFormData>({
     unitName: "",
     propertyType: "",
-    occupancyStatus: "vacant",
+    occupancyStatus: "occupied",
     tenantName: "",
     tenantEmail: "",
     contactNumber: "",
@@ -754,8 +762,36 @@ export function MultiStepPopup({
         "Please provide a complete address (minimum 10 characters)";
     }
 
-    // Rent Amount validation for vacant properties
-    if (formData.occupancyStatus === "vacant") {
+    // Capacity is required for record-keeping regardless of occupancy.
+    if (
+      !formData.maxTenants ||
+      formData.maxTenants === 0 ||
+      formData.maxTenants < 1
+    ) {
+      newErrors.maxTenants = "At least 1 tenant slot is required (1-20)";
+    } else if (formData.maxTenants > 20) {
+      newErrors.maxTenants = "Maximum 20 tenant slots allowed";
+    }
+
+    // Per-tenant validation only fires once the user has started entering
+    // tenant data. Empty tenant section = vacant intent → skip these checks
+    // and instead require rent_amount (since the per-tenant rent path won't run).
+    const userStartedFillingTenants =
+      formData.maxTenants > 1
+        ? formData.tenants.some(
+            (t) =>
+              t.tenantName?.trim() ||
+              t.tenantEmail?.trim() ||
+              t.contactNumber?.trim(),
+          )
+        : Boolean(
+            formData.tenantName?.trim() ||
+              formData.tenantEmail?.trim() ||
+              formData.contactNumber?.trim(),
+          );
+
+    if (!userStartedFillingTenants) {
+      // Vacant intent — require a property-level rent amount up front.
       if (!formData.rentAmount || formData.rentAmount <= 0) {
         newErrors.rentAmount = "Rent amount must be greater than 0";
       } else if (formData.rentAmount < 1000) {
@@ -766,44 +802,29 @@ export function MultiStepPopup({
       }
     }
 
-    // Tenant details validation (only if occupied)
-    if (formData.occupancyStatus === "occupied") {
-      // Max Tenants validation
-      if (
-        !formData.maxTenants ||
-        formData.maxTenants === 0 ||
-        formData.maxTenants < 1
-      ) {
-        newErrors.maxTenants = "At least 1 tenant slot is required (1-20)";
-      } else if (formData.maxTenants > 20) {
-        newErrors.maxTenants = "Maximum 20 tenant slots allowed";
+    if (userStartedFillingTenants && formData.maxTenants === 1) {
+      if (!formData.tenantName.trim()) {
+        newErrors.tenantName =
+          "Tenant name is required when filling tenant details";
+      } else if (formData.tenantName.trim().length < 2) {
+        newErrors.tenantName = "Tenant name must be at least 2 characters";
       }
 
-      // Single tenant mode - use legacy validation
-      if (formData.maxTenants === 1) {
-        // Single tenant mode - use legacy validation
-        if (!formData.tenantName.trim()) {
-          newErrors.tenantName =
-            "Tenant name is required for occupied properties";
-        } else if (formData.tenantName.trim().length < 2) {
-          newErrors.tenantName = "Tenant name must be at least 2 characters";
-        }
+      if (!formData.tenantEmail.trim()) {
+        newErrors.tenantEmail =
+          "Email is required when filling tenant details";
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.tenantEmail)) {
+        newErrors.tenantEmail = "Please enter a valid email address";
+      }
 
-        if (!formData.tenantEmail.trim()) {
-          newErrors.tenantEmail = "Email is required for occupied properties";
-        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.tenantEmail)) {
-          newErrors.tenantEmail = "Please enter a valid email address";
-        }
-
-        if (!formData.contactNumber.trim()) {
-          newErrors.contactNumber =
-            "Contact number is required for occupied properties";
-        } else if (
-          !/^(\+63|0)?9\d{9}$/.test(formData.contactNumber.replace(/\s|-/g, ""))
-        ) {
-          newErrors.contactNumber =
-            "Please enter a valid Philippine mobile number (e.g., 09123456789)";
-        }
+      if (!formData.contactNumber.trim()) {
+        newErrors.contactNumber =
+          "Contact number is required when filling tenant details";
+      } else if (
+        !/^(\+63|0)?9\d{9}$/.test(formData.contactNumber.replace(/\s|-/g, ""))
+      ) {
+        newErrors.contactNumber =
+          "Please enter a valid Philippine mobile number (e.g., 09123456789)";
       }
     }
 
@@ -1151,19 +1172,29 @@ export function MultiStepPopup({
   const handleNext = () => {
     let isValid = true;
 
+    // Derive whether the user is adding tenants from the fields they've filled
+    // so far. The Vacant/Occupied toggle was removed; occupancy follows intent.
+    const userIsAddingTenants =
+      formData.maxTenants > 1
+        ? formData.tenants.some((t) => t.tenantName?.trim())
+        : Boolean(formData.tenantName?.trim());
+    const derivedStatus: "occupied" | "vacant" = userIsAddingTenants
+      ? "occupied"
+      : "vacant";
+
+    if (formData.occupancyStatus !== derivedStatus) {
+      setFormData({ ...formData, occupancyStatus: derivedStatus });
+    }
+
     if (currentStep === 1) {
       isValid = validateStep1();
       // Additional validation for bed space mode with multiple tenants
-      if (
-        isValid &&
-        formData.occupancyStatus === "occupied" &&
-        formData.maxTenants > 1
-      ) {
+      if (isValid && derivedStatus === "occupied" && formData.maxTenants > 1) {
         isValid = validateTenants();
       }
-    } else if (currentStep === 2 && formData.occupancyStatus === "occupied") {
+    } else if (currentStep === 2 && derivedStatus === "occupied") {
       isValid = validateStep2();
-    } else if (currentStep === 3 && formData.occupancyStatus === "occupied") {
+    } else if (currentStep === 3 && derivedStatus === "occupied") {
       isValid = validateBillingSchedule();
     }
 
@@ -1175,7 +1206,7 @@ export function MultiStepPopup({
       // Normal flow for all steps - no confirmation dialogs during navigation
       if (
         currentStep === 2 &&
-        formData.occupancyStatus === "occupied" &&
+        derivedStatus === "occupied" &&
         formData.billingType === "pre-organized"
       ) {
         generateBillingSchedule();
@@ -1214,7 +1245,7 @@ export function MultiStepPopup({
     setFormData({
       unitName: "",
       propertyType: "",
-      occupancyStatus: "vacant",
+      occupancyStatus: "occupied",
       tenantName: "",
       tenantEmail: "",
       contactNumber: "",
@@ -1543,7 +1574,24 @@ export function MultiStepPopup({
   const handleComplete = async () => {
     setIsSubmitting(true);
     try {
-      const result = await submitPropertyData(formData);
+      // Auto-derive occupancy from filled tenant entries. Even though the
+      // create RPC and the UI status compute occupancy independently, sending
+      // a coherent value here keeps the create flow aligned.
+      const filledTenantCount =
+        formData.maxTenants > 1
+          ? formData.tenants.filter((t) => t.tenantName?.trim()).length
+          : formData.tenantName?.trim()
+            ? 1
+            : 0;
+      const derivedOccupancy: "occupied" | "vacant" =
+        filledTenantCount > 0 ? "occupied" : "vacant";
+
+      const submission = {
+        ...formData,
+        occupancyStatus: derivedOccupancy,
+      };
+
+      const result = await submitPropertyData(submission);
 
       if (result.success && result.data) {
         toast.success("Property Added Successfully!", {
@@ -1559,7 +1607,7 @@ export function MultiStepPopup({
         setFormData({
           unitName: "",
           propertyType: "",
-          occupancyStatus: "vacant",
+          occupancyStatus: "occupied",
           tenantName: "",
           tenantEmail: "",
           contactNumber: "",
@@ -1936,43 +1984,13 @@ export function MultiStepPopup({
                           </p>
                         </div>
 
-                        <div>
-                          <Label className="text-sm font-medium">Status</Label>
-                          <div className="grid grid-cols-2 gap-2 mt-1">
-                            <Button
-                              type="button"
-                              variant={
-                                formData.occupancyStatus === "occupied"
-                                  ? "default"
-                                  : "outline"
-                              }
-                              size="sm"
-                              className="h-auto py-2 flex items-center gap-2 text-xs"
-                              onClick={() =>
-                                updateFormData("occupancyStatus", "occupied")
-                              }
-                            >
-                              <User className="h-3.5 w-3.5" />
-                              <span>Occupied</span>
-                            </Button>
-                            <Button
-                              type="button"
-                              variant={
-                                formData.occupancyStatus === "vacant"
-                                  ? "default"
-                                  : "outline"
-                              }
-                              size="sm"
-                              className="h-auto py-2 flex items-center gap-2 text-xs"
-                              onClick={() =>
-                                updateFormData("occupancyStatus", "vacant")
-                              }
-                            >
-                              <Building className="h-3.5 w-3.5" />
-                              <span>Available</span>
-                            </Button>
-                          </div>
-                        </div>
+                        <p className="text-xs text-muted-foreground -mt-2">
+                          Occupancy is auto-derived from tenant entries: leave
+                          this section empty to create a vacant property, or
+                          fill in tenant details to mark it occupied. Capacity
+                          above is record-keeping only — you can add tenants
+                          past it.
+                        </p>
 
                         {formData.occupancyStatus === "occupied" && (
                           <div className="space-y-4 pt-3 border-t border-border">
@@ -2208,42 +2226,58 @@ export function MultiStepPopup({
                           </div>
                         )}
 
-                        {formData.occupancyStatus === "vacant" && (
-                          <div className="pt-3 border-t border-border">
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <Label
-                                  htmlFor="vacantRentAmount"
-                                  className="text-sm font-medium flex items-center gap-1.5"
-                                >
-                                  Expected Monthly Rent (₱) *
-                                </Label>
-                              </div>
-                              <Input
-                                id="vacantRentAmount"
-                                type="number"
-                                value={formData.rentAmount || ""}
-                                onChange={(e) =>
-                                  updateFormData(
-                                    "rentAmount",
-                                    e.target.value === ""
-                                      ? 0
-                                      : parseInt(e.target.value) || 0,
-                                  )
-                                }
-                                placeholder="25000"
-                                className={`h-9 text-sm ${
-                                  errors.rentAmount ? "border-destructive" : ""
-                                }`}
-                              />
-                              {errors.rentAmount && (
-                                <p className="text-xs text-destructive">
-                                  {errors.rentAmount}
+                        {(() => {
+                          const userIsAddingTenants =
+                            formData.maxTenants > 1
+                              ? formData.tenants.some((t) =>
+                                  t.tenantName?.trim(),
+                                )
+                              : Boolean(formData.tenantName?.trim());
+                          if (userIsAddingTenants) return null;
+                          return (
+                            <div className="pt-3 border-t border-border">
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <Label
+                                    htmlFor="vacantRentAmount"
+                                    className="text-sm font-medium flex items-center gap-1.5"
+                                  >
+                                    Expected Monthly Rent (₱) *
+                                  </Label>
+                                </div>
+                                <Input
+                                  id="vacantRentAmount"
+                                  type="number"
+                                  value={formData.rentAmount || ""}
+                                  onChange={(e) =>
+                                    updateFormData(
+                                      "rentAmount",
+                                      e.target.value === ""
+                                        ? 0
+                                        : parseInt(e.target.value) || 0,
+                                    )
+                                  }
+                                  placeholder="25000"
+                                  className={`h-9 text-sm ${
+                                    errors.rentAmount
+                                      ? "border-destructive"
+                                      : ""
+                                  }`}
+                                />
+                                {errors.rentAmount && (
+                                  <p className="text-xs text-destructive">
+                                    {errors.rentAmount}
+                                  </p>
+                                )}
+                                <p className="text-xs text-muted-foreground">
+                                  No tenants added — this property will be
+                                  saved as vacant. Enter expected monthly rent
+                                  for the listing.
                                 </p>
-                              )}
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     </CardContent>
                   </Card>
