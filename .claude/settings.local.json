@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:unismsapi.com)",
+      "Bash(npm run *)"
+    ]
+  }
+}
