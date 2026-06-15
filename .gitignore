@@ -47,11 +47,9 @@ next-env.d.ts
 *.sql
 !packages/db/**/*.sql
 
-# temporary markdown files (REVAMP-PLAN.md and other local notes stay untracked)
+# Markdown is local-only by policy: REVAMP-PLAN.md, CLAUDE.md, docs/*.md, and
+# other notes stay untracked. (CLAUDE.md is local dev guidance, never committed.)
 *.md
-# ...but keep agent/project instruction files versioned
-!CLAUDE.md
-!**/CLAUDE.md
 
 test.ts
 
