@@ -1076,6 +1076,10 @@ export type Database = {
         Args: { p_landlord_id: string; p_payload: Json }
         Returns: Json
       }
+      create_unhoused_tenant_atomic: {
+        Args: { p_landlord_id: string; p_payload: Json }
+        Returns: Json
+      }
       get_landlord_payout_methods: {
         Args: { p_property_id: string }
         Returns: {
