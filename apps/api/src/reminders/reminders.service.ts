@@ -6,11 +6,15 @@ import {
   UnprocessableEntityException,
 } from "@nestjs/common";
 import type { RecordReminderInput, ReminderResult } from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
 import { RemindersRepository } from "./reminders.repository";
 
 @Injectable()
 export class RemindersService {
-  constructor(private readonly repo: RemindersRepository) {}
+  constructor(
+    private readonly repo: RemindersRepository,
+    private readonly activity: ActivityService,
+  ) {}
 
   async record(
     landlordId: string,
@@ -37,6 +41,17 @@ export class RemindersService {
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
+
+    await this.activity.log({
+      actionType: "tenant_reminder_sent",
+      description: `Reminder sent to ${ctx.tenantName}`,
+      userId: landlordId,
+      metadata: {
+        billingEntryId: input.billingEntryId,
+        recipient,
+        amount: ctx.amount,
+      },
+    });
 
     return {
       recorded: true,

@@ -7,6 +7,7 @@ import type {
   PropertySummary,
   UpdatePropertyInput,
 } from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
 import { PropertiesRepository } from "./properties.repository";
 
 // Shape of a property row as selected by the repository (snake_case from
@@ -37,7 +38,10 @@ function toOccupancy(value: string | null): OccupancyStatus {
 
 @Injectable()
 export class PropertiesService {
-  constructor(private readonly repo: PropertiesRepository) {}
+  constructor(
+    private readonly repo: PropertiesRepository,
+    private readonly activity: ActivityService,
+  ) {}
 
   async listForLandlord(landlordId: string): Promise<PropertySummary[]> {
     const rows = await this.repo.findSummariesByLandlord(landlordId);
@@ -53,6 +57,16 @@ export class PropertiesService {
     input: CreatePropertyInput,
   ): Promise<PropertyDetail> {
     const propertyId = await this.repo.createViaAtomicRpc(landlordId, input);
+    await this.activity.log({
+      actionType: "property_created",
+      description: `Property created: ${input.unitName}`,
+      userId: landlordId,
+      propertyId,
+      metadata: {
+        tenants: input.tenants.length,
+        billingPeriods: input.billingSchedule.length,
+      },
+    });
     return this.getDetailForLandlord(landlordId, propertyId);
   }
 

@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import type { PaymentRecord, RecordPaymentInput, RecordPaymentResult } from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
 import { BillingService } from "./billing.service";
 import { PaymentsRepository, type PaymentRow } from "./payments.repository";
 
@@ -8,6 +9,7 @@ export class PaymentsService {
   constructor(
     private readonly repo: PaymentsRepository,
     private readonly billing: BillingService,
+    private readonly activity: ActivityService,
   ) {}
 
   async record(
@@ -23,6 +25,15 @@ export class PaymentsService {
     if (!paymentRow) {
       throw new NotFoundException("Payment not found after recording");
     }
+
+    await this.activity.log({
+      actionType: "payment_made",
+      description: `Payment recorded: ₱${paymentRow.amount}`,
+      userId: landlordId,
+      tenantId: paymentRow.tenant_id,
+      leaseId: paymentRow.lease_id,
+      metadata: { amount: paymentRow.amount, billingEntryId },
+    });
 
     // The invoice (if any) re-read through the derived view, so the response
     // already reflects the new paidAmount/balance/status.

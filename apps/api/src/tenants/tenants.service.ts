@@ -4,6 +4,7 @@ import type {
   TenantListItem,
   UpdateTenantInput,
 } from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
 import { TenantsRepository } from "./tenants.repository";
 
 // Tenant row as selected by the repository (snake_case + embedded property name).
@@ -21,13 +22,24 @@ interface TenantRow {
 
 @Injectable()
 export class TenantsService {
-  constructor(private readonly repo: TenantsRepository) {}
+  constructor(
+    private readonly repo: TenantsRepository,
+    private readonly activity: ActivityService,
+  ) {}
 
   async create(
     landlordId: string,
     input: CreateTenantInput,
   ): Promise<TenantListItem> {
     const tenantId = await this.repo.createViaAtomicRpc(landlordId, input);
+    await this.activity.log({
+      actionType: "tenant_added",
+      description: `Tenant added: ${input.tenantName}`,
+      userId: landlordId,
+      tenantId,
+      propertyId: input.propertyId ?? null,
+      metadata: { unhoused: !input.propertyId },
+    });
     const row = await this.repo.findByIdForLandlord(landlordId, tenantId);
     if (!row) {
       throw new NotFoundException("Tenant not found after creation");
