@@ -1072,6 +1072,10 @@ export type Database = {
       }
     }
     Functions: {
+      archive_and_reset_property_atomic: {
+        Args: { p_landlord_id: string; p_payload: Json }
+        Returns: Json
+      }
       claim_tenant_reminder: {
         Args: { p_billing_entry_id: string; p_landlord_id: string }
         Returns: boolean
