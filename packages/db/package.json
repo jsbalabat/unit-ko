@@ -1,0 +1,20 @@
+{
+  "name": "@unitko/db",
+  "version": "0.1.0",
+  "private": true,
+  "types": "./src/database.types.ts",
+  "exports": {
+    ".": {
+      "types": "./src/database.types.ts"
+    }
+  },
+  "scripts": {
+    "db:start": "npx supabase start",
+    "db:stop": "npx supabase stop",
+    "db:status": "npx supabase status",
+    "db:reset": "npx supabase db reset",
+    "db:diff": "npx supabase db diff",
+    "db:push": "npx supabase db push",
+    "db:gen-types": "npx supabase gen types typescript --db-url \"postgresql://postgres:postgres@127.0.0.1:54322/postgres\" > src/database.types.ts"
+  }
+}
