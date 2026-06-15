@@ -10,6 +10,7 @@ import { TenantsModule } from "./tenants/tenants.module";
 import { BillingModule } from "./billing/billing.module";
 import { RemindersModule } from "./reminders/reminders.module";
 import { TenantModule } from "./tenant/tenant.module";
+import { ArchivesModule } from "./archives/archives.module";
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { TenantModule } from "./tenant/tenant.module";
     BillingModule,
     RemindersModule,
     TenantModule,
+    ArchivesModule,
   ],
 })
 export class AppModule {}

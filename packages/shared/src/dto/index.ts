@@ -4,3 +4,4 @@ export * from "./tenant.dto";
 export * from "./billing.dto";
 export * from "./reminder.dto";
 export * from "./tenant-dashboard.dto";
+export * from "./archive.dto";
