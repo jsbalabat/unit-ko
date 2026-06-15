@@ -1090,6 +1090,10 @@ export type Database = {
           method: string
         }[]
       }
+      record_payment_atomic: {
+        Args: { p_landlord_id: string; p_payload: Json }
+        Returns: Json
+      }
       update_property_atomic: {
         Args: { p_landlord_id: string; p_payload: Json; p_property_id: string }
         Returns: Json
