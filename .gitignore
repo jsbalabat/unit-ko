@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -43,11 +43,23 @@ next-env.d.ts
 # local environment variables
 .env.local
 
+# SQL: ignore stray dumps, but keep the database package's schema/migrations versioned
 *.sql
+!packages/db/**/*.sql
 
-# temporary markdown files
+# temporary markdown files (REVAMP-PLAN.md and other local notes stay untracked)
 *.md
+# ...but keep agent/project instruction files versioned
+!CLAUDE.md
+!**/CLAUDE.md
 
 test.ts
 
 *.txt
+
+# monorepo build outputs
+.turbo/
+**/.next/
+**/dist/
+**/build/
+**/*.tsbuildinfo
