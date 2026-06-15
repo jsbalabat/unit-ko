@@ -8,6 +8,8 @@ import { TenantAuthModule } from "./tenant-auth/tenant-auth.module";
 import { PropertiesModule } from "./properties/properties.module";
 import { TenantsModule } from "./tenants/tenants.module";
 import { BillingModule } from "./billing/billing.module";
+import { RemindersModule } from "./reminders/reminders.module";
+import { TenantModule } from "./tenant/tenant.module";
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { BillingModule } from "./billing/billing.module";
     PropertiesModule,
     TenantsModule,
     BillingModule,
+    RemindersModule,
+    TenantModule,
   ],
 })
 export class AppModule {}

@@ -84,6 +84,34 @@ export class BillingRepository {
     }));
   }
 
+  async findEntriesByLease(leaseId: string): Promise<EnrichedEntry[]> {
+    const { data: lease, error: lErr } = await this.supabase.db
+      .from("leases")
+      .select("tenants(tenant_name)")
+      .eq("id", leaseId)
+      .maybeSingle();
+    if (lErr) throw lErr;
+    const tenantName = lease?.tenants?.tenant_name ?? null;
+
+    const { data: entries, error: eErr } = await this.supabase.db
+      .from("v_billing_entries_full")
+      .select(ENTRY_SELECT)
+      .eq("lease_id", leaseId)
+      .order("due_date", { ascending: true });
+    if (eErr) throw eErr;
+
+    const rows = entries ?? [];
+    const chargesByEntry = await this.fetchCharges(
+      rows.map((r) => r.id).filter((id): id is string => id !== null),
+    );
+
+    return rows.map((entry) => ({
+      entry,
+      tenantName,
+      charges: entry.id ? chargesByEntry.get(entry.id) ?? [] : [],
+    }));
+  }
+
   async findEntryDetailById(entryId: string): Promise<EnrichedEntry | null> {
     const { data: entry, error } = await this.supabase.db
       .from("v_billing_entries_full")

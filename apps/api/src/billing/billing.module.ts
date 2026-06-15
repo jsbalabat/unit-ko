@@ -18,5 +18,6 @@ import { PaymentsRepository } from "./payments.repository";
     BillingRepository,
     PaymentsRepository,
   ],
+  exports: [BillingService], // reused by the tenant dashboard
 })
 export class BillingModule {}

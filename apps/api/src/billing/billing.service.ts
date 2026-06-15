@@ -18,6 +18,13 @@ export class BillingService {
     return rows.flatMap((r) => this.toEntry(r));
   }
 
+  // Invoices for one lease (no ownership check — callers establish access first,
+  // e.g. the tenant dashboard reaches it via the tenant's own active lease).
+  async listForLease(leaseId: string): Promise<BillingEntry[]> {
+    const rows = await this.repo.findEntriesByLease(leaseId);
+    return rows.flatMap((r) => this.toEntry(r));
+  }
+
   // Used by PaymentsService to return the refreshed invoice. No ownership check
   // here — callers reach it only after ownership is already established.
   async getEntryDetail(entryId: string): Promise<BillingEntry | null> {
