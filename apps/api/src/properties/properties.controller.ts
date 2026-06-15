@@ -6,14 +6,17 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UseGuards,
 } from "@nestjs/common";
 import {
   createPropertySchema,
+  updatePropertySchema,
   type CreatePropertyInput,
   type PropertyDetail,
   type PropertySummary,
+  type UpdatePropertyInput,
 } from "@unitko/shared";
 import { SupabaseJwtGuard } from "../auth/supabase-jwt.guard";
 import { CurrentLandlord } from "../auth/current-landlord.decorator";
@@ -50,5 +53,14 @@ export class PropertiesController {
     @Param("id", ParseUUIDPipe) id: string,
   ): Promise<PropertyDetail> {
     return this.service.getDetailForLandlord(landlord.id, id);
+  }
+
+  @Patch(":id")
+  update(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(updatePropertySchema)) input: UpdatePropertyInput,
+  ): Promise<PropertyDetail> {
+    return this.service.update(landlord.id, id, input);
   }
 }

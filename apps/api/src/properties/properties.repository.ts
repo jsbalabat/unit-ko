@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { CreatePropertyInput } from "@unitko/shared";
+import type { CreatePropertyInput, UpdatePropertyInput } from "@unitko/shared";
 import { SupabaseService } from "../supabase/supabase.service";
 
 // Scalar columns selected for a property row, plus the embedded type label and
@@ -33,6 +33,21 @@ export class PropertiesRepository {
       return data.propertyId;
     }
     throw new Error("create_property_atomic returned an unexpected result");
+  }
+
+  // Atomic property update. landlordId/propertyId are the trusted scope; the
+  // payload carries only the fields to change.
+  async updateViaAtomicRpc(
+    landlordId: string,
+    propertyId: string,
+    input: UpdatePropertyInput,
+  ): Promise<void> {
+    const { error } = await this.supabase.db.rpc("update_property_atomic", {
+      p_landlord_id: landlordId,
+      p_property_id: propertyId,
+      p_payload: input,
+    });
+    if (error) throw error;
   }
 
   // All properties owned by one landlord, newest first. Occupancy comes from the

@@ -125,3 +125,45 @@ export const createPropertyResultSchema = z.object({
   billingEntryCount: z.number().int(),
 });
 export type CreatePropertyResult = z.infer<typeof createPropertyResultSchema>;
+
+// ── Update property (PATCH /properties/:id) ─────────────────────────────────
+// All sections are optional — only what's present is changed. landlord_id and
+// the property id come from the route + verified JWT, never the body.
+
+export const updatePropertyMetaSchema = z.object({
+  unitName: z.string().trim().min(1).max(200).optional(),
+  propertyType: z.string().trim().max(100).nullable().optional(),
+  propertyLocation: z.string().trim().max(500).nullable().optional(),
+  rentAmount: z.number().nonnegative().optional(),
+  maxTenants: z.number().int().positive().optional(),
+  billingMode: z.enum(BILLING_MODES).optional(),
+  leaseDate: optionalDate,
+});
+
+export const updatePropertyLeaseSchema = z.object({
+  billingFrequency: z.enum(BILLING_FREQUENCIES).optional(),
+  contractPeriods: z.number().int().positive().nullable().optional(),
+  rentStartDate: optionalDate,
+  dueDay: z.number().int().min(1).max(31).nullable().optional(),
+  rentAmount: z.number().nonnegative().optional(),
+  advancePayment: z.number().nonnegative().optional(),
+  securityDeposit: z.number().nonnegative().optional(),
+});
+
+// An occupant with `id` updates that tenant; without `id` it's added (+ lease).
+export const updatePropertyOccupantSchema = z.object({
+  id: z.string().uuid().optional(),
+  tenantName: z.string().trim().min(1).max(200),
+  email: z.string().trim().email().max(200).nullable().optional(),
+  contactNumber: z.string().trim().max(40).default(""),
+});
+
+export const updatePropertySchema = z.object({
+  property: updatePropertyMetaSchema.optional(),
+  amenities: z.array(z.string()).optional(), // present = replace the full set
+  lease: updatePropertyLeaseSchema.optional(),
+  occupants: z.array(updatePropertyOccupantSchema).optional(),
+  removedTenantIds: z.array(z.string().uuid()).optional(),
+  endReason: z.string().trim().max(500).optional(),
+});
+export type UpdatePropertyInput = z.infer<typeof updatePropertySchema>;

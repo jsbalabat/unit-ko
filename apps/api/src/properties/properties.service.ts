@@ -5,6 +5,7 @@ import type {
   OccupancyStatus,
   PropertyDetail,
   PropertySummary,
+  UpdatePropertyInput,
 } from "@unitko/shared";
 import { PropertiesRepository } from "./properties.repository";
 
@@ -52,6 +53,24 @@ export class PropertiesService {
     input: CreatePropertyInput,
   ): Promise<PropertyDetail> {
     const propertyId = await this.repo.createViaAtomicRpc(landlordId, input);
+    return this.getDetailForLandlord(landlordId, propertyId);
+  }
+
+  // Verifies ownership/existence (→ 404) before the atomic update, then returns
+  // the refreshed detail through the read path.
+  async update(
+    landlordId: string,
+    propertyId: string,
+    input: UpdatePropertyInput,
+  ): Promise<PropertyDetail> {
+    const existing = await this.repo.findDetailByIdForLandlord(
+      landlordId,
+      propertyId,
+    );
+    if (!existing) {
+      throw new NotFoundException("Property not found");
+    }
+    await this.repo.updateViaAtomicRpc(landlordId, propertyId, input);
     return this.getDetailForLandlord(landlordId, propertyId);
   }
 
