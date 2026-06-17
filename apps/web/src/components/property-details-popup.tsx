@@ -65,24 +65,14 @@ import {
   Home,
   Archive,
   Trash2,
-  AlertTriangle,
   TrendingUp,
   Plus,
   Minus,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
+import type { BillingEntry as ApiBillingEntry } from "@unitko/shared";
+import { api } from "@/lib/api-client";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
 import { EditBillingPopup } from "@/components/edit-billing-popup";
 import {
@@ -91,7 +81,6 @@ import {
 } from "@/components/amenities-popup";
 import { PropertyResetDialog } from "@/components/property-reset-dialog";
 import { archiveAndResetProperty } from "@/services/archiveService";
-import { logActivity } from "@/services/activityLogService";
 // import { ScrollArea } from "@/components/ui/scroll-area";
 
 // Define TypeScript interfaces for data structures
@@ -99,6 +88,7 @@ interface BillingEntry {
   id: string;
   property_id: string;
   tenant_id: string;
+  lease_id?: string;
   period_id?: string;
   due_date: string;
   rent_due: number;
@@ -193,6 +183,31 @@ interface PropertyDetailsPopupProps {
   defaultTab?: string;
 }
 
+// Maps an API invoice (derived figures, camelCase) onto the legacy per-tenant
+// billing row this component renders. expense_items is the charge list re-encoded
+// as JSON so the existing parseExpenseItems path keeps working.
+function toLegacyEntry(inv: ApiBillingEntry, propertyId: string): BillingEntry {
+  return {
+    id: inv.id,
+    property_id: propertyId,
+    tenant_id: inv.tenantId ?? "",
+    lease_id: inv.leaseId ?? undefined,
+    period_id: inv.periodId ?? undefined,
+    due_date: inv.dueDate ?? "",
+    rent_due: inv.rentDue,
+    other_charges: inv.otherCharges,
+    gross_due: inv.grossDue,
+    status: inv.status,
+    billing_period: inv.sequence ?? 0,
+    paid_amount: inv.paidAmount,
+    created_at: "",
+    updated_at: "",
+    expense_items: JSON.stringify(
+      inv.charges.map((c) => ({ name: c.name, amount: c.amount })),
+    ),
+  };
+}
+
 export function PropertyDetailsPopup({
   propertyId,
   isOpen,
@@ -208,8 +223,6 @@ export function PropertyDetailsPopup({
   const [isEditBillingPopupOpen, setIsEditBillingPopupOpen] = useState(false);
   const [isAmenitiesPopupOpen, setIsAmenitiesPopupOpen] = useState(false);
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState(0);
@@ -227,39 +240,22 @@ export function PropertyDetailsPopup({
   const [editingNoteIndex, setEditingNoteIndex] = useState<number | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
 
-  // Notes CRUD functions
+  // Notes are normalized rows behind the API; the JSON still rendered by this
+  // component carries each note's real id, so the index-based handlers resolve
+  // that id and call the endpoints (which log the activity server-side).
+  const noteIdAt = (index: number): string | null => {
+    if (!property?.notes) return null;
+    const notes = JSON.parse(property.notes) as Array<{ id: string }>;
+    return notes[index]?.id ?? null;
+  };
+
   const handleAddNote = async () => {
     if (!newNoteText.trim() || !property) return;
-
-    const currentNotes = property.notes ? JSON.parse(property.notes) : [];
-    const newNote = {
-      id: Date.now().toString(),
-      text: newNoteText.trim(),
-      createdAt: new Date().toISOString(),
-    };
-    const updatedNotes = [...currentNotes, newNote];
-
     try {
-      const { error } = await supabase
-        .from("properties")
-        .update({ notes: JSON.stringify(updatedNotes) })
-        .eq("id", propertyId);
-
-      if (error) throw error;
-
+      await api.properties.addNote(propertyId, { body: newNoteText.trim() });
       await fetchPropertyDetails();
       setNewNoteText("");
       setIsAddingNote(false);
-
-      await logActivity({
-        propertyId,
-        actionType: "property_note_added",
-        description: `Note added for ${property.unit_name}`,
-        metadata: {
-          note_text: newNote.text,
-        },
-      });
-
       toast.success("Note added successfully");
     } catch (error) {
       console.error("Error adding note:", error);
@@ -269,33 +265,15 @@ export function PropertyDetailsPopup({
 
   const handleUpdateNote = async (index: number) => {
     if (!editingNoteText.trim() || !property) return;
-
-    const currentNotes = property.notes ? JSON.parse(property.notes) : [];
-    currentNotes[index].text = editingNoteText.trim();
-    currentNotes[index].updatedAt = new Date().toISOString();
-
+    const noteId = noteIdAt(index);
+    if (!noteId) return;
     try {
-      const { error } = await supabase
-        .from("properties")
-        .update({ notes: JSON.stringify(currentNotes) })
-        .eq("id", propertyId);
-
-      if (error) throw error;
-
+      await api.properties.updateNote(propertyId, noteId, {
+        body: editingNoteText.trim(),
+      });
       await fetchPropertyDetails();
       setEditingNoteIndex(null);
       setEditingNoteText("");
-
-      await logActivity({
-        propertyId,
-        actionType: "property_note_updated",
-        description: `Property note updated for ${property.unit_name}`,
-        metadata: {
-          note_index: index,
-          note_text: editingNoteText.trim(),
-        },
-      });
-
       toast.success("Note updated successfully");
     } catch (error) {
       console.error("Error updating note:", error);
@@ -304,30 +282,11 @@ export function PropertyDetailsPopup({
   };
 
   const handleDeleteNote = async (index: number) => {
-    if (!property) return;
-
-    const currentNotes = property.notes ? JSON.parse(property.notes) : [];
-    currentNotes.splice(index, 1);
-
+    const noteId = noteIdAt(index);
+    if (!noteId) return;
     try {
-      const { error } = await supabase
-        .from("properties")
-        .update({ notes: JSON.stringify(currentNotes) })
-        .eq("id", propertyId);
-
-      if (error) throw error;
-
+      await api.properties.deleteNote(propertyId, noteId);
       await fetchPropertyDetails();
-
-      await logActivity({
-        propertyId,
-        actionType: "property_note_deleted",
-        description: `Property note removed for ${property.unit_name}`,
-        metadata: {
-          note_index: index,
-        },
-      });
-
       toast.success("Note deleted successfully");
     } catch (error) {
       console.error("Error deleting note:", error);
@@ -380,7 +339,11 @@ export function PropertyDetailsPopup({
     setStoredViewMode(propertyId, mode);
   };
 
-  // Wrap fetchPropertyDetails in useCallback to prevent recreation on every render
+  // Composes the property detail, its invoices, and its activity log from the
+  // API into the nested, snake_case `Property` shape the rest of this component
+  // renders. Derived billing figures map onto the legacy column names; fields
+  // the normalized model no longer stores per tenant (overflow, deposit/advance,
+  // contract terms) default to 0/empty so the existing UI degrades gracefully.
   const fetchPropertyDetails = useCallback(async () => {
     if (!isOpen || !propertyId) return;
 
@@ -388,45 +351,73 @@ export function PropertyDetailsPopup({
     setError(null);
 
     try {
-      const { data, error } = await supabase
-        .from("properties")
-        .select(
-          `
-          *,
-          tenants (
-            *,
-            billing_entries(*)
-          )
-        `,
-        )
-        .eq("id", propertyId)
-        .order("billing_period", {
-          foreignTable: "tenants.billing_entries",
-          ascending: true,
-        })
-        .single();
+      const [detail, invoices, activity] = await Promise.all([
+        api.properties.detail(propertyId),
+        api.billing.list(propertyId),
+        api.activity.list({ propertyId, limit: 50 }),
+      ]);
 
-      if (error) throw error;
-
-      setProperty(data as Property);
-
-      // Fetch activity logs for this property
-      const { data: logs, error: logsError } = await supabase
-        .from("activity_logs")
-        .select("*")
-        .eq("property_id", propertyId)
-        .order("created_at", { ascending: false })
-        .limit(50);
-
-      if (logsError) {
-        console.error("Activity log fetch failed:", logsError);
-        setActivityLogs([]);
-        toast.error("Could not load activity log", {
-          description: logsError.message,
-        });
-      } else {
-        setActivityLogs(logs ?? []);
+      const entriesByTenant = new Map<string, BillingEntry[]>();
+      for (const inv of invoices) {
+        if (!inv.tenantId) continue;
+        const legacy = toLegacyEntry(inv, propertyId);
+        const list = entriesByTenant.get(inv.tenantId) ?? [];
+        list.push(legacy);
+        entriesByTenant.set(inv.tenantId, list);
       }
+
+      setProperty({
+        id: detail.id,
+        unit_name: detail.unitName,
+        property_type: detail.propertyType ?? "",
+        occupancy_status: detail.occupancyStatus,
+        property_location: detail.propertyLocation ?? "",
+        rent_amount: detail.rentAmount,
+        max_tenants: detail.maxTenants,
+        bed_space_billing_mode: detail.billingMode,
+        amenities: JSON.stringify(detail.amenities.map((a) => a.code)),
+        notes: JSON.stringify(
+          detail.notes.map((n) => ({
+            id: n.id,
+            text: n.body,
+            createdAt: n.createdAt,
+            updatedAt: n.updatedAt,
+          })),
+        ),
+        created_at: detail.createdAt,
+        updated_at: detail.createdAt,
+        tenants: detail.tenants.map((t) => ({
+          id: t.id,
+          property_id: detail.id,
+          tenant_name: t.tenantName,
+          email: t.email ?? undefined,
+          contact_number: t.contactNumber,
+          tenant_slot: t.tenantSlot ?? undefined,
+          contract_months: 0,
+          rent_start_date: "",
+          due_day: "",
+          is_active: t.isActive,
+          advance_payment: 0,
+          security_deposit: 0,
+          overflow: 0,
+          created_at: "",
+          updated_at: "",
+          billing_entries: entriesByTenant.get(t.id) ?? [],
+        })),
+      });
+
+      setActivityLogs(
+        activity.map((a) => ({
+          id: a.id,
+          property_id: a.propertyId ?? propertyId,
+          tenant_id: a.tenantId,
+          user_id: null,
+          action_type: a.actionType,
+          description: a.description,
+          metadata: a.metadata,
+          created_at: a.createdAt,
+        })),
+      );
     } catch (err) {
       console.error("Error fetching property details:", err);
       setError(
@@ -443,13 +434,30 @@ export function PropertyDetailsPopup({
     fetchPropertyDetails();
   }, [fetchPropertyDetails]);
 
-  // Update view mode when property changes
-  useEffect(() => {
-    if (isOpen && propertyId) {
-      const storedMode = getStoredViewMode(propertyId);
-      setBillingViewMode(storedMode);
+  // Reset the transient view state when the modal opens (or its inputs change
+  // while open) during render — per React's "adjust state on prop change"
+  // guidance — rather than in open-effects that synchronously set state.
+  const [viewAnchor, setViewAnchor] = useState({
+    open: isOpen,
+    propertyId,
+    defaultTab,
+  });
+  if (
+    viewAnchor.open !== isOpen ||
+    viewAnchor.propertyId !== propertyId ||
+    viewAnchor.defaultTab !== defaultTab
+  ) {
+    const openChanged = viewAnchor.open !== isOpen;
+    const propertyChanged = viewAnchor.propertyId !== propertyId;
+    const tabInputChanged = viewAnchor.defaultTab !== defaultTab;
+    setViewAnchor({ open: isOpen, propertyId, defaultTab });
+    if (isOpen && propertyId && (openChanged || propertyChanged)) {
+      setBillingViewMode(getStoredViewMode(propertyId));
     }
-  }, [propertyId, isOpen]);
+    if (isOpen && (openChanged || tabInputChanged)) {
+      setActiveTab(defaultTab);
+    }
+  }
 
   // Re-fetch data when edit popup closes
   useEffect(() => {
@@ -461,13 +469,6 @@ export function PropertyDetailsPopup({
       return () => clearTimeout(timer);
     }
   }, [isEditPopupOpen, isEditBillingPopupOpen, isOpen, fetchPropertyDetails]);
-
-  // Sync active tab when modal opens or defaultTab changes
-  useEffect(() => {
-    if (isOpen) {
-      setActiveTab(defaultTab);
-    }
-  }, [isOpen, defaultTab]);
 
   // Enhanced status styling with improved colors and design
   const getStatusColorClass = (status: string): string => {
@@ -763,381 +764,80 @@ export function PropertyDetailsPopup({
     return fallbackItems;
   };
 
-  // Handle property deletion
-  const handleDeleteProperty = async () => {
-    if (!property) return;
-
-    setIsDeleting(true);
-
-    try {
-      const activeTenants = property.tenants?.filter((t) => t.is_active) || [];
-
-      // First, delete any billing entries associated with this property
-      if (activeTenants.length > 0) {
-        const { error: billingDeleteError } = await supabase
-          .from("billing_entries")
-          .delete()
-          .eq("property_id", propertyId);
-
-        if (billingDeleteError) throw billingDeleteError;
-
-        // Then delete the tenant
-        const { error: tenantDeleteError } = await supabase
-          .from("tenants")
-          .delete()
-          .eq("property_id", propertyId);
-
-        if (tenantDeleteError) throw tenantDeleteError;
-      }
-
-      // Finally delete the property
-      const { error: propertyDeleteError } = await supabase
-        .from("properties")
-        .delete()
-        .eq("id", propertyId);
-
-      if (propertyDeleteError) throw propertyDeleteError;
-
-      // Show success message
-      toast.success("Property deleted successfully", {
-        description: `${property.unit_name} and all associated data have been permanently removed.`,
-      });
-
-      // Call the success callback if provided
-      if (onSuccess) onSuccess();
-
-      // Close the dialog
-      onClose();
-    } catch (err) {
-      console.error("Error deleting property:", err);
-      toast.error("Failed to delete property");
-    } finally {
-      setIsDeleting(false);
-      setIsDeleteDialogOpen(false);
-    }
-  };
-
-  // Handle universal payment application
+  // Properties are archived (the lease ends, history is preserved), never
+  // hard-deleted — there is no delete endpoint by design. Recording a payment
+  // posts to the ledger; balances and status stay derived.
   const handleApplyPayment = async () => {
     if (!property || !activeTenant || paymentAmount === 0) return;
+    if (paymentAmount < 0) {
+      toast.error("Refunds aren't supported here — adjust the invoice instead.");
+      return;
+    }
 
     setIsApplyingPayment(true);
-
     try {
-      // Build payment note with tenant information if applicable
-      let finalPaymentNote = paymentNote;
-      if (
-        paxCount > 1 &&
-        selectedTenantIndex !== null &&
-        tenantProfiles.length > selectedTenantIndex
-      ) {
-        const tenantName =
-          tenantProfiles[selectedTenantIndex]?.name ||
-          `Tenant ${selectedTenantIndex + 1}`;
-        const prefix = `Payment by: ${tenantName} (Share: 1/${paxCount})`;
-        finalPaymentNote = paymentNote ? `${prefix}. ${paymentNote}` : prefix;
-      } else if (paxCount > 1 && selectedTenantIndex === null) {
-        const prefix = `Payment for all tenants (Full amount)`;
-        finalPaymentNote = paymentNote ? `${prefix}. ${paymentNote}` : prefix;
-      }
-
-      // If a specific tenant is selected in pax system, apply only their share
-      const isPerPersonPayment = paxCount > 1 && selectedTenantIndex !== null;
-
-      // Handle Deposit and Advance Payment differently
-      if (paymentType === "deposit" || paymentType === "advance") {
-        // Update tenant's deposit or advance payment field
-        const fieldToUpdate =
-          paymentType === "deposit" ? "security_deposit" : "advance_payment";
-        const currentValue =
-          paymentType === "deposit"
-            ? activeTenant.security_deposit || 0
-            : activeTenant.advance_payment || 0;
-        const newValue = currentValue + paymentAmount;
-
-        const { error } = await supabase
-          .from("tenants")
-          .update({
-            [fieldToUpdate]: newValue,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", activeTenant.id);
-
-        if (error) throw error;
-
-        // Refresh property details
-        await fetchPropertyDetails();
-
-        await logActivity({
-          propertyId,
-          tenantId: activeTenant.id,
-          actionType: "payment_made",
-          description: `${paymentType === "deposit" ? "Security deposit" : "Advance payment"} updated for ${property.unit_name}`,
-          metadata: {
-            payment_type: paymentType,
-            amount: paymentAmount,
-            note: finalPaymentNote,
-            receipt_date: receiptDate || null,
-            new_value: newValue,
-          },
-        });
-
-        // Refresh again so Activity Log tab includes the newly written payment log.
-        await fetchPropertyDetails();
-
-        toast.success(
-          `${paymentType === "deposit" ? "Security Deposit" : "Advance Payment"} updated successfully`,
-          {
-            description: `New ${paymentType === "deposit" ? "deposit" : "advance"} amount: ₱${newValue.toLocaleString()}`,
-          },
-        );
-
-        // Reset and close dialog
-        setPaymentAmount(0);
-        setPaymentType("");
-        setPaymentNote("");
-        setReceiptDate("");
-        setIsPaymentDialogOpen(false);
-        return;
-      }
-
-      // Handle normal rent/other charges payment to billing entries
-      const entries =
+      const targetTenantId =
         selectedTenantIndex !== null && tenantIdsByIndex[selectedTenantIndex]
-          ? billingEntries.filter(
-              (entry) =>
-                entry.tenant_id === tenantIdsByIndex[selectedTenantIndex],
-            )
-          : billingEntries;
-      const currentOverflow = activeTenant.overflow || 0;
+          ? tenantIdsByIndex[selectedTenantIndex]
+          : activeTenant.id;
+      const tenantInvoices = billingEntries
+        .filter((entry) => entry.tenant_id === targetTenantId)
+        .sort(
+          (a, b) =>
+            new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
+        );
+      const leaseId = tenantInvoices.find((entry) => entry.lease_id)?.lease_id;
+      const paidAt = receiptDate
+        ? new Date(receiptDate).toISOString()
+        : undefined;
+      const notes = paymentNote.trim() || undefined;
 
-      // Sort entries: chronologically for positive payments, reverse for negative payments
-      const sortedEntries = [...entries].sort((a, b) => {
-        const dateA = new Date(a.due_date).getTime();
-        const dateB = new Date(b.due_date).getTime();
-        // For negative payments, sort in reverse (latest first)
-        return paymentAmount < 0 ? dateB - dateA : dateA - dateB;
-      });
-
-      let remainingPayment = paymentAmount;
-      let newOverflow = currentOverflow;
-      const updates: Array<{
-        id: string;
-        paidAmount: number;
-        status: string;
-      }> = [];
-
-      // For POSITIVE payments: First use overflow to pay billing entries, then add excess to overflow
-      if (paymentAmount > 0) {
-        // Step 1: Use existing overflow to pay off billing entries first (only if not in individual tenant mode)
-        // Skip overflow distribution when paying for a specific tenant
-        if (newOverflow > 0 && !isPerPersonPayment) {
-          for (const entry of sortedEntries) {
-            if (newOverflow <= 0) break;
-
-            const currentPaid = entry.paid_amount || 0;
-            const amountDue = entry.gross_due - currentPaid;
-
-            if (amountDue > 0) {
-              const overflowToUse = Math.min(newOverflow, amountDue);
-              const newPaidAmount = currentPaid + overflowToUse;
-              newOverflow -= overflowToUse;
-
-              // Determine new status
-              let newStatus = entry.status;
-              const epsilon = 0.01;
-              if (newPaidAmount >= entry.gross_due - epsilon) {
-                newStatus = "Paid";
-              } else if (newPaidAmount > epsilon) {
-                newStatus = "Partial";
-              } else {
-                const dueDate = new Date(entry.due_date);
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-                dueDate.setHours(0, 0, 0, 0);
-                newStatus = dueDate < today ? "overdue" : "Not Yet Due";
-              }
-
-              updates.push({
-                id: entry.id,
-                paidAmount: newPaidAmount,
-                status: newStatus,
-              });
-            }
-          }
-        }
-
-        // Step 2: Apply the new payment to billing entries
-        for (const entry of sortedEntries) {
-          if (remainingPayment <= 0) break;
-
-          // Find if this entry was already updated from overflow
-          const existingUpdate = updates.find((u) => u.id === entry.id);
-          const currentPaid = existingUpdate
-            ? existingUpdate.paidAmount
-            : entry.paid_amount || 0;
-          const amountDue = entry.gross_due - currentPaid;
-          if (amountDue > 0) {
-            const paymentToApply = Math.min(remainingPayment, amountDue);
-            const newPaidAmount = currentPaid + paymentToApply;
-
-            // Determine new status
-            let newStatus = entry.status;
-            const epsilon = 0.01;
-            if (newPaidAmount >= entry.gross_due - epsilon) {
-              newStatus = "Paid";
-            } else if (newPaidAmount > epsilon) {
-              newStatus = "Partial";
-            } else {
-              // Determine overdue vs not yet due
-              const dueDate = new Date(entry.due_date);
-              const today = new Date();
-              today.setHours(0, 0, 0, 0);
-              dueDate.setHours(0, 0, 0, 0);
-              newStatus = dueDate < today ? "overdue" : "Not Yet Due";
-            }
-
-            if (existingUpdate) {
-              existingUpdate.paidAmount = newPaidAmount;
-              existingUpdate.status = newStatus;
-            } else {
-              updates.push({
-                id: entry.id,
-                paidAmount: newPaidAmount,
-                status: newStatus,
-              });
-            }
-
-            remainingPayment -= paymentToApply;
-          }
-        }
-
-        // Step 3: Any remaining payment goes to overflow
-        if (remainingPayment > 0) {
-          newOverflow += remainingPayment;
-          remainingPayment = 0;
-        }
-      } else {
-        // For NEGATIVE payments (refunds): Deduct from overflow FIRST (highest priority), then from billing entries
-
-        // Step 1: Deduct from overflow first (only if not in individual tenant mode)
-        if (remainingPayment < 0 && newOverflow > 0 && !isPerPersonPayment) {
-          const deductFromOverflow = Math.min(
-            Math.abs(remainingPayment),
-            newOverflow,
-          );
-          newOverflow -= deductFromOverflow;
-          remainingPayment += deductFromOverflow;
-        }
-
-        // Step 2: If still have remaining negative payment, deduct from billing entries
-        for (const entry of sortedEntries) {
-          if (remainingPayment >= 0) break;
-
-          const currentPaid = entry.paid_amount || 0;
-
-          if (currentPaid > 0) {
-            const deductionAmount = Math.max(remainingPayment, -currentPaid);
-            const newPaidAmount = currentPaid + deductionAmount;
-
-            // Determine new status
-            let newStatus = entry.status;
-            const epsilon = 0.01;
-            if (newPaidAmount >= entry.gross_due - epsilon) {
-              newStatus = "Paid";
-            } else if (newPaidAmount > epsilon) {
-              newStatus = "Partial";
-            } else {
-              // Determine overdue vs not yet due
-              const dueDate = new Date(entry.due_date);
-              const today = new Date();
-              today.setHours(0, 0, 0, 0);
-              dueDate.setHours(0, 0, 0, 0);
-              newStatus = dueDate < today ? "overdue" : "Not Yet Due";
-            }
-
-            updates.push({
-              id: entry.id,
-              paidAmount: Math.max(0, newPaidAmount),
-              status: newStatus,
-            });
-
-            remainingPayment -= deductionAmount;
-          }
-        }
-      }
-
-      // Update all entries in the database
-      for (const update of updates) {
-        const { error } = await supabase
-          .from("billing_entries")
-          .update({
-            paid_amount: update.paidAmount,
-            status: update.status,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", update.id);
-
-        if (error) throw error;
-      }
-
-      // Update tenant overflow if it changed
-      if (newOverflow !== currentOverflow) {
-        const { error } = await supabase
-          .from("tenants")
-          .update({
-            overflow: newOverflow,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", activeTenant.id);
-
-        if (error) throw error;
-      }
-
-      // Refresh property details
-      await fetchPropertyDetails();
-
-      await logActivity({
-        propertyId,
-        tenantId: activeTenant.id,
-        actionType: "payment_made",
-        description: `Payment applied to statement of account for ${property.unit_name}`,
-        metadata: {
+      if (paymentType === "deposit" || paymentType === "advance") {
+        // Deposit/advance are lease-level ledger facts — never allocated to an
+        // invoice, so they don't reduce a rent balance.
+        if (!leaseId) throw new Error("No active lease to record against");
+        await api.payments.record({
+          leaseId,
           amount: paymentAmount,
-          payment_type: paymentType,
-          note: finalPaymentNote,
-          receipt_date: receiptDate || null,
-          overflow_before: currentOverflow,
-          overflow_after: newOverflow,
-          per_person: isPerPersonPayment,
-          selected_tenant_index: selectedTenantIndex,
-        },
-      });
-
-      // Refresh again so Activity Log tab includes the newly written payment log.
-      await fetchPropertyDetails();
-
-      // Show success message
-      const tenantInfo =
-        isPerPersonPayment && tenantProfiles[selectedTenantIndex!]
-          ? ` by ${tenantProfiles[selectedTenantIndex!].name}`
-          : "";
-
-      if (newOverflow > currentOverflow) {
-        toast.success("Payment applied successfully", {
-          description: `₱${paymentAmount.toLocaleString()} applied. Excess of ₱${(newOverflow - currentOverflow).toFixed(2)} added to overflow${tenantInfo}.`,
-        });
-      } else if (newOverflow < currentOverflow) {
-        toast.success("Payment applied successfully", {
-          description: `₱${Math.abs(paymentAmount).toLocaleString()} deducted. ₱${(currentOverflow - newOverflow).toFixed(2)} deducted from overflow${tenantInfo}.`,
+          paymentType,
+          paidAt,
+          notes,
         });
       } else {
-        toast.success("Payment applied successfully", {
-          description: `₱${Math.abs(paymentAmount).toLocaleString()} has been distributed across billing entries${tenantInfo}.`,
-        });
+        // Rent settles oldest invoices first; any leftover becomes a lease-level
+        // credit. paid_amount/balance/status stay derived server-side.
+        let remaining = paymentAmount;
+        for (const invoice of tenantInvoices) {
+          if (remaining <= 0) break;
+          const balance = invoice.gross_due - (invoice.paid_amount ?? 0);
+          if (balance <= 0) continue;
+          const pay = Math.min(remaining, balance);
+          await api.payments.record({
+            billingEntryId: invoice.id,
+            amount: pay,
+            paymentType: "rent",
+            paidAt,
+            notes,
+          });
+          remaining -= pay;
+        }
+        if (remaining > 0 && leaseId) {
+          await api.payments.record({
+            leaseId,
+            amount: remaining,
+            paymentType: "rent",
+            paidAt,
+            notes,
+          });
+        }
       }
 
-      // Reset and close dialog
+      await fetchPropertyDetails();
+      onSuccess?.();
+      toast.success("Payment recorded", {
+        description: `₱${paymentAmount.toLocaleString()} recorded.`,
+      });
+
       setPaymentAmount(0);
       setPaymentType("");
       setPaymentNote("");
@@ -1146,7 +846,9 @@ export function PropertyDetailsPopup({
       setIsPaymentDialogOpen(false);
     } catch (err) {
       console.error("Error applying payment:", err);
-      toast.error("Failed to apply payment");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to record payment",
+      );
     } finally {
       setIsApplyingPayment(false);
     }
@@ -2957,15 +2659,6 @@ export function PropertyDetailsPopup({
                 Reset Property
               </Button>
             )}
-            <Button
-              variant="destructive"
-              onClick={() => setIsDeleteDialogOpen(true)}
-              className="gap-1.5 h-9 text-xs sm:text-sm"
-              size="sm"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Delete Property
-            </Button>
           </div>
 
           <Button
@@ -2986,31 +2679,15 @@ export function PropertyDetailsPopup({
         }
         onSave={async (selectedAmenities) => {
           try {
-            const { error } = await supabase
-              .from("properties")
-              .update({ amenities: JSON.stringify(selectedAmenities) })
-              .eq("id", propertyId);
-
-            if (error) throw error;
-
-            // Refresh property data
-            await fetchPropertyDetails();
-
-            await logActivity({
-              propertyId,
-              actionType: "property_updated",
-              description: `Amenities updated for ${property?.unit_name || "property"}`,
-              metadata: {
-                amenities_count: selectedAmenities.length,
-              },
+            await api.properties.update(propertyId, {
+              amenities: selectedAmenities,
             });
-
+            await fetchPropertyDetails();
+            onSuccess?.();
             toast.success("Amenities updated successfully");
           } catch (err) {
             console.error("Error updating amenities:", err);
-            toast.error(
-              "Failed to update amenities. The amenities column may not exist in the database yet.",
-            );
+            toast.error("Failed to update amenities");
           }
         }}
       />
@@ -3093,76 +2770,7 @@ export function PropertyDetailsPopup({
         }
       />
 
-      <AlertDialog
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
-      >
-        <AlertDialogContent className="max-w-[90%] sm:max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-destructive text-base sm:text-lg">
-              <AlertTriangle className="h-4 w-4 sm:h-5 sm:w-5" />
-              Delete Property Permanently
-            </AlertDialogTitle>
-            <AlertDialogDescription
-              className="space-y-2 text-xs sm:text-sm"
-              asChild
-            >
-              <div>
-                <div>
-                  Are you sure you want to delete{" "}
-                  <strong>{property.unit_name}</strong>? This action cannot be
-                  undone and will permanently remove:
-                </div>
-                <ul className="list-disc pl-6 space-y-1">
-                  <li>The property record</li>
-                  {property.occupancy_status === "occupied" && activeTenant && (
-                    <>
-                      <li>
-                        Tenant information for{" "}
-                        {tenantProfiles.length > 1 ? (
-                          <strong>
-                            Multiple Tenants ({tenantProfiles.length})
-                          </strong>
-                        ) : (
-                          <strong>{activeTenant.tenant_name}</strong>
-                        )}
-                      </li>
-                      <li>All billing and payment records</li>
-                    </>
-                  )}
-                </ul>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2 sm:gap-0">
-            <AlertDialogCancel
-              disabled={isDeleting}
-              className="text-xs sm:text-sm h-8 sm:h-9"
-            >
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                handleDeleteProperty();
-              }}
-              disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 text-xs sm:text-sm h-8 sm:h-9"
-            >
-              {isDeleting ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 animate-spin mr-1.5 sm:mr-2" />
-                  Deleting...
-                </>
-              ) : (
-                "Delete Permanently"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Universal Payment Dialog */}
+      {/* Record Payment Dialog */}
       <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
         <DialogContent className="max-w-[95vw] sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
           <DialogHeader className="space-y-1">
