@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { checkTenantAuth } from "@/lib/auth";
+import { api } from "@/lib/api-client";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Enter a valid email address" }),
@@ -56,28 +57,17 @@ export default function TenantLogin() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/tenant-auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          email: data.email,
-          contactNumber: data.contactNumber,
-        }),
+      await api.tenantAuth.login({
+        email: data.email,
+        contactNumber: data.contactNumber,
       });
-
-      if (!response.ok) {
-        toast.error(
-          "Invalid credentials. Check your email and contact number.",
-        );
-        return;
-      }
 
       toast.success("Login successful! Redirecting...");
       router.push("/dashboard/tenant");
     } catch (error) {
+      // The API returns 401 for a bad email/contact match.
       console.error("Login error:", error);
-      toast.error("An error occurred during login. Please try again.");
+      toast.error("Invalid credentials. Check your email and contact number.");
     } finally {
       setIsLoading(false);
     }

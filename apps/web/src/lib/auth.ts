@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { api } from './api-client';
 
 /**
  * Auth utility functions for route protection
@@ -35,13 +36,8 @@ export async function checkTenantAuth(): Promise<boolean> {
   if (typeof window === 'undefined') return false;
 
   try {
-    const response = await fetch('/api/tenant-auth/session', {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    });
-
-    return response.ok;
+    await api.tenantAuth.session();
+    return true;
   } catch {
     return false;
   }
@@ -81,16 +77,8 @@ export async function getTenantId(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
 
   try {
-    const response = await fetch('/api/tenant-auth/session', {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    });
-
-    if (!response.ok) return null;
-
-    const data = (await response.json()) as { tenantId?: string };
-    return data.tenantId ?? null;
+    const { tenantId } = await api.tenantAuth.session();
+    return tenantId ?? null;
   } catch {
     return null;
   }
@@ -116,10 +104,7 @@ export async function logoutTenant(): Promise<void> {
   if (typeof window === 'undefined') return;
 
   try {
-    await fetch('/api/tenant-auth/logout', {
-      method: 'POST',
-      credentials: 'include',
-    });
+    await api.tenantAuth.logout();
   } catch {
     // No-op: caller handles redirect regardless.
   }

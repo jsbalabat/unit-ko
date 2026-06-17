@@ -18,6 +18,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { ModeToggle } from "@/components/mode-toggle";
 import { supabase } from "@/lib/supabase";
+import { api } from "@/lib/api-client";
 import { useState, useEffect } from "react";
 import { checkLandlordAuth } from "@/lib/auth";
 import {
@@ -98,22 +99,9 @@ export default function LandlordRegister() {
     setError(null);
 
     try {
-      // Check if user already exists
-      const { data: existingUser } = await supabase
-        .from("profiles")
-        .select("email")
-        .eq("email", data.email)
-        .maybeSingle();
-
-      // Only show error if email exists, ignore "not found" errors
-      if (existingUser) {
-        setError(
-          "This email is already registered. Please use a different email or login.",
-        );
-        return;
-      }
-
-      // Step 1: Create user account
+      // Create the auth user. Supabase reports a duplicate email here, so no
+      // separate profiles pre-check is needed — and an unauthenticated visitor
+      // can't read the profiles table anyway.
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: data.email,
         password: data.password,
@@ -150,24 +138,19 @@ export default function LandlordRegister() {
         return;
       }
 
-      // Step 2: Wait for trigger to create profile, then update it with user details
-      // The database trigger automatically creates a profile when a user is created
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Update the profile with full_name and phone
-      // The trigger already set id, email, and role
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({
-          full_name: data.username,
-          phone: data.phone || null,
-        })
-        .eq("id", authData.user.id);
-
-      if (updateError) {
-        console.error("Profile update error:", updateError);
-        setError(`Failed to update profile: ${updateError.message}`);
-        return;
+      // The signup trigger creates the profile (id, email, role). Fill in the
+      // remaining identity through the API, which owns all profile writes. With
+      // email confirmation enabled there's no session yet, so this is
+      // best-effort — the account page can complete it after first login.
+      if (authData.session) {
+        try {
+          await api.profile.update({
+            fullName: data.username,
+            phone: data.phone || null,
+          });
+        } catch (profileError) {
+          console.error("Profile update error:", profileError);
+        }
       }
 
       setShowConfirmDialog(true);
