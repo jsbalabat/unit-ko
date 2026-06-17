@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
+import { api } from "@/lib/api-client";
+import type { UpdatePropertyInput } from "@unitko/shared";
 import {
   Dialog,
   DialogContent,
@@ -52,26 +53,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
-import { logActivity } from "@/services/activityLogService";
 
 // Define types
-interface BillingEntry {
-  id: string;
-  property_id: string;
-  tenant_id: string;
-  period_id?: string;
-  due_date: string;
-  rent_due: number;
-  other_charges: number;
-  gross_due: number;
-  status: string;
-  billing_period: number;
-  paid_amount?: number;
-  expense_items?: string; // Add this field for the JSON string
-  created_at: string;
-  updated_at: string;
-}
-
 interface PersonDetail {
   name: string;
   email: string;
@@ -93,38 +76,6 @@ type BillingFrequency =
   | "quarterly"
   | "semi-annually"
   | "annually";
-
-interface Tenant {
-  id: string;
-  property_id: string | null;
-  landlord_id?: string;
-  tenant_name: string;
-  email?: string | null;
-  contact_number: string;
-  tenant_slot?: number | null;
-  contract_months: number | null;
-  billing_frequency?: BillingFrequency;
-  rent_per_person?: number;
-  rent_start_date: string | null;
-  due_day: string | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-  billing_entries?: BillingEntry[];
-}
-
-interface Property {
-  id: string;
-  unit_name: string;
-  property_type: string;
-  occupancy_status: "occupied" | "vacant";
-  property_location: string;
-  rent_amount: number;
-  max_tenants?: number | null;
-  created_at: string;
-  updated_at: string;
-  tenants?: Tenant[];
-}
 
 // Form data interface
 interface PropertyFormData {
@@ -165,16 +116,15 @@ interface EditPropertyPopupProps {
 }
 
 const inferBillingFrequency = (
-  entries: BillingEntry[] | undefined,
+  entries: { dueDate: string | null }[] | undefined,
 ): BillingFrequency => {
-  if (!entries || entries.length < 2) return "monthly";
+  const times = (entries ?? [])
+    .map((e) => (e.dueDate ? new Date(e.dueDate).getTime() : null))
+    .filter((t): t is number => t !== null)
+    .sort((a, b) => a - b);
+  if (times.length < 2) return "monthly";
 
-  const sorted = [...entries].sort(
-    (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
-  );
-  const first = new Date(sorted[0].due_date).getTime();
-  const second = new Date(sorted[1].due_date).getTime();
-  const diffDays = Math.round(Math.abs(second - first) / (1000 * 60 * 60 * 24));
+  const diffDays = Math.round((times[1] - times[0]) / (1000 * 60 * 60 * 24));
 
   if (diffDays <= 8) return "weekly";
   if (diffDays <= 16) return "bi-weekly";
@@ -225,7 +175,6 @@ export function EditPropertyPopup({
   const [isSwitchConfirmOpen, setIsSwitchConfirmOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [property, setProperty] = useState<Property | null>(null);
   const [formData, setFormData] = useState<PropertyFormData | null>(null);
   const [isLocked, setIsLocked] = useState(true);
   const [editingPersonIndex, setEditingPersonIndex] = useState<number | null>(
@@ -367,46 +316,28 @@ export function EditPropertyPopup({
       setError(null);
 
       try {
-        const { data, error } = await supabase
-          .from("properties")
-          .select(
-            `
-            *,
-            tenants (
-              *,
-              billing_entries(*)
-            )
-          `,
-          )
-          .eq("id", propertyId)
-          .order("billing_period", {
-            foreignTable: "tenants.billing_entries",
-            ascending: true,
-          })
-          .single();
+        const [detail, invoices] = await Promise.all([
+          api.properties.detail(propertyId),
+          api.billing.list(propertyId),
+        ]);
 
-        if (error) throw error;
+        // Active occupants (identity only here) sorted by slot; lease/billing
+        // terms are inferred from the invoices below.
+        const activeTenants = detail.tenants
+          .filter((t) => t.isActive)
+          .sort((a, b) => (a.tenantSlot ?? 0) - (b.tenantSlot ?? 0));
 
-        const propertyData = data as Property;
-        setProperty(propertyData);
-
-        // Active tenants are sibling rows post-normalization, sorted by slot.
-        const activeTenants = (propertyData.tenants ?? [])
-          .filter((t) => t.is_active)
-          .sort((a, b) => (a.tenant_slot ?? 0) - (b.tenant_slot ?? 0));
-
-        // Person 1 (the lease anchor for legacy fields) is the first slot.
         const firstTenant = activeTenants[0];
-
         const initialPax = activeTenants.length || 1;
 
-        // Build paxDetails + tenantIds in lockstep so save can map back.
+        // paxDetails + tenantIds stay in lockstep so save can map each occupant
+        // back to its tenant row.
         const paxDetails: PersonDetail[] =
           activeTenants.length > 0
             ? activeTenants.map((t) => ({
-                name: t.tenant_name || "",
+                name: t.tenantName || "",
                 email: t.email || "",
-                phone: t.contact_number || "",
+                phone: t.contactNumber || "",
               }))
             : [{ name: "", email: "", phone: "" }];
 
@@ -415,126 +346,50 @@ export function EditPropertyPopup({
             ? activeTenants.map((t) => t.id)
             : [undefined];
 
-        const inferredFrequency = inferBillingFrequency(
-          firstTenant?.billing_entries,
+        // The schedule is read-only in this dialog (the Edit Billing popup owns
+        // per-invoice edits); lease terms that have no dedicated read endpoint
+        // yet — frequency, contract length, due day — are inferred from it.
+        const schedule = [...invoices].sort(
+          (a, b) => (a.sequence ?? 0) - (b.sequence ?? 0),
         );
-        const normalizedDueDay =
-          firstTenant?.billing_frequency === "bi-weekly"
-            ? isValidBiWeeklyDueDayPair(firstTenant?.due_day || "")
-              ? firstTenant.due_day || "1,16"
-              : "1,16"
-            : firstTenant?.due_day || "last";
+        const firstDueDate = schedule.find((e) => e.dueDate)?.dueDate ?? "";
+        const inferredDueDay = firstDueDate
+          ? String(Number.parseInt(firstDueDate.slice(8, 10), 10))
+          : "last";
 
         const initialFormData: PropertyFormData = {
-          id: propertyData.id,
-          unitName: propertyData.unit_name,
-          propertyType: propertyData.property_type,
-          propertyLocation: propertyData.property_location,
-          occupancyStatus: propertyData.occupancy_status,
-          rentAmount: propertyData.rent_amount,
-          maxTenants: propertyData.max_tenants ?? activeTenants.length ?? 1,
+          id: detail.id,
+          unitName: detail.unitName,
+          propertyType: detail.propertyType ?? "",
+          propertyLocation: detail.propertyLocation ?? "",
+          occupancyStatus: detail.occupancyStatus,
+          rentAmount: detail.rentAmount,
+          maxTenants: detail.maxTenants ?? initialPax,
           tenantId: firstTenant?.id,
-          tenantName: firstTenant?.tenant_name || "",
-          contactNumber: firstTenant?.contact_number || "",
+          tenantName: firstTenant?.tenantName || "",
+          contactNumber: firstTenant?.contactNumber || "",
           pax: initialPax,
           paxDetails,
-          contractMonths: firstTenant?.contract_months ?? 0,
-          rentStartDate: firstTenant?.rent_start_date || "",
-          formBasis: firstTenant?.billing_frequency || inferredFrequency,
+          contractMonths: schedule.length,
+          rentStartDate: firstDueDate ? firstDueDate.slice(0, 10) : "",
+          formBasis: inferBillingFrequency(schedule),
           rentPerPerson:
-            firstTenant?.rent_per_person !== undefined &&
-            firstTenant?.rent_per_person !== null
-              ? Number(firstTenant.rent_per_person)
-              : initialPax > 0
-                ? Number((propertyData.rent_amount / initialPax).toFixed(2))
-                : propertyData.rent_amount,
-          dueDay:
-            normalizedDueDay === "30th/31st - Last Day"
-              ? "last"
-              : normalizedDueDay,
-          billingSchedule: [],
+            initialPax > 0
+              ? Number((detail.rentAmount / initialPax).toFixed(2))
+              : detail.rentAmount,
+          dueDay: inferredDueDay,
+          billingSchedule: schedule.map((entry) => ({
+            id: entry.id,
+            dueDate: entry.dueDate ?? "",
+            rentDue: entry.rentDue,
+            otherCharges: entry.otherCharges,
+            grossDue: entry.grossDue,
+            status: entry.status,
+            paidAmount: entry.paidAmount,
+          })),
         };
 
-        setOccupantLinkage({
-          tenantIds,
-          removedTenantIds: [],
-        });
-
-        // Billing schedule comes off the first active tenant's rows. Edits here
-        // currently only persist for that one tenant; multi-tenant fan-out is
-        // tracked as a follow-up and the per-tenant edit-billing-popup handles
-        // the rest.
-        if (
-          firstTenant?.billing_entries &&
-          firstTenant.billing_entries.length > 0
-        ) {
-          initialFormData.billingSchedule = firstTenant.billing_entries.map(
-            (entry) => ({
-              id: entry.id,
-              dueDate: entry.due_date,
-              rentDue: entry.rent_due,
-              otherCharges: entry.other_charges,
-              grossDue: entry.gross_due,
-              status: entry.status,
-              paidAmount: entry.paid_amount || 0,
-            }),
-          );
-        }
-
-        // After preparing the initial form data
-        if (initialFormData.billingSchedule.length > 0) {
-          // Ensure all billing entries use the property's rent amount
-          const updatedSchedule = initialFormData.billingSchedule.map(
-            (entry) => {
-              // Keep other charges as is
-              const otherCharges = entry.otherCharges;
-
-              // Update rent amount to match property's rent amount
-              const updatedRentDue = initialFormData.rentAmount;
-
-              // Recalculate gross amount
-              const updatedGrossDue = updatedRentDue + otherCharges;
-
-              return {
-                ...entry,
-                rentDue: updatedRentDue,
-                grossDue: updatedGrossDue,
-              };
-            },
-          );
-
-          initialFormData.billingSchedule = updatedSchedule;
-        }
-
-        // Also handle due dates if needed
-        if (
-          initialFormData.billingSchedule.length > 0 &&
-          initialFormData.dueDay
-        ) {
-          // Recalculate all dates to match configured frequency and due marker.
-          const rentStartDate = initialFormData.rentStartDate
-            ? new Date(initialFormData.rentStartDate)
-            : new Date();
-
-          const updatedSchedule = initialFormData.billingSchedule.map(
-            (entry, index) => {
-              const dueDate = calculatePeriodDueDate(
-                rentStartDate,
-                index,
-                initialFormData.formBasis,
-                initialFormData.dueDay,
-              );
-
-              return {
-                ...entry,
-                dueDate: formatDueDate(dueDate),
-              };
-            },
-          );
-
-          initialFormData.billingSchedule = updatedSchedule;
-        }
-
+        setOccupantLinkage({ tenantIds, removedTenantIds: [] });
         setFormData(initialFormData);
       } catch (err) {
         console.error("Error fetching property details:", err);
@@ -550,7 +405,7 @@ export function EditPropertyPopup({
     };
 
     fetchPropertyDetails();
-  }, [propertyId, isOpen, calculatePeriodDueDate]);
+  }, [propertyId, isOpen]);
 
   const formatDueDate = (date: Date): string => {
     const monthNames = [
@@ -969,212 +824,69 @@ export function EditPropertyPopup({
     setError(null);
 
     try {
-      // Build the occupants payload from paxDetails + tenantIds. Skip blank
-      // rows beyond Person 1 — those are placeholders the user never filled.
-      const occupantsPayload = formData.paxDetails
+      // Map occupants from paxDetails + their tenant ids: an occupant with an id
+      // updates that tenant; without one it's inserted (with a fresh lease).
+      // Blank rows (an unfilled placeholder, or a cleared name) are dropped so we
+      // neither wipe an existing tenant nor create an empty one.
+      const occupants = formData.paxDetails
         .map((person, index) => ({
-          id: occupantLinkage.tenantIds[index] || undefined,
-          name: person.name?.trim() ?? "",
-          email: person.email?.trim() ?? "",
-          phone: person.phone?.trim() ?? "",
+          id: occupantLinkage.tenantIds[index],
+          tenantName: person.name?.trim() ?? "",
+          email: person.email?.trim() ? person.email.trim() : null,
+          contactNumber: person.phone?.trim() ?? "",
         }))
-        .filter(
-          (occ, i) =>
-            // Always include Person 1 (so the lease anchor stays). Skip later
-            // blanks-without-id (placeholders); blanks-with-id mean an existing
-            // tenant we'd be wiping — also skip and let them stand on existing
-            // values (the RPC's COALESCE handles partial updates).
-            i === 0 ||
-            occ.id !== undefined ||
-            occ.name !== "" ||
-            occ.phone !== "",
-        );
+        .filter((occ) => occ.tenantName !== "");
 
-      // The lease block applies to every active tenant on the property.
-      const leasePayload = hasPaxData
-        ? {
-            contract_months: formData.contractMonths || null,
-            rent_start_date: formData.rentStartDate || null,
-            due_day: formData.dueDay || null,
-            billing_frequency: formData.formBasis,
-            rent_per_person: formData.rentPerPerson,
-          }
-        : {};
+      // A lease stores a single day-of-month (1-31). The form's richer markers
+      // (weekday, bi-weekly pair, "last") have no column, so only a plain numeric
+      // day persists; anything else clears it.
+      const parsedDueDay = Number.parseInt(formData.dueDay, 10);
+      const dueDay =
+        parsedDueDay >= 1 && parsedDueDay <= 31 ? parsedDueDay : null;
 
-      const { data: rpcData, error: rpcError } = await supabase.rpc(
-        "update_property_atomic",
-        {
-          payload: {
-            propertyId: formData.id,
-            property: {
-              unit_name: formData.unitName,
-              property_type: formData.propertyType,
-              property_location: formData.propertyLocation,
-              rent_amount: formData.rentAmount,
-              max_tenants: formData.maxTenants,
-            },
-            occupants: occupantsPayload,
-            removedTenantIds: occupantLinkage.removedTenantIds,
-            lease: leasePayload,
-          },
+      const input: UpdatePropertyInput = {
+        property: {
+          unitName: formData.unitName,
+          propertyType: formData.propertyType || null,
+          propertyLocation: formData.propertyLocation || null,
+          rentAmount: formData.rentAmount,
+          maxTenants: formData.maxTenants,
         },
-      );
+        occupants,
+        removedTenantIds: occupantLinkage.removedTenantIds,
+      };
 
-      if (rpcError) throw rpcError;
-
-      // After the RPC: if Person 1 was a fresh insert, the RPC just created the
-      // row. Pick its id off the response so the billing-schedule writes below
-      // can target it.
-      const updatedTenants =
-        (rpcData as { tenants?: Tenant[] } | null)?.tenants ?? [];
-      const firstActiveTenantId =
-        updatedTenants.find((t) => t.is_active)?.id ?? formData.tenantId;
-      formData.tenantId = firstActiveTenantId;
-
-      const finalOccupancyStatus = hasPaxData ? "occupied" : "vacant";
-
-      if (formData.occupancyStatus === "occupied" || hasPaxData) {
-        // Handle billing entries only for occupied properties
-        if (formData.occupancyStatus === "occupied") {
-          for (const entry of formData.billingSchedule) {
-            // For existing entries, update them
-            if (!entry.id.startsWith("temp-")) {
-              const updateData: Record<string, unknown> = {
-                due_date: entry.dueDate,
-                status: entry.grossDue === 0 ? "Not Yet Set" : entry.status,
-                other_charges: entry.otherCharges,
-                rent_due: entry.rentDue,
-                gross_due: entry.grossDue,
-                paid_amount: entry.paidAmount || 0,
-                updated_at: new Date().toISOString(),
-              };
-
-              const { error: billingError } = await supabase
-                .from("billing_entries")
-                .update(updateData)
-                .eq("id", entry.id);
-
-              if (billingError) throw billingError;
-            }
-            // For new entries, insert them
-            else {
-              // Calculate billing period
-              // For additional charges rows (temp-additional-*), use 0
-              // For regular entries, count non-additional entries up to this point
-              let billingPeriod = 0;
-              if (!entry.id.startsWith("temp-additional-")) {
-                billingPeriod = formData.billingSchedule
-                  .slice(0, formData.billingSchedule.indexOf(entry) + 1)
-                  .filter((e) => !e.id.startsWith("temp-additional-")).length;
-              }
-
-              const insertData: Record<string, unknown> = {
-                property_id: formData.id,
-                tenant_id: formData.tenantId,
-                due_date: entry.dueDate,
-                rent_due: entry.rentDue,
-                other_charges: entry.otherCharges,
-                gross_due: entry.grossDue,
-                status: entry.grossDue === 0 ? "Not Yet Set" : entry.status,
-                paid_amount: entry.paidAmount || 0,
-                billing_period: billingPeriod,
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString(),
-              };
-
-              const { error: newBillingError } = await supabase
-                .from("billing_entries")
-                .insert(insertData);
-
-              if (newBillingError) throw newBillingError;
-            }
-          }
-
-          // Track deleted entries that need to be removed from database
-          const currentEntryIds = formData.billingSchedule.map(
-            (entry) => entry.id,
-          );
-          const originalEntryIds =
-            property?.tenants
-              ?.find((t) => t.is_active)
-              ?.billing_entries?.map((be) => be.id) || [];
-
-          // Find entries that exist in original data but not in current form data (they were deleted)
-          const deletedEntryIds = originalEntryIds.filter(
-            (id) => !currentEntryIds.includes(id),
-          );
-
-          // Handle deleted entries if any
-          if (deletedEntryIds.length > 0) {
-            for (const deletedId of deletedEntryIds) {
-              const { error: deleteError } = await supabase
-                .from("billing_entries")
-                .delete()
-                .eq("id", deletedId);
-
-              if (deleteError) throw deleteError;
-            }
-          }
-        }
+      // The lease block applies to every active lease on the property; only send
+      // it when there's tenant data to anchor it to. Billing entries are derived
+      // and edited per-invoice in the Edit Billing popup — never rewritten here.
+      if (hasPaxData) {
+        input.lease = {
+          billingFrequency: formData.formBasis,
+          contractPeriods: formData.contractMonths || null,
+          rentStartDate: formData.rentStartDate || null,
+          dueDay,
+          rentAmount: formData.rentPerPerson,
+        };
       }
 
-      const hasTenantData =
-        person1 && person1.name && person1.name.trim() !== "";
-      const savedWhat = hasTenantData
-        ? `${formData.unitName} and ${formData.pax} person detail${formData.pax > 1 ? "s" : ""} saved`
-        : `${formData.unitName} updated`;
+      await api.properties.update(formData.id, input);
 
-      await logActivity({
-        propertyId: formData.id,
-        tenantId: formData.tenantId ?? null,
-        actionType: "property_updated",
-        description: `Property details updated for ${formData.unitName}`,
-        metadata: {
-          occupancy_status: finalOccupancyStatus,
-          property_type: formData.propertyType,
-          billing_frequency: formData.formBasis,
-          contract_periods: formData.contractMonths,
-          rent_start_date: formData.rentStartDate,
-          rent_per_person: formData.rentPerPerson,
-          rent_amount: formData.rentAmount,
-          pax: formData.pax,
-          billing_entries: formData.billingSchedule.length,
-        },
-      });
+      const savedWhat = hasPaxData
+        ? `${formData.unitName} and ${formData.pax} person detail${
+            formData.pax > 1 ? "s" : ""
+          } saved`
+        : `${formData.unitName} updated`;
 
       toast.success("Property updated successfully", {
         description: savedWhat,
       });
 
-      // Call the success callback if provided
       if (onSuccess) onSuccess();
-
-      // Close the dialog AFTER all operations are successful
       onClose();
     } catch (err) {
       console.error("Error updating property:", err);
-      console.error("Error details:", JSON.stringify(err, null, 2));
-
-      let errorMessage = "Failed to update property";
-
-      if (err instanceof Error) {
-        errorMessage = err.message;
-      } else if (typeof err === "object" && err !== null) {
-        // Handle Supabase error format
-        const supabaseError = err as {
-          message?: string;
-          error_description?: string;
-          hint?: string;
-        };
-        if (supabaseError.message) {
-          errorMessage = supabaseError.message;
-        } else if (supabaseError.error_description) {
-          errorMessage = supabaseError.error_description;
-        } else if (supabaseError.hint) {
-          errorMessage = `${supabaseError.message || "Database error"}: ${supabaseError.hint}`;
-        }
-      }
-
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to update property";
       setError(errorMessage);
       toast.error("Failed to update property", {
         description: errorMessage,
