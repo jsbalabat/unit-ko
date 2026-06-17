@@ -572,3 +572,119 @@ $$;
 
 revoke execute on function public.archive_and_reset_property_atomic(uuid, jsonb) from public;
 grant execute on function public.archive_and_reset_property_atomic(uuid, jsonb) to service_role;
+
+-- Replace a landlord's full set of payout channels in one transaction: the API
+-- sends the complete desired set, so anything omitted is removed. p_payload is
+-- the payoutMethods array ([{method, accountName, accountNumber, details}]).
+-- Takes the verified landlord id; locked to service_role.
+create or replace function public.replace_landlord_payout_methods(
+  p_landlord_id uuid,
+  p_payload jsonb
+)
+returns void
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_method jsonb;
+begin
+  if p_landlord_id is null then raise exception 'landlord id is required'; end if;
+
+  delete from public.landlord_payout_methods where landlord_id = p_landlord_id;
+
+  for v_method in
+    select * from jsonb_array_elements(coalesce(p_payload, '[]'::jsonb))
+  loop
+    if nullif(v_method->>'method', '') is null then continue; end if;
+    insert into public.landlord_payout_methods
+      (landlord_id, method, account_name, account_number, details)
+    values (
+      p_landlord_id,
+      v_method->>'method',
+      nullif(v_method->>'accountName', ''),
+      nullif(v_method->>'accountNumber', ''),
+      nullif(v_method->>'details', '')
+    );
+  end loop;
+end;
+$$;
+
+revoke execute on function public.replace_landlord_payout_methods(uuid, jsonb) from public;
+grant execute on function public.replace_landlord_payout_methods(uuid, jsonb) to service_role;
+
+-- Edit one invoice: update its stored rent_due/due_date and replace its charge
+-- lines (billing_charges), then recompute status_code from the derived figures
+-- (other_charges/gross_due/paid_amount/balance stay derived). Verifies the entry
+-- belongs to the landlord. Takes the verified landlord id; locked to service_role.
+create or replace function public.update_billing_entry_atomic(
+  p_landlord_id uuid,
+  p_entry_id uuid,
+  p_payload jsonb
+)
+returns void
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_landlord_check uuid;
+  v_charge jsonb;
+  v_gross numeric;
+  v_paid numeric;
+  v_balance numeric;
+  v_due date;
+  v_new_status text;
+begin
+  if p_landlord_id is null then raise exception 'landlord id is required'; end if;
+
+  select p.landlord_id into v_landlord_check
+  from public.billing_entries be
+  join public.leases l on l.id = be.lease_id
+  join public.properties p on p.id = l.property_id
+  where be.id = p_entry_id
+  for update of be;
+  if not found then raise exception 'billing entry not found'; end if;
+  if v_landlord_check is distinct from p_landlord_id then
+    raise exception 'not owned by landlord';
+  end if;
+
+  update public.billing_entries set
+    due_date = case when p_payload ? 'dueDate'
+      then coalesce(nullif(p_payload->>'dueDate', '')::date, due_date) else due_date end,
+    rent_due = case when p_payload ? 'rentDue'
+      then coalesce((p_payload->>'rentDue')::numeric, rent_due) else rent_due end,
+    updated_at = now()
+  where id = p_entry_id;
+
+  if p_payload ? 'charges' then
+    delete from public.billing_charges where billing_entry_id = p_entry_id;
+    for v_charge in
+      select * from jsonb_array_elements(coalesce(p_payload->'charges', '[]'::jsonb))
+    loop
+      if nullif(btrim(coalesce(v_charge->>'name', '')), '') is null then continue; end if;
+      insert into public.billing_charges (billing_entry_id, name, amount)
+      values (p_entry_id, v_charge->>'name', coalesce((v_charge->>'amount')::numeric, 0));
+    end loop;
+  end if;
+
+  select gross_due, paid_amount, balance, due_date
+  into v_gross, v_paid, v_balance, v_due
+  from public.v_billing_entries_full
+  where id = p_entry_id;
+
+  v_new_status := case
+    when coalesce(v_gross, 0) <= 0 then 'Not Yet Set'
+    when coalesce(v_balance, 0) <= 0 then 'Paid'
+    when coalesce(v_paid, 0) > 0 then 'Partial'
+    when v_due is not null and v_due < current_date then 'Overdue'
+    else 'Not Yet Due'
+  end;
+
+  update public.billing_entries set status_code = v_new_status, updated_at = now()
+  where id = p_entry_id;
+end;
+$$;
+
+revoke execute on function public.update_billing_entry_atomic(uuid, uuid, jsonb) from public;
+grant execute on function public.update_billing_entry_atomic(uuid, uuid, jsonb) to service_role;

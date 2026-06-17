@@ -1102,6 +1102,14 @@ export type Database = {
         Args: { p_landlord_id: string; p_payload: Json }
         Returns: Json
       }
+      replace_landlord_payout_methods: {
+        Args: { p_landlord_id: string; p_payload: Json }
+        Returns: undefined
+      }
+      update_billing_entry_atomic: {
+        Args: { p_entry_id: string; p_landlord_id: string; p_payload: Json }
+        Returns: undefined
+      }
       update_property_atomic: {
         Args: { p_landlord_id: string; p_payload: Json; p_property_id: string }
         Returns: Json
