@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -598,31 +598,67 @@ export function MultiStepPopup({
   // Update total steps based on occupancy status
   const totalSteps = formData.occupancyStatus === "vacant" ? 2 : 4;
 
-  // Auto-adjust collectionDates when formBasis changes
-  useEffect(() => {
-    if (
-      formData.formBasis === "bi-weekly" &&
-      formData.collectionDates.length !== 2
-    ) {
+  // Keep collectionDates/collectionDay consistent with the billing basis.
+  // Adjusted during render (per React's "adjust state on prop change" guidance)
+  // instead of an effect that synchronously sets state.
+  const collectionDatesLength = formData.collectionDates.length;
+  const [basisAnchor, setBasisAnchor] = useState({
+    formBasis: formData.formBasis,
+    collectionDatesLength,
+    collectionDay: formData.collectionDay,
+  });
+  if (
+    basisAnchor.formBasis !== formData.formBasis ||
+    basisAnchor.collectionDatesLength !== collectionDatesLength ||
+    basisAnchor.collectionDay !== formData.collectionDay
+  ) {
+    setBasisAnchor({
+      formBasis: formData.formBasis,
+      collectionDatesLength,
+      collectionDay: formData.collectionDay,
+    });
+    if (formData.formBasis === "bi-weekly" && collectionDatesLength !== 2) {
       setFormData((prev) => ({ ...prev, collectionDates: [1, 16] }));
-    } else if (
-      formData.formBasis === "monthly" &&
-      formData.collectionDates.length !== 1
-    ) {
+    } else if (formData.formBasis === "monthly" && collectionDatesLength !== 1) {
       setFormData((prev) => ({ ...prev, collectionDates: [1] }));
     } else if (formData.formBasis === "weekly" && !formData.collectionDay) {
-      // Set default collection day for weekly billing
       setFormData((prev) => ({ ...prev, collectionDay: "monday" }));
     }
-  }, [
-    formData.formBasis,
-    formData.collectionDates.length,
-    formData.collectionDay,
-  ]);
+  }
 
-  // Auto-generate billing schedule when Step 2 fields change
-  useEffect(() => {
-    // Only auto-generate if we're in Step 2 and have the necessary data
+  // Auto-generate the billing schedule when its Step-2 inputs change. Adjusted
+  // during render (per React's "adjust state on prop change" guidance) instead
+  // of an effect that synchronously sets state.
+  const [scheduleAnchor, setScheduleAnchor] = useState({
+    currentStep,
+    occupancyStatus: formData.occupancyStatus,
+    billingType: formData.billingType,
+    contractMonths: formData.contractMonths,
+    rentStartDate: formData.rentStartDate,
+    rentPerCollection: formData.rentPerCollection,
+    collectionDates: formData.collectionDates,
+    formBasis: formData.formBasis,
+  });
+  if (
+    scheduleAnchor.currentStep !== currentStep ||
+    scheduleAnchor.occupancyStatus !== formData.occupancyStatus ||
+    scheduleAnchor.billingType !== formData.billingType ||
+    scheduleAnchor.contractMonths !== formData.contractMonths ||
+    scheduleAnchor.rentStartDate !== formData.rentStartDate ||
+    scheduleAnchor.rentPerCollection !== formData.rentPerCollection ||
+    scheduleAnchor.collectionDates !== formData.collectionDates ||
+    scheduleAnchor.formBasis !== formData.formBasis
+  ) {
+    setScheduleAnchor({
+      currentStep,
+      occupancyStatus: formData.occupancyStatus,
+      billingType: formData.billingType,
+      contractMonths: formData.contractMonths,
+      rentStartDate: formData.rentStartDate,
+      rentPerCollection: formData.rentPerCollection,
+      collectionDates: formData.collectionDates,
+      formBasis: formData.formBasis,
+    });
     if (
       currentStep === 2 &&
       formData.occupancyStatus === "occupied" &&
@@ -631,7 +667,6 @@ export function MultiStepPopup({
       formData.rentStartDate &&
       formData.rentPerCollection > 0
     ) {
-      // Auto-generate the billing schedule silently (without toast notification)
       const schedule: Array<{
         dueDate: string;
         rentDue: number;
@@ -649,7 +684,6 @@ export function MultiStepPopup({
         .split("-")
         .map(Number);
 
-      // Determine the collection day based on formBasis
       let collectionDay = startDay;
       if (
         formData.formBasis === "monthly" &&
@@ -689,26 +723,40 @@ export function MultiStepPopup({
 
       setFormData((prev) => ({ ...prev, billingSchedule: schedule }));
     }
-  }, [
-    currentStep,
-    formData.occupancyStatus,
-    formData.billingType,
-    formData.contractMonths,
-    formData.rentStartDate,
-    formData.rentPerCollection,
-    formData.collectionDates,
-    formData.formBasis,
-  ]);
+  }
 
-  // Sync rentPerCollection to rentAmount for occupied properties
-  // rentAmount is the total property rent (rentPerCollection * numberOfTenants)
-  useEffect(() => {
+  // Keep the property's total rent in sync with per-collection rent × tenant
+  // count. Adjusted during render (per React's "adjust state on prop change"
+  // guidance) instead of an effect that synchronously sets state.
+  const [rentSyncAnchor, setRentSyncAnchor] = useState({
+    rentPerCollection: formData.rentPerCollection,
+    occupancyStatus: formData.occupancyStatus,
+    billingType: formData.billingType,
+    rentAmount: formData.rentAmount,
+    maxTenants: formData.maxTenants,
+    tenants: formData.tenants,
+  });
+  if (
+    rentSyncAnchor.rentPerCollection !== formData.rentPerCollection ||
+    rentSyncAnchor.occupancyStatus !== formData.occupancyStatus ||
+    rentSyncAnchor.billingType !== formData.billingType ||
+    rentSyncAnchor.rentAmount !== formData.rentAmount ||
+    rentSyncAnchor.maxTenants !== formData.maxTenants ||
+    rentSyncAnchor.tenants !== formData.tenants
+  ) {
+    setRentSyncAnchor({
+      rentPerCollection: formData.rentPerCollection,
+      occupancyStatus: formData.occupancyStatus,
+      billingType: formData.billingType,
+      rentAmount: formData.rentAmount,
+      maxTenants: formData.maxTenants,
+      tenants: formData.tenants,
+    });
     if (
       formData.occupancyStatus === "occupied" &&
       formData.billingType === "pre-organized" &&
       formData.rentPerCollection > 0
     ) {
-      // Count filled tenants or use maxTenants
       const filledTenantsCount =
         formData.tenants?.filter(
           (t) => t.tenantName && t.tenantName.trim() !== "",
@@ -723,20 +771,10 @@ export function MultiStepPopup({
       const totalPropertyRent = formData.rentPerCollection * numberOfTenants;
 
       if (totalPropertyRent !== formData.rentAmount) {
-        setFormData((prev) => ({
-          ...prev,
-          rentAmount: totalPropertyRent,
-        }));
+        setFormData((prev) => ({ ...prev, rentAmount: totalPropertyRent }));
       }
     }
-  }, [
-    formData.rentPerCollection,
-    formData.occupancyStatus,
-    formData.billingType,
-    formData.rentAmount,
-    formData.maxTenants,
-    formData.tenants,
-  ]);
+  }
 
   // Validation functions
   const validateStep1 = (): boolean => {
