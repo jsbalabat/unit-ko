@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { withLandlordAuth } from "@/components/auth/withLandlordAuth";
 import { SiteHeader } from "@/components/site-header";
 import { Button } from "@/components/button";
@@ -27,7 +27,7 @@ import type { LucideIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { supabase } from "@/lib/supabase";
+import { fetchUserSubscription } from "@/services/subscriptionService";
 import { toast } from "sonner";
 import Link from "next/link";
 
@@ -116,102 +116,99 @@ function SubscriptionPage() {
   });
   const [statements, setStatements] = useState<MonthlyStatement[]>([]);
 
-  useEffect(() => {
-    fetchSubscriptionData();
+  // Pure fetch: returns the data; state is applied in the `.then` below so the
+  // effect never sets state synchronously.
+  const loadSubscriptionData = useCallback(async () => {
+    const sub = await fetchUserSubscription();
+
+    // Generate mock monthly statements for demonstration
+    const statements: MonthlyStatement[] = [
+      {
+        id: "1",
+        period: "January",
+        year: 2026,
+        amount: 299,
+        status: "pending",
+        dueDate: "2026-01-31",
+      },
+      {
+        id: "2",
+        period: "December",
+        year: 2025,
+        amount: 299,
+        status: "paid",
+        dueDate: "2025-12-31",
+        paidDate: "2025-12-30",
+      },
+      {
+        id: "3",
+        period: "November",
+        year: 2025,
+        amount: 299,
+        status: "paid",
+        dueDate: "2025-11-30",
+        paidDate: "2025-11-28",
+      },
+    ];
+
+    return { sub, statements };
   }, []);
 
-  const fetchSubscriptionData = async () => {
+  const applySubscriptionData = useCallback(
+    ({ sub, statements }: Awaited<ReturnType<typeof loadSubscriptionData>>) => {
+      setSubscription({
+        plan: sub.plan,
+        status: sub.status,
+        propertyLimit: sub.propertyLimit,
+        propertiesUsed: sub.propertiesUsed,
+      });
+      setStatements(statements);
+      setError(null);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    let ignore = false;
+    loadSubscriptionData()
+      .then((data) => {
+        if (!ignore) applySubscriptionData(data);
+      })
+      .catch((err) => {
+        if (!ignore) {
+          console.error("Error fetching subscription data:", err);
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load subscription data",
+          );
+        }
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [loadSubscriptionData, applySubscriptionData]);
+
+  // Manual refresh re-enters the loading state; the initial load already starts
+  // in it.
+  const fetchSubscriptionData = useCallback(() => {
     setLoading(true);
     setError(null);
-
-    try {
-      // Fetch user profile with subscription info
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-      if (authError) throw authError;
-
-      if (user) {
-        // Get profile with subscription data
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("subscription_plan, subscription_status")
-          .eq("id", user.id)
-          .single();
-
-        if (!profileError && profile) {
-          // Get property count
-          const { count, error: countError } = await supabase
-            .from("properties")
-            .select("*", { count: "exact", head: true });
-
-          if (!countError) {
-            const plan = (profile.subscription_plan || "free") as
-              | "free"
-              | "basic"
-              | "premium"
-              | "enterprise";
-            const propertyLimits = {
-              free: 3,
-              basic: 10,
-              premium: 50,
-              enterprise: 999,
-            };
-
-            setSubscription({
-              plan,
-              status: (profile.subscription_status || "active") as
-                | "active"
-                | "cancelled"
-                | "expired",
-              propertyLimit: propertyLimits[plan],
-              propertiesUsed: count || 0,
-            });
-          }
-        }
-      }
-
-      // Generate mock monthly statements for demonstration
-      const mockStatements: MonthlyStatement[] = [
-        {
-          id: "1",
-          period: "January",
-          year: 2026,
-          amount: 299,
-          status: "pending",
-          dueDate: "2026-01-31",
-        },
-        {
-          id: "2",
-          period: "December",
-          year: 2025,
-          amount: 299,
-          status: "paid",
-          dueDate: "2025-12-31",
-          paidDate: "2025-12-30",
-        },
-        {
-          id: "3",
-          period: "November",
-          year: 2025,
-          amount: 299,
-          status: "paid",
-          dueDate: "2025-11-30",
-          paidDate: "2025-11-28",
-        },
-      ];
-
-      setStatements(mockStatements);
-    } catch (err) {
-      console.error("Error fetching subscription data:", err);
-      setError(
-        err instanceof Error ? err.message : "Failed to load subscription data",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    return loadSubscriptionData()
+      .then(applySubscriptionData)
+      .catch((err) => {
+        console.error("Error fetching subscription data:", err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load subscription data",
+        );
+      })
+      .finally(() => setLoading(false));
+  }, [loadSubscriptionData, applySubscriptionData]);
 
   const handlePayNow = (statementId: string) => {
     toast.info(
