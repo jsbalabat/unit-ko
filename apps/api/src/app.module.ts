@@ -13,6 +13,7 @@ import { TenantModule } from "./tenant/tenant.module";
 import { ArchivesModule } from "./archives/archives.module";
 import { SubscriptionsModule } from "./subscriptions/subscriptions.module";
 import { ActivityModule } from "./activity/activity.module";
+import { ProfileModule } from "./profile/profile.module";
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { ActivityModule } from "./activity/activity.module";
     ArchivesModule,
     SubscriptionsModule,
     ActivityModule,
+    ProfileModule,
   ],
 })
 export class AppModule {}
