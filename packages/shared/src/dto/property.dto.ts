@@ -42,6 +42,13 @@ export const propertyNoteSchema = z.object({
 });
 export type PropertyNote = z.infer<typeof propertyNoteSchema>;
 
+// POST/PATCH /properties/:id/notes — a note is just its body; the author is the
+// authenticated landlord and timestamps are server-managed.
+export const writePropertyNoteSchema = z.object({
+  body: z.string().trim().min(1).max(2000),
+});
+export type WritePropertyNoteInput = z.infer<typeof writePropertyNoteSchema>;
+
 export const propertyAmenitySchema = z.object({
   code: z.string(),
   label: z.string(),

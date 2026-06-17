@@ -14,6 +14,7 @@ export const billingEntrySchema = z.object({
   id: z.string().uuid(),
   leaseId: z.string().uuid().nullable(),
   periodId: z.string().uuid().nullable(),
+  tenantId: z.string().uuid().nullable(),
   tenantName: z.string().nullable(),
   dueDate: z.string().nullable(),
   rentDue: z.number(),
@@ -32,6 +33,16 @@ export const listBillingQuerySchema = z.object({
   propertyId: z.string().uuid(),
 });
 export type ListBillingQuery = z.infer<typeof listBillingQuerySchema>;
+
+// PATCH /billing/entries/:id — edit one invoice. Only present sections change.
+// `charges` (when present) replaces the full set → other_charges/gross_due stay
+// derived. status is NOT settable: it's recomputed from the derived figures.
+export const updateBillingEntrySchema = z.object({
+  dueDate: z.string().date().optional(),
+  rentDue: z.number().nonnegative().optional(),
+  charges: z.array(billingChargeItemSchema).optional(),
+});
+export type UpdateBillingEntryInput = z.infer<typeof updateBillingEntrySchema>;
 
 // ── Payments ────────────────────────────────────────────────────────────────
 // POST /payments — pay against an invoice (billingEntryId) or a lease directly

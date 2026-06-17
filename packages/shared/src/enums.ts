@@ -39,6 +39,11 @@ export type SubscriptionPlan = (typeof SUBSCRIPTION_PLANS)[number];
 export const SUBSCRIPTION_STATUSES = ["active", "cancelled", "expired"] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
+// A landlord's payment-receiving channels (mirrors the landlord_payout_methods
+// CHECK constraint). One row per method per landlord.
+export const PAYOUT_METHODS = ["bank", "gcash", "paymaya", "other"] as const;
+export type PayoutMethod = (typeof PAYOUT_METHODS)[number];
+
 export const ACTIVITY_ACTION_TYPES = [
   "property_created",
   "property_updated",

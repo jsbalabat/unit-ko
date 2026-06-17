@@ -7,3 +7,5 @@ export * from "./tenant-dashboard.dto";
 export * from "./archive.dto";
 export * from "./subscription.dto";
 export * from "./activity.dto";
+export * from "./payout.dto";
+export * from "./profile.dto";

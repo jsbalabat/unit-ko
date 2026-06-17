@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BILLING_FREQUENCIES } from "../enums";
 import { billingEntrySchema } from "./billing.dto";
+import { payoutChannelSchema } from "./payout.dto";
 
 // GET /tenant/dashboard — what the logged-in tenant sees about their own tenancy.
 // Behind the HMAC TenantSessionGuard; the tenant id comes from the cookie.
@@ -33,5 +34,9 @@ export const tenantDashboardSchema = z.object({
     })
     .nullable(),
   billingEntries: z.array(billingEntrySchema),
+  // The landlord's name + payment-receiving channels, so the tenant knows where
+  // to send rent. Empty array = the landlord hasn't added any yet.
+  landlordName: z.string().nullable(),
+  payoutMethods: z.array(payoutChannelSchema),
 });
 export type TenantDashboard = z.infer<typeof tenantDashboardSchema>;
