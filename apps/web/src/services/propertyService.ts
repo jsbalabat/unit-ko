@@ -1,146 +1,145 @@
-import { supabase } from '@/lib/supabase'
-import type { Property, Tenant, BillingEntry } from '@/lib/supabase'
-import { logActivity } from '@/services/activityLogService'
+import { api } from "@/lib/api-client";
+import {
+  BILLING_FREQUENCIES,
+  BILLING_STATUSES,
+  type BillingFrequency,
+  type BillingStatus,
+  type CreatePropertyInput,
+  type PropertyDetail,
+} from "@unitko/shared";
 
-// Interface for individual tenant in bed space
+// Individual occupant as captured by the add-property form.
 interface TenantInfo {
-  tenantName: string
-  tenantEmail: string
-  contactNumber: string
+  tenantName: string;
+  tenantEmail: string;
+  contactNumber: string;
 }
 
+// The slice of the add-property form's state this service consumes. Kept here as
+// the service's input contract; the form's full state is a structural superset.
 interface PropertyFormData {
-  unitName: string
-  propertyType: string
-  occupancyStatus: 'occupied' | 'vacant'
-  // Legacy single tenant fields (backward compatible)
-  tenantName: string
-  tenantEmail: string
-  contactNumber: string
-  pax: number // Same as maxTenants - kept for backward compatibility
-  // Bed space fields (pax = maxTenants = number of tenants)
-  maxTenants: number
-  tenants: TenantInfo[]
-  propertyLocation: string
-  contractMonths: number // Number of billing periods (not necessarily months - can be weeks, quarters, etc.)
-  rentStartDate: string
-  dueDay: string
-  rentAmount: number
-  // Accounting & Monitoring fields
-  advancePayment: number
-  securityDeposit: number
-  leaseDate: string
+  unitName: string;
+  propertyType: string;
+  propertyLocation: string;
+  rentAmount: number;
+  pax: number;
+  maxTenants: number;
+  tenants: TenantInfo[];
+  // Legacy single-tenant fields, used when maxTenants <= 1.
+  tenantName: string;
+  tenantEmail: string;
+  contactNumber: string;
+  formBasis: BillingFrequency | "";
+  contractMonths: number;
+  rentStartDate: string;
+  dueDay: string;
+  rentPerCollection: number;
+  advancePayment: number;
+  securityDeposit: number;
+  leaseDate: string;
   billingSchedule: Array<{
-    dueDate: string
-    rentDue: number
-    otherCharges: number
-    grossDue: number
-    status: string
-    expenseItems?: Array<{
-      id: string
-      name: string
-      amount: number
-    }>
-  }>
+    dueDate: string;
+    rentDue: number;
+    otherCharges: number;
+    grossDue: number;
+    status: string;
+    expenseItems: Array<{ id: string; name: string; amount: number }>;
+  }>;
 }
 
 interface PropertySubmissionResult {
-  success: boolean
-  data?: {
-    property: Property
-    tenants?: Tenant[]
-    billingEntries?: BillingEntry[]
-  }
-  error?: string
+  success: boolean;
+  data?: PropertyDetail;
+  error?: string;
 }
 
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-export async function submitPropertyData(formData: PropertyFormData): Promise<PropertySubmissionResult> {
+// Translates the form's flat, legacy-shaped state into the normalized create
+// contract: a property + shared lease terms + occupants + a billing schedule
+// whose charges become billing_charges rows (so other_charges stays derived).
+function toCreatePropertyInput(formData: PropertyFormData): CreatePropertyInput {
+  const occupants =
+    formData.maxTenants > 1 || formData.tenants.length > 0
+      ? formData.tenants
+      : [
+          {
+            tenantName: formData.tenantName,
+            tenantEmail: formData.tenantEmail,
+            contactNumber: formData.contactNumber,
+          },
+        ];
+
+  const tenants = occupants
+    .filter((t) => t.tenantName?.trim())
+    .map((t) => ({
+      tenantName: t.tenantName.trim(),
+      email: t.tenantEmail?.trim() || null,
+      contactNumber: t.contactNumber?.trim() || "",
+    }));
+
+  const dueDayNum = Number.parseInt(formData.dueDay, 10);
+  const dueDay =
+    Number.isInteger(dueDayNum) && dueDayNum >= 1 && dueDayNum <= 31
+      ? dueDayNum
+      : null;
+
+  const billingFrequency: BillingFrequency = (
+    BILLING_FREQUENCIES as readonly string[]
+  ).includes(formData.formBasis)
+    ? (formData.formBasis as BillingFrequency)
+    : "monthly";
+
+  // Only well-formed YYYY-MM-DD periods survive; the API requires a real date.
+  const billingSchedule = formData.billingSchedule
+    .filter((b) => ISO_DATE.test(b.dueDate))
+    .map((b) => ({
+      dueDate: b.dueDate,
+      rentDue: b.rentDue ?? 0,
+      status: (BILLING_STATUSES as readonly string[]).includes(b.status)
+        ? (b.status as BillingStatus)
+        : undefined,
+      charges: (b.expenseItems ?? [])
+        .filter((e) => e.name?.trim())
+        .map((e) => ({ name: e.name.trim(), amount: e.amount ?? 0 })),
+    }));
+
+  return {
+    unitName: formData.unitName,
+    propertyType: formData.propertyType || null,
+    propertyLocation: formData.propertyLocation || null,
+    rentAmount: formData.rentAmount,
+    maxTenants: formData.maxTenants || formData.pax || 1,
+    billingMode: "unified",
+    leaseDate: formData.leaseDate || null,
+    amenities: [],
+    lease: {
+      billingFrequency,
+      contractPeriods: formData.contractMonths > 0 ? formData.contractMonths : null,
+      rentStartDate: formData.rentStartDate || null,
+      dueDay,
+      rentAmount:
+        formData.rentPerCollection > 0 ? formData.rentPerCollection : undefined,
+      advancePayment: formData.advancePayment || 0,
+      securityDeposit: formData.securityDeposit || 0,
+    },
+    tenants,
+    billingSchedule,
+  };
+}
+
+// Create a property (with its tenants, lease, and billing schedule) atomically
+// through the API. The API logs the creation activity server-side.
+export async function submitPropertyData(
+  formData: PropertyFormData,
+): Promise<PropertySubmissionResult> {
   try {
-    const { data, error } = await supabase.rpc('create_property_atomic', {
-      payload: formData,
-    })
-
-    if (error) {
-      const diagnostic = [
-        `message=${error.message}`,
-        `code=${error.code ?? 'n/a'}`,
-        `details=${error.details ?? 'n/a'}`,
-        `hint=${error.hint ?? 'n/a'}`,
-      ].join(' | ')
-      throw new Error(`Property submission failed: ${diagnostic}`)
-    }
-
-    if (!data || typeof data !== 'object' || !('property' in data)) {
-      throw new Error('Property submission returned invalid response')
-    }
-
-    const response = data as {
-      property: Property
-      tenants?: Tenant[]
-      billingEntries?: BillingEntry[]
-    }
-
-    // Log property creation activity
-    try {
-      await logActivity({
-        propertyId: response.property.id,
-        actionType: "property_created",
-        description: `New property created: ${formData.unitName}`,
-        metadata: {
-          property_type: formData.propertyType,
-          property_location: formData.propertyLocation,
-          pax: formData.maxTenants,
-          rent_amount: formData.rentAmount,
-          contract_months: formData.contractMonths,
-          lease_date: formData.leaseDate,
-          rent_start_date: formData.rentStartDate,
-          advance_payment: formData.advancePayment,
-          security_deposit: formData.securityDeposit,
-          billing_entries_count: response.billingEntries?.length ?? 0,
-          tenants_count: response.tenants?.length ?? 0,
-        },
-      });
-    } catch (logError) {
-      console.error("Failed to log property creation activity:", logError);
-      // Don't block property creation if logging fails
-    }
-
-    return {
-      success: true,
-      data: {
-        property: response.property,
-        tenants: response.tenants || [],
-        billingEntries: response.billingEntries || []
-      }
-    }
-
+    const property = await api.properties.create(toCreatePropertyInput(formData));
+    return { success: true, data: property };
   } catch (error) {
-    console.error('Property submission error:', error)
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error occurred'
-    }
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+    };
   }
-}
-
-// Utility function to fetch property with related data
-export async function getPropertyWithDetails(propertyId: string) {
-  const { data, error } = await supabase
-    .from('properties')
-    .select(`
-      *,
-      tenants (
-        *,
-        billing_entries (*)
-      )
-    `)
-    .eq('id', propertyId)
-    .single()
-
-  if (error) {
-    throw new Error(`Failed to fetch property: ${error.message}`)
-  }
-
-  return data
 }
