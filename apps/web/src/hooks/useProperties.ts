@@ -1,182 +1,197 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '@/lib/supabase'
+import { useState, useEffect, useCallback } from "react";
+import { api } from "@/lib/api-client";
+import type { BillingEntry as ApiBillingEntry } from "@unitko/shared";
 
+// Dashboard-facing shape. The API splits properties, tenants, and invoices
+// across endpoints; this hook recomposes them into the nested structure the
+// dashboard already renders, so the UI contract is unchanged while the data
+// source moves behind the API. (Migrating the UI to the raw DTOs is a separate,
+// later step.)
 interface PropertyWithTenant {
-  id: string
-  unit_name: string
-  property_type: string
-  occupancy_status: 'occupied' | 'vacant'
-  property_location: string
-  rent_amount: number
-  max_tenants?: number
-  created_at: string
+  id: string;
+  unit_name: string;
+  property_type: string;
+  occupancy_status: "occupied" | "vacant";
+  property_location: string;
+  rent_amount: number;
+  max_tenants?: number;
+  created_at: string;
   tenants: Array<{
-    id: string
-    tenant_name: string
-    email?: string
-    contact_number: string
-    is_active: boolean
+    id: string;
+    tenant_name: string;
+    email?: string;
+    contact_number: string;
+    is_active: boolean;
     billing_entries?: Array<{
-      id: string
-      property_id: string
-      tenant_id: string | null
-      period_id?: string
-      due_date: string
-      status: string
-      billing_period: number
-      paid_amount?: number
-      gross_due: number
-    }>
-  }>
+      id: string;
+      property_id: string;
+      tenant_id: string | null;
+      period_id?: string;
+      due_date: string;
+      status: string;
+      billing_period: number;
+      paid_amount?: number;
+      gross_due: number;
+    }>;
+  }>;
 }
 
 interface PropertyStats {
-  totalProperties: number
-  activeRentals: number
-  vacantProperties: number
-  totalRevenue: number
+  totalProperties: number;
+  activeRentals: number;
+  vacantProperties: number;
+  totalRevenue: number;
+}
+
+// The billing endpoint exposes `tenantName` (not a tenant id) as its only link
+// back to an occupant, so invoices are matched by name. When a property has a
+// single active tenant, unmatched invoices fall through to that tenant — which
+// is the common unified-billing case.
+function attachBillingToTenants(
+  propertyId: string,
+  tenants: PropertyWithTenant["tenants"],
+  invoices: ApiBillingEntry[],
+): PropertyWithTenant["tenants"] {
+  const byName = new Map<string, PropertyWithTenant["tenants"][number]>();
+  for (const tenant of tenants) byName.set(tenant.tenant_name, tenant);
+  const soleActive =
+    tenants.filter((t) => t.is_active).length === 1
+      ? tenants.find((t) => t.is_active) ?? null
+      : null;
+
+  for (const invoice of invoices) {
+    const owner =
+      (invoice.tenantName ? byName.get(invoice.tenantName) : null) ?? soleActive;
+    if (!owner) continue;
+    (owner.billing_entries ??= []).push({
+      id: invoice.id,
+      property_id: propertyId,
+      tenant_id: owner.id,
+      period_id: invoice.periodId ?? undefined,
+      due_date: invoice.dueDate ?? "",
+      status: invoice.status,
+      billing_period: invoice.sequence ?? 0,
+      paid_amount: invoice.paidAmount,
+      gross_due: invoice.grossDue,
+    });
+  }
+  return tenants;
 }
 
 export function useProperties() {
-  const [properties, setProperties] = useState<PropertyWithTenant[]>([])
+  const [properties, setProperties] = useState<PropertyWithTenant[]>([]);
   const [stats, setStats] = useState<PropertyStats>({
     totalProperties: 0,
     activeRentals: 0,
     vacantProperties: 0,
-    totalRevenue: 0
-  })
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+    totalRevenue: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const fetchProperties = async () => {
-    try {
-      setLoading(true)
-      setError(null)
-      
-      // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser()
-      
-      if (userError) {
-        console.error('User authentication error:', userError)
-        throw new Error('Failed to get user: ' + userError.message)
-      }
-      
-      if (!user) {
-        throw new Error('User not authenticated')
-      }
+  // Pure fetch: assembles the dashboard view and RETURNS it without touching
+  // state, so it's safe to call from an effect — the result is applied in the
+  // `.then` below (deferred), never synchronously inside the effect body.
+  const loadProperties = useCallback(async () => {
+    const summaries = await api.properties.list();
 
-      console.log('Fetching properties for user:', user.id)
-      
-      // Fetch only properties and tenant details first (billing entries are loaded separately).
-      const { data: propertiesDataRaw, error: propertiesError } = await supabase
-        .from('properties')
-        .select(`
-          id,
-          landlord_id,
-          unit_name,
-          property_type,
-          occupancy_status,
-          property_location,
-          rent_amount,
-          max_tenants,
-          created_at,
-          tenants (
-            id,
-            tenant_name,
-            email,
-            contact_number,
-            is_active
-          )
-        `)
-        .eq('landlord_id', user.id)
-        .order('created_at', { ascending: false })
+    // Each card needs occupant identities + their invoices, which live behind
+    // the per-property detail and billing endpoints. Fan out in parallel.
+    const hydrated = await Promise.all(
+      summaries.map(async (summary) => {
+        const [detail, invoices] = await Promise.all([
+          api.properties.detail(summary.id),
+          api.billing.list(summary.id),
+        ]);
 
-      if (propertiesError) {
-        console.error('Properties fetch error:', propertiesError)
-        throw propertiesError
-      }
+        const tenants: PropertyWithTenant["tenants"] = detail.tenants.map(
+          (t) => ({
+            id: t.id,
+            tenant_name: t.tenantName,
+            email: t.email ?? undefined,
+            contact_number: t.contactNumber,
+            is_active: t.isActive,
+            billing_entries: [],
+          }),
+        );
 
-      const propertiesData = (propertiesDataRaw || []) as PropertyWithTenant[]
+        return {
+          id: summary.id,
+          unit_name: summary.unitName,
+          property_type: summary.propertyType ?? "",
+          occupancy_status: summary.occupancyStatus,
+          property_location: summary.propertyLocation ?? "",
+          rent_amount: summary.rentAmount,
+          max_tenants: summary.maxTenants,
+          created_at: summary.createdAt,
+          tenants: attachBillingToTenants(summary.id, tenants, invoices),
+        } satisfies PropertyWithTenant;
+      }),
+    );
 
-      const propertyIds = propertiesData.map((property) => property.id)
+    const stats: PropertyStats = {
+      totalProperties: hydrated.length,
+      activeRentals: hydrated.filter((p) => p.occupancy_status === "occupied")
+        .length,
+      vacantProperties: hydrated.filter((p) => p.occupancy_status === "vacant")
+        .length,
+      totalRevenue: hydrated
+        .filter((p) => p.occupancy_status === "occupied")
+        .reduce((sum, p) => sum + p.rent_amount, 0),
+    };
 
-      const { data: billingRows, error: billingError } = propertyIds.length
-        ? await supabase
-            .from('billing_entries')
-            .select(`
-              id,
-              property_id,
-              tenant_id,
-              period_id,
-              due_date,
-              status,
-              billing_period,
-              paid_amount,
-              gross_due
-            `)
-            .in('property_id', propertyIds)
-            .order('due_date', { ascending: true })
-        : { data: [], error: null }
+    return { hydrated, stats };
+  }, []);
 
-      if (billingError) {
-        console.error('Billing entries fetch error:', billingError)
-        throw billingError
-      }
-
-      const billingEntriesByTenantId = new Map<string, typeof billingRows>()
-      ;(billingRows || []).forEach((entry) => {
-        if (!entry.tenant_id) return
-
-        const existing = billingEntriesByTenantId.get(entry.tenant_id) || []
-        existing.push(entry)
-        billingEntriesByTenantId.set(entry.tenant_id, existing)
-      })
-
-      const hydratedProperties = propertiesData.map((property) => ({
-        ...property,
-        tenants: (property.tenants || []).map((tenant) => ({
-          ...tenant,
-          billing_entries: billingEntriesByTenantId.get(tenant.id) || [],
-        })),
-      }))
-
-      const propertiesDataFinal = hydratedProperties
-      
-      setProperties(propertiesDataFinal)
-
-      // Calculate stats
-      const totalProperties = propertiesDataFinal.length
-      const activeRentals = propertiesDataFinal.filter(p => p.occupancy_status === 'occupied').length
-      const vacantProperties = propertiesDataFinal.filter(p => p.occupancy_status === 'vacant').length
-      const totalRevenue = propertiesDataFinal
-        .filter(p => p.occupancy_status === 'occupied')
-        .reduce((sum, p) => sum + p.rent_amount, 0)
-
-      setStats({
-        totalProperties,
-        activeRentals,
-        vacantProperties,
-        totalRevenue
-      })
-      
-      setError(null)
-    } catch (err) {
-      console.error('Error in fetchProperties:', err)
-      setError(err instanceof Error ? err.message : 'Failed to fetch properties')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const applyProperties = useCallback(
+    (data: { hydrated: PropertyWithTenant[]; stats: PropertyStats }) => {
+      setProperties(data.hydrated);
+      setStats(data.stats);
+      setError(null);
+    },
+    [],
+  );
 
   useEffect(() => {
-    fetchProperties()
-  }, [])
+    let ignore = false;
+    loadProperties()
+      .then((data) => {
+        if (!ignore) applyProperties(data);
+      })
+      .catch((err) => {
+        if (!ignore)
+          setError(
+            err instanceof Error ? err.message : "Failed to fetch properties",
+          );
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [loadProperties, applyProperties]);
+
+  // Manual refresh re-enters the loading state; the initial load already starts
+  // in it.
+  const refetch = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    return loadProperties()
+      .then(applyProperties)
+      .catch((err) =>
+        setError(
+          err instanceof Error ? err.message : "Failed to fetch properties",
+        ),
+      )
+      .finally(() => setLoading(false));
+  }, [loadProperties, applyProperties]);
 
   return {
     properties,
     stats,
     loading,
     error,
-    refetch: fetchProperties
-  }
+    refetch,
+  };
 }
