@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { supabase } from "@/lib/supabase";
+import { useState } from "react";
+import type { PayoutChannel } from "@unitko/shared";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -16,108 +16,19 @@ import {
 import { Button } from "@/components/button";
 import { toast } from "sonner";
 
-interface LandlordPaymentDetails {
-  payment_bank_name?: string;
-  payment_account_name?: string;
-  payment_account_number?: string;
-  payment_gcash_number?: string;
-  payment_paymaya_number?: string;
-  payment_other_details?: string;
-  full_name?: string;
-}
-
 interface LandlordPaymentInfoProps {
-  landlordId?: string;
-  propertyId?: string;
+  payoutMethods: PayoutChannel[];
+  landlordName?: string | null;
 }
 
+// Presentational only — the tenant dashboard supplies the landlord's payout
+// channels (resolved server-side from the tenant's own lease, so no propertyId
+// is trusted from the client).
 export function LandlordPaymentInfo({
-  landlordId,
-  propertyId,
+  payoutMethods,
+  landlordName,
 }: LandlordPaymentInfoProps) {
-  const [paymentDetails, setPaymentDetails] =
-    useState<LandlordPaymentDetails | null>(null);
-  const [loading, setLoading] = useState(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-
-  const fetchLandlordPaymentDetails = useCallback(async () => {
-    try {
-      let landlordIdToUse = landlordId;
-      const propertyIdToUse = propertyId;
-
-      // If no landlordId provided, fetch from property
-      if (!landlordIdToUse && propertyId) {
-        const { data: property, error: propertyError } = await supabase
-          .from("properties")
-          .select("landlord_id")
-          .eq("id", propertyId)
-          .single();
-
-        if (propertyError) {
-          // Silently handle error
-          setPaymentDetails({});
-          return;
-        }
-        landlordIdToUse = property?.landlord_id;
-      }
-
-      // Use database function to fetch payment info (bypasses RLS)
-      if (propertyIdToUse) {
-        const { data, error } = await supabase.rpc(
-          "get_landlord_payment_info",
-          {
-            property_id_param: propertyIdToUse,
-          },
-        );
-
-        if (error) {
-          // Silently handle error - function might not exist yet or other DB issue
-          setPaymentDetails({});
-          return;
-        }
-
-        // The function returns an array, get the first result
-        if (data && data.length > 0) {
-          setPaymentDetails(data[0]);
-        } else {
-          setPaymentDetails({});
-        }
-        return;
-      }
-
-      // Fallback: if we have landlordId but no propertyId, try direct query
-      if (landlordIdToUse) {
-        const { data, error: profileError } = await supabase
-          .from("profiles")
-          .select(
-            "payment_bank_name, payment_account_name, payment_account_number, payment_gcash_number, payment_paymaya_number, payment_other_details, full_name",
-          )
-          .eq("id", landlordIdToUse)
-          .single();
-
-        if (profileError) {
-          // Silently handle errors - tenants without auth can't access profiles due to RLS
-          setPaymentDetails({});
-          return;
-        }
-
-        setPaymentDetails(data);
-        return;
-      }
-
-      // No landlordId or propertyId available
-      setPaymentDetails({});
-    } catch {
-      // Silently handle any unexpected errors
-      setPaymentDetails({});
-    } finally {
-      setLoading(false);
-    }
-  }, [landlordId, propertyId]);
-
-  useEffect(() => {
-    fetchLandlordPaymentDetails();
-  }, [fetchLandlordPaymentDetails]);
 
   const handleCopy = (text: string, fieldName: string) => {
     navigator.clipboard.writeText(text);
@@ -126,33 +37,22 @@ export function LandlordPaymentInfo({
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  if (loading) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Wallet className="h-5 w-5" />
-            Payment Information
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            <div className="h-10 bg-muted animate-pulse rounded" />
-            <div className="h-10 bg-muted animate-pulse rounded" />
-            <div className="h-10 bg-muted animate-pulse rounded" />
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
+  const copyButton = (value: string, label: string) => (
+    <Button variant="ghost" size="sm" onClick={() => handleCopy(value, label)}>
+      {copiedField === label ? (
+        <CheckCircle className="h-4 w-4 text-green-600" />
+      ) : (
+        <Copy className="h-4 w-4" />
+      )}
+    </Button>
+  );
 
-  const hasAnyPaymentDetails =
-    paymentDetails?.payment_bank_name ||
-    paymentDetails?.payment_account_number ||
-    paymentDetails?.payment_gcash_number ||
-    paymentDetails?.payment_paymaya_number;
+  const bank = payoutMethods.find((m) => m.method === "bank");
+  const gcash = payoutMethods.find((m) => m.method === "gcash");
+  const paymaya = payoutMethods.find((m) => m.method === "paymaya");
+  const other = payoutMethods.find((m) => m.method === "other");
 
-  if (!hasAnyPaymentDetails) {
+  if (payoutMethods.length === 0) {
     return (
       <Card>
         <CardHeader>
@@ -186,111 +86,64 @@ export function LandlordPaymentInfo({
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Landlord Name */}
-        {paymentDetails?.full_name && (
+        {landlordName && (
           <div className="flex items-center gap-2 p-3 bg-primary/5 rounded-lg">
             <User className="h-4 w-4 text-primary" />
             <div>
               <p className="text-xs text-muted-foreground">Pay to</p>
-              <p className="font-semibold">{paymentDetails.full_name}</p>
+              <p className="font-semibold">{landlordName}</p>
             </div>
           </div>
         )}
 
-        {/* Bank Details */}
-        {(paymentDetails?.payment_bank_name ||
-          paymentDetails?.payment_account_number) && (
+        {bank && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-primary">
               <CreditCard className="h-4 w-4" />
               Bank Transfer
             </div>
-
             <div className="space-y-2 pl-6">
-              {paymentDetails?.payment_bank_name && (
+              {bank.details && (
                 <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                   <div>
                     <p className="text-xs text-muted-foreground">Bank</p>
-                    <p className="font-medium">
-                      {paymentDetails.payment_bank_name}
-                    </p>
+                    <p className="font-medium">{bank.details}</p>
                   </div>
                   <Building2 className="h-4 w-4 text-muted-foreground" />
                 </div>
               )}
-
-              {paymentDetails?.payment_account_name && (
+              {bank.accountName && (
                 <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                   <div>
-                    <p className="text-xs text-muted-foreground">
-                      Account Name
-                    </p>
-                    <p className="font-medium">
-                      {paymentDetails.payment_account_name}
-                    </p>
+                    <p className="text-xs text-muted-foreground">Account Name</p>
+                    <p className="font-medium">{bank.accountName}</p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      handleCopy(
-                        paymentDetails.payment_account_name!,
-                        "Account Name",
-                      )
-                    }
-                  >
-                    {copiedField === "Account Name" ? (
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
+                  {copyButton(bank.accountName, "Account Name")}
                 </div>
               )}
-
-              {paymentDetails?.payment_account_number && (
+              {bank.accountNumber && (
                 <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                   <div>
                     <p className="text-xs text-muted-foreground">
                       Account Number
                     </p>
-                    <p className="font-medium font-mono">
-                      {paymentDetails.payment_account_number}
-                    </p>
+                    <p className="font-medium font-mono">{bank.accountNumber}</p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      handleCopy(
-                        paymentDetails.payment_account_number!,
-                        "Account Number",
-                      )
-                    }
-                  >
-                    {copiedField === "Account Number" ? (
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
+                  {copyButton(bank.accountNumber, "Account Number")}
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* E-Wallet Details */}
-        {(paymentDetails?.payment_gcash_number ||
-          paymentDetails?.payment_paymaya_number) && (
+        {(gcash || paymaya) && (
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-primary">
               <Wallet className="h-4 w-4" />
               E-Wallet
             </div>
-
             <div className="space-y-2 pl-6">
-              {paymentDetails?.payment_gcash_number && (
+              {gcash?.accountNumber && (
                 <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center text-white font-bold text-xs">
@@ -299,30 +152,14 @@ export function LandlordPaymentInfo({
                     <div>
                       <p className="text-xs text-muted-foreground">GCash</p>
                       <p className="font-medium font-mono">
-                        {paymentDetails.payment_gcash_number}
+                        {gcash.accountNumber}
                       </p>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      handleCopy(
-                        paymentDetails.payment_gcash_number!,
-                        "GCash Number",
-                      )
-                    }
-                  >
-                    {copiedField === "GCash Number" ? (
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
+                  {copyButton(gcash.accountNumber, "GCash Number")}
                 </div>
               )}
-
-              {paymentDetails?.payment_paymaya_number && (
+              {paymaya?.accountNumber && (
                 <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-green-500 rounded-lg flex items-center justify-center text-white font-bold text-xs">
@@ -331,40 +168,22 @@ export function LandlordPaymentInfo({
                     <div>
                       <p className="text-xs text-muted-foreground">PayMaya</p>
                       <p className="font-medium font-mono">
-                        {paymentDetails.payment_paymaya_number}
+                        {paymaya.accountNumber}
                       </p>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      handleCopy(
-                        paymentDetails.payment_paymaya_number!,
-                        "PayMaya Number",
-                      )
-                    }
-                  >
-                    {copiedField === "PayMaya Number" ? (
-                      <CheckCircle className="h-4 w-4 text-green-600" />
-                    ) : (
-                      <Copy className="h-4 w-4" />
-                    )}
-                  </Button>
+                  {copyButton(paymaya.accountNumber, "PayMaya Number")}
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Additional Instructions */}
-        {paymentDetails?.payment_other_details && (
+        {other?.details && (
           <div className="space-y-2 pt-3 border-t">
             <p className="text-sm font-semibold">Additional Instructions</p>
             <div className="p-3 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg">
-              <p className="text-sm whitespace-pre-wrap">
-                {paymentDetails.payment_other_details}
-              </p>
+              <p className="text-sm whitespace-pre-wrap">{other.details}</p>
             </div>
           </div>
         )}
