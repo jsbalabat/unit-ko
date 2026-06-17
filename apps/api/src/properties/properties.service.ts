@@ -4,11 +4,21 @@ import type {
   CreatePropertyInput,
   OccupancyStatus,
   PropertyDetail,
+  PropertyNote,
   PropertySummary,
   UpdatePropertyInput,
+  WritePropertyNoteInput,
 } from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
 import { PropertiesRepository } from "./properties.repository";
+
+interface NoteRow {
+  id: string;
+  body: string;
+  author_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
 
 // Shape of a property row as selected by the repository (snake_case from
 // Postgres). Kept local: the rest of the app only sees the camelCase DTOs.
@@ -34,6 +44,16 @@ function toBillingMode(value: string): BillingMode {
 
 function toOccupancy(value: string | null): OccupancyStatus {
   return value === "occupied" ? "occupied" : "vacant";
+}
+
+function toNote(row: NoteRow): PropertyNote {
+  return {
+    id: row.id,
+    body: row.body,
+    authorId: row.author_id,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 @Injectable()
@@ -85,6 +105,12 @@ export class PropertiesService {
       throw new NotFoundException("Property not found");
     }
     await this.repo.updateViaAtomicRpc(landlordId, propertyId, input);
+    await this.activity.log({
+      actionType: "property_updated",
+      description: `Property updated: ${existing.property.unit_name}`,
+      userId: landlordId,
+      propertyId,
+    });
     return this.getDetailForLandlord(landlordId, propertyId);
   }
 
@@ -123,6 +149,66 @@ export class PropertiesService {
         isActive: t.is_active,
       })),
     };
+  }
+
+  async addNote(
+    landlordId: string,
+    propertyId: string,
+    input: WritePropertyNoteInput,
+  ): Promise<PropertyNote> {
+    await this.assertOwned(landlordId, propertyId);
+    const row = await this.repo.insertNote(propertyId, landlordId, input.body);
+    await this.activity.log({
+      actionType: "property_note_added",
+      description: "Note added",
+      userId: landlordId,
+      propertyId,
+    });
+    return toNote(row);
+  }
+
+  async updateNote(
+    landlordId: string,
+    propertyId: string,
+    noteId: string,
+    input: WritePropertyNoteInput,
+  ): Promise<PropertyNote> {
+    await this.assertOwned(landlordId, propertyId);
+    const row = await this.repo.updateNote(propertyId, noteId, input.body);
+    if (!row) throw new NotFoundException("Note not found");
+    await this.activity.log({
+      actionType: "property_note_updated",
+      description: "Note updated",
+      userId: landlordId,
+      propertyId,
+      metadata: { noteId },
+    });
+    return toNote(row);
+  }
+
+  async deleteNote(
+    landlordId: string,
+    propertyId: string,
+    noteId: string,
+  ): Promise<void> {
+    await this.assertOwned(landlordId, propertyId);
+    await this.repo.deleteNote(propertyId, noteId);
+    await this.activity.log({
+      actionType: "property_note_deleted",
+      description: "Note deleted",
+      userId: landlordId,
+      propertyId,
+      metadata: { noteId },
+    });
+  }
+
+  private async assertOwned(
+    landlordId: string,
+    propertyId: string,
+  ): Promise<void> {
+    if (!(await this.repo.isOwnedBy(landlordId, propertyId))) {
+      throw new NotFoundException("Property not found");
+    }
   }
 
   private toSummary(

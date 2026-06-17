@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -13,10 +14,13 @@ import {
 import {
   createPropertySchema,
   updatePropertySchema,
+  writePropertyNoteSchema,
   type CreatePropertyInput,
   type PropertyDetail,
+  type PropertyNote,
   type PropertySummary,
   type UpdatePropertyInput,
+  type WritePropertyNoteInput,
 } from "@unitko/shared";
 import { SupabaseJwtGuard } from "../auth/supabase-jwt.guard";
 import { CurrentLandlord } from "../auth/current-landlord.decorator";
@@ -62,5 +66,37 @@ export class PropertiesController {
     @Body(new ZodValidationPipe(updatePropertySchema)) input: UpdatePropertyInput,
   ): Promise<PropertyDetail> {
     return this.service.update(landlord.id, id, input);
+  }
+
+  @Post(":id/notes")
+  @HttpCode(HttpStatus.CREATED)
+  addNote(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(writePropertyNoteSchema))
+    input: WritePropertyNoteInput,
+  ): Promise<PropertyNote> {
+    return this.service.addNote(landlord.id, id, input);
+  }
+
+  @Patch(":id/notes/:noteId")
+  updateNote(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("noteId", ParseUUIDPipe) noteId: string,
+    @Body(new ZodValidationPipe(writePropertyNoteSchema))
+    input: WritePropertyNoteInput,
+  ): Promise<PropertyNote> {
+    return this.service.updateNote(landlord.id, id, noteId, input);
+  }
+
+  @Delete(":id/notes/:noteId")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteNote(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Param("noteId", ParseUUIDPipe) noteId: string,
+  ): Promise<void> {
+    return this.service.deleteNote(landlord.id, id, noteId);
   }
 }

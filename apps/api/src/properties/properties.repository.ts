@@ -100,6 +100,53 @@ export class PropertiesRepository {
     };
   }
 
+  async isOwnedBy(landlordId: string, propertyId: string): Promise<boolean> {
+    const { data, error } = await this.supabase.db
+      .from("properties")
+      .select("id")
+      .eq("id", propertyId)
+      .eq("landlord_id", landlordId)
+      .maybeSingle();
+    if (error) throw error;
+    return data !== null;
+  }
+
+  private static readonly NOTE_SELECT =
+    "id, body, author_id, created_at, updated_at";
+
+  async insertNote(propertyId: string, authorId: string, body: string) {
+    const { data, error } = await this.supabase.db
+      .from("property_notes")
+      .insert({ property_id: propertyId, author_id: authorId, body })
+      .select(PropertiesRepository.NOTE_SELECT)
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  // Scoped to the property so a note can't be edited via a property that doesn't
+  // own it. null = no such note on this property.
+  async updateNote(propertyId: string, noteId: string, body: string) {
+    const { data, error } = await this.supabase.db
+      .from("property_notes")
+      .update({ body, updated_at: new Date().toISOString() })
+      .eq("id", noteId)
+      .eq("property_id", propertyId)
+      .select(PropertiesRepository.NOTE_SELECT)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
+  async deleteNote(propertyId: string, noteId: string): Promise<void> {
+    const { error } = await this.supabase.db
+      .from("property_notes")
+      .delete()
+      .eq("id", noteId)
+      .eq("property_id", propertyId);
+    if (error) throw error;
+  }
+
   private async fetchOccupancy(
     propertyIds: string[],
   ): Promise<Map<string, string | null>> {
