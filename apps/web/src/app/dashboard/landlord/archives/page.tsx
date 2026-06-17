@@ -38,16 +38,6 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 
-interface BillingEntry {
-  id: string;
-  due_date: string;
-  rent_due: number;
-  other_charges: number;
-  gross_due: number;
-  status: string;
-  billing_period: number;
-}
-
 function ArchivesPage() {
   const [archivedTenants, setArchivedTenants] = useState<ArchivedTenant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,7 +73,11 @@ function ArchivesPage() {
     setIsDetailsOpen(true);
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return "—";
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) return "—";
+
     const monthNames = [
       "Jan",
       "Feb",
@@ -99,12 +93,7 @@ function ArchivesPage() {
       "Dec",
     ];
 
-    const date = new Date(dateString);
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const day = date.getDate();
-
-    return `${monthNames[month]} ${day}, ${year}`;
+    return `${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
   };
 
   const formatCurrency = (amount: number) => {
@@ -180,7 +169,7 @@ function ArchivesPage() {
                     <p className="text-2xl font-bold text-green-600">
                       {formatCurrency(
                         archivedTenants.reduce(
-                          (sum, t) => sum + t.total_paid,
+                          (sum, t) => sum + t.totalPaid,
                           0,
                         ),
                       )}
@@ -197,7 +186,7 @@ function ArchivesPage() {
                       Properties with History
                     </p>
                     <p className="text-2xl font-bold">
-                      {new Set(archivedTenants.map((t) => t.property_id)).size}
+                      {new Set(archivedTenants.map((t) => t.propertyId)).size}
                     </p>
                   </div>
                   <Building className="h-8 w-8 text-muted-foreground" />
@@ -230,17 +219,17 @@ function ArchivesPage() {
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <CardTitle className="text-lg line-clamp-1">
-                          {archive.property_name}
+                          {archive.propertyName}
                         </CardTitle>
                         <CardDescription className="flex items-center text-xs mt-1">
                           <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
                           <span className="truncate">
-                            {archive.property_location}
+                            {archive.propertyLocation}
                           </span>
                         </CardDescription>
                       </div>
                       <Badge variant="secondary" className="ml-2">
-                        {archive.property_type}
+                        {archive.propertyType}
                       </Badge>
                     </div>
                   </CardHeader>
@@ -248,14 +237,14 @@ function ArchivesPage() {
                     <div className="flex items-center gap-2 text-sm">
                       <User className="h-4 w-4 text-muted-foreground" />
                       <span className="font-medium truncate">
-                        {archive.tenant_name}
+                        {archive.tenantName}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Calendar className="h-4 w-4" />
                       <span>
-                        {formatDate(archive.rent_start_date)} -{" "}
-                        {formatDate(archive.rent_end_date)}
+                        {formatDate(archive.rentStartDate)} -{" "}
+                        {formatDate(archive.rentEndDate)}
                       </span>
                     </div>
                     <Separator />
@@ -265,13 +254,13 @@ function ArchivesPage() {
                           Total Paid
                         </span>
                         <span className="font-medium text-green-600">
-                          {formatCurrency(archive.total_paid)}
+                          {formatCurrency(archive.totalPaid)}
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">Total Due</span>
                         <span className="font-medium">
-                          {formatCurrency(archive.total_due)}
+                          {formatCurrency(archive.totalDue)}
                         </span>
                       </div>
                     </div>
@@ -280,7 +269,7 @@ function ArchivesPage() {
                         Archive Reason:
                       </p>
                       <p className="text-sm line-clamp-2">
-                        {archive.archive_reason}
+                        {archive.archiveReason}
                       </p>
                     </div>
                     <div className="pt-2">
@@ -308,10 +297,10 @@ function ArchivesPage() {
           <DialogContent className="max-w-4xl max-h-[90vh]">
             <DialogHeader>
               <DialogTitle className="text-xl">
-                Archive Details: {selectedArchive.property_name}
+                Archive Details: {selectedArchive.propertyName}
               </DialogTitle>
               <DialogDescription>
-                Archived on {formatDate(selectedArchive.archived_at)}
+                Archived on {formatDate(selectedArchive.archivedAt)}
               </DialogDescription>
             </DialogHeader>
             <ScrollArea className="max-h-[70vh] pr-4">
@@ -327,19 +316,19 @@ function ArchivesPage() {
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Name:</span>
                         <span className="font-medium">
-                          {selectedArchive.property_name}
+                          {selectedArchive.propertyName}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Type:</span>
                         <span className="font-medium">
-                          {selectedArchive.property_type}
+                          {selectedArchive.propertyType}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Location:</span>
                         <span className="font-medium">
-                          {selectedArchive.property_location}
+                          {selectedArchive.propertyLocation}
                         </span>
                       </div>
                     </div>
@@ -353,13 +342,13 @@ function ArchivesPage() {
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Name:</span>
                         <span className="font-medium">
-                          {selectedArchive.tenant_name}
+                          {selectedArchive.tenantName}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Contact:</span>
                         <span className="font-medium">
-                          {selectedArchive.contact_number}
+                          {selectedArchive.contactNumber}
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -367,7 +356,7 @@ function ArchivesPage() {
                           Contract Length:
                         </span>
                         <span className="font-medium">
-                          {selectedArchive.contract_months} months
+                          {selectedArchive.contractMonths} months
                         </span>
                       </div>
                     </div>
@@ -388,7 +377,7 @@ function ArchivesPage() {
                           Monthly Rent
                         </p>
                         <p className="text-lg font-bold">
-                          {formatCurrency(selectedArchive.rent_amount)}
+                          {formatCurrency(selectedArchive.rentAmount ?? 0)}
                         </p>
                       </CardContent>
                     </Card>
@@ -398,7 +387,7 @@ function ArchivesPage() {
                           Total Due
                         </p>
                         <p className="text-lg font-bold">
-                          {formatCurrency(selectedArchive.total_due)}
+                          {formatCurrency(selectedArchive.totalDue)}
                         </p>
                       </CardContent>
                     </Card>
@@ -408,7 +397,7 @@ function ArchivesPage() {
                           Total Paid
                         </p>
                         <p className="text-lg font-bold text-green-600">
-                          {formatCurrency(selectedArchive.total_paid)}
+                          {formatCurrency(selectedArchive.totalPaid)}
                         </p>
                       </CardContent>
                     </Card>
@@ -417,8 +406,7 @@ function ArchivesPage() {
                         <p className="text-xs text-muted-foreground">Balance</p>
                         <p className="text-lg font-bold text-red-600">
                           {formatCurrency(
-                            selectedArchive.total_due -
-                              selectedArchive.total_paid,
+                            selectedArchive.totalDue - selectedArchive.totalPaid,
                           )}
                         </p>
                       </CardContent>
@@ -435,47 +423,8 @@ function ArchivesPage() {
                     Archive Reason
                   </h3>
                   <p className="text-sm bg-muted/50 p-4 rounded-lg">
-                    {selectedArchive.archive_reason}
+                    {selectedArchive.archiveReason}
                   </p>
-                </div>
-
-                {/* Billing History */}
-                <div className="space-y-3">
-                  <h3 className="font-semibold">Billing History</h3>
-                  <div className="space-y-2">
-                    {JSON.parse(selectedArchive.billing_entries).map(
-                      (entry: BillingEntry) => (
-                        <div
-                          key={entry.id}
-                          className="flex items-center justify-between p-3 bg-muted/30 rounded-lg text-sm"
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="font-medium">
-                              Month {entry.billing_period}
-                            </span>
-                            <span className="text-muted-foreground">
-                              Due: {formatDate(entry.due_date)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="font-medium">
-                              {formatCurrency(entry.gross_due)}
-                            </span>
-                            <Badge
-                              variant={
-                                entry.status.toLowerCase().includes("paid") ||
-                                entry.status.toLowerCase().includes("good")
-                                  ? "default"
-                                  : "destructive"
-                              }
-                            >
-                              {entry.status}
-                            </Badge>
-                          </div>
-                        </div>
-                      ),
-                    )}
-                  </div>
                 </div>
               </div>
             </ScrollArea>
