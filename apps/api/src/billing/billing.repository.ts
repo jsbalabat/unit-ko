@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { BillingChargeItem } from "@unitko/shared";
+import type { BillingChargeItem, UpdateBillingEntryInput } from "@unitko/shared";
 import { SupabaseService } from "../supabase/supabase.service";
 
 // Derived figures come from the view; nothing here is a stored money column.
@@ -24,6 +24,7 @@ export interface BillingEntryView {
 
 export interface EnrichedEntry {
   entry: BillingEntryView;
+  tenantId: string | null;
   tenantName: string | null;
   charges: BillingChargeItem[];
 }
@@ -49,15 +50,21 @@ export class BillingRepository {
   async findEntriesByProperty(propertyId: string): Promise<EnrichedEntry[]> {
     const { data: leases, error: lErr } = await this.supabase.db
       .from("leases")
-      .select("id, tenants(tenant_name)")
+      .select("id, tenants(id, tenant_name)")
       .eq("property_id", propertyId);
     if (lErr) throw lErr;
 
     const leaseRows = leases ?? [];
     if (leaseRows.length === 0) return [];
 
-    const tenantByLease = new Map<string, string | null>(
-      leaseRows.map((l) => [l.id, l.tenants?.tenant_name ?? null]),
+    const tenantByLease = new Map<
+      string,
+      { id: string | null; name: string | null }
+    >(
+      leaseRows.map((l) => [
+        l.id,
+        { id: l.tenants?.id ?? null, name: l.tenants?.tenant_name ?? null },
+      ]),
     );
 
     const { data: entries, error: eErr } = await this.supabase.db
@@ -75,22 +82,27 @@ export class BillingRepository {
       rows.map((r) => r.id).filter((id): id is string => id !== null),
     );
 
-    return rows.map((entry) => ({
-      entry,
-      tenantName: entry.lease_id
+    return rows.map((entry) => {
+      const tenant = entry.lease_id
         ? tenantByLease.get(entry.lease_id) ?? null
-        : null,
-      charges: entry.id ? chargesByEntry.get(entry.id) ?? [] : [],
-    }));
+        : null;
+      return {
+        entry,
+        tenantId: tenant?.id ?? null,
+        tenantName: tenant?.name ?? null,
+        charges: entry.id ? chargesByEntry.get(entry.id) ?? [] : [],
+      };
+    });
   }
 
   async findEntriesByLease(leaseId: string): Promise<EnrichedEntry[]> {
     const { data: lease, error: lErr } = await this.supabase.db
       .from("leases")
-      .select("tenants(tenant_name)")
+      .select("tenants(id, tenant_name)")
       .eq("id", leaseId)
       .maybeSingle();
     if (lErr) throw lErr;
+    const tenantId = lease?.tenants?.id ?? null;
     const tenantName = lease?.tenants?.tenant_name ?? null;
 
     const { data: entries, error: eErr } = await this.supabase.db
@@ -107,6 +119,7 @@ export class BillingRepository {
 
     return rows.map((entry) => ({
       entry,
+      tenantId,
       tenantName,
       charges: entry.id ? chargesByEntry.get(entry.id) ?? [] : [],
     }));
@@ -121,19 +134,35 @@ export class BillingRepository {
     if (error) throw error;
     if (!entry) return null;
 
+    let tenantId: string | null = null;
     let tenantName: string | null = null;
     if (entry.lease_id) {
       const { data: lease, error: lErr } = await this.supabase.db
         .from("leases")
-        .select("tenants(tenant_name)")
+        .select("tenants(id, tenant_name)")
         .eq("id", entry.lease_id)
         .maybeSingle();
       if (lErr) throw lErr;
+      tenantId = lease?.tenants?.id ?? null;
       tenantName = lease?.tenants?.tenant_name ?? null;
     }
 
     const chargesByEntry = await this.fetchCharges([entryId]);
-    return { entry, tenantName, charges: chargesByEntry.get(entryId) ?? [] };
+    return { entry, tenantId, tenantName, charges: chargesByEntry.get(entryId) ?? [] };
+  }
+
+  // Edit + recompute happen inside the function (ownership is checked there too).
+  async updateEntryViaAtomicRpc(
+    landlordId: string,
+    entryId: string,
+    input: UpdateBillingEntryInput,
+  ): Promise<void> {
+    const { error } = await this.supabase.db.rpc("update_billing_entry_atomic", {
+      p_landlord_id: landlordId,
+      p_entry_id: entryId,
+      p_payload: input,
+    });
+    if (error) throw error;
   }
 
   private async fetchCharges(

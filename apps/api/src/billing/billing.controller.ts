@@ -1,8 +1,19 @@
-import { Controller, Get, Query, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Query,
+  UseGuards,
+} from "@nestjs/common";
 import {
   listBillingQuerySchema,
+  updateBillingEntrySchema,
   type BillingEntry,
   type ListBillingQuery,
+  type UpdateBillingEntryInput,
 } from "@unitko/shared";
 import { SupabaseJwtGuard } from "../auth/supabase-jwt.guard";
 import { CurrentLandlord } from "../auth/current-landlord.decorator";
@@ -22,5 +33,16 @@ export class BillingController {
     @Query(new ZodValidationPipe(listBillingQuerySchema)) query: ListBillingQuery,
   ): Promise<BillingEntry[]> {
     return this.service.listForProperty(landlord.id, query.propertyId);
+  }
+
+  // Edit one invoice (rent/charges/due date); status is recomputed server-side.
+  @Patch("entries/:id")
+  update(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(updateBillingEntrySchema))
+    input: UpdateBillingEntryInput,
+  ): Promise<BillingEntry> {
+    return this.service.updateEntry(landlord.id, id, input);
   }
 }

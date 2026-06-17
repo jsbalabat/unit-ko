@@ -1,10 +1,19 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { BILLING_STATUSES, type BillingEntry, type BillingStatus } from "@unitko/shared";
+import {
+  BILLING_STATUSES,
+  type BillingEntry,
+  type BillingStatus,
+  type UpdateBillingEntryInput,
+} from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
 import { BillingRepository, type EnrichedEntry } from "./billing.repository";
 
 @Injectable()
 export class BillingService {
-  constructor(private readonly repo: BillingRepository) {}
+  constructor(
+    private readonly repo: BillingRepository,
+    private readonly activity: ActivityService,
+  ) {}
 
   async listForProperty(
     landlordId: string,
@@ -25,6 +34,28 @@ export class BillingService {
     return rows.flatMap((r) => this.toEntry(r));
   }
 
+  // Edit one invoice's rent/charges/due date; the function recomputes status and
+  // verifies ownership. Returns the refreshed (derived) invoice.
+  async updateEntry(
+    landlordId: string,
+    entryId: string,
+    input: UpdateBillingEntryInput,
+  ): Promise<BillingEntry> {
+    await this.repo.updateEntryViaAtomicRpc(landlordId, entryId, input);
+    const entry = await this.getEntryDetail(entryId);
+    if (!entry) {
+      throw new NotFoundException("Billing entry not found after update");
+    }
+    await this.activity.log({
+      actionType: "billing_updated",
+      description: "Invoice updated",
+      userId: landlordId,
+      leaseId: entry.leaseId,
+      metadata: { billingEntryId: entryId },
+    });
+    return entry;
+  }
+
   // Used by PaymentsService to return the refreshed invoice. No ownership check
   // here — callers reach it only after ownership is already established.
   async getEntryDetail(entryId: string): Promise<BillingEntry | null> {
@@ -42,6 +73,7 @@ export class BillingService {
         id: e.id,
         leaseId: e.lease_id,
         periodId: e.period_id,
+        tenantId: r.tenantId,
         tenantName: r.tenantName,
         dueDate: e.due_date,
         rentDue: e.rent_due ?? 0,
