@@ -119,7 +119,7 @@ export function AddTenantPopup({
       ? properties.find((p) => p.id === propertyId)
       : null;
 
-    toast.success(`Tenant added: ${result.tenant.tenant_name}`, {
+    toast.success(`Tenant added: ${result.tenant.tenantName}`, {
       description: assignedProperty
         ? `Assigned to ${assignedProperty.unit_name}.`
         : "Unhoused — assign to a property when ready.",
