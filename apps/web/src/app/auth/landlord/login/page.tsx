@@ -243,8 +243,6 @@ export default function LandlordLogin() {
     }
   };
 
-  const handleFormSubmit = form.handleSubmit(onSubmit);
-
   if (isNavigating) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
@@ -294,7 +292,10 @@ export default function LandlordLogin() {
           )}
 
           <Form {...form}>
-            <form onSubmit={handleFormSubmit} className="space-y-4">
+            <form
+              onSubmit={(e) => void form.handleSubmit(onSubmit)(e)}
+              className="space-y-4"
+            >
               <FormField
                 control={form.control}
                 name="email"
