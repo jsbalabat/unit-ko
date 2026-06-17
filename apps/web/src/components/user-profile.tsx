@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { supabase } from "@/lib/supabase";
+import { fetchProfile, saveProfile } from "@/services/profileService";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/button";
@@ -58,119 +58,31 @@ export function UserProfile() {
   });
 
   useEffect(() => {
-    fetchUserProfile();
+    let ignore = false;
+    fetchProfile()
+      .then((loaded) => {
+        if (ignore) return;
+        setUserProfile({
+          id: loaded.id,
+          email: loaded.email,
+          created_at: loaded.createdAt,
+          role: loaded.role,
+          ...loaded.form,
+        });
+        setFormData(loaded.form);
+      })
+      .catch((err) => {
+        if (ignore) return;
+        console.error("Error fetching user profile:", err);
+        setError(err instanceof Error ? err.message : "Failed to load profile");
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
   }, []);
-
-  const fetchUserProfile = async () => {
-    try {
-      const {
-        data: { user },
-        error: authError,
-      } = await supabase.auth.getUser();
-
-      if (authError) throw authError;
-      if (!user) throw new Error("No user found");
-
-      // Fetch profile data from profiles table
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
-        .single();
-
-      // If profile doesn't exist, create it
-      if (profileError) {
-        console.error("Error fetching profile from table:", profileError);
-
-        if (profileError.code === "PGRST116") {
-          // Profile doesn't exist, create it
-          console.log("Profile not found, creating new profile...");
-          const { data: newProfile, error: insertError } = await supabase
-            .from("profiles")
-            .insert({
-              id: user.id,
-              email: user.email || "",
-              role: user.user_metadata?.role || "landlord",
-              full_name: user.user_metadata?.full_name || "",
-              phone: user.user_metadata?.phone || "",
-            })
-            .select()
-            .single();
-
-          if (insertError) {
-            console.error("Error creating profile:", insertError);
-            throw new Error(
-              "Failed to create user profile. Please contact support.",
-            );
-          }
-
-          setUserProfile({
-            id: user.id,
-            email: user.email || "",
-            created_at: user.created_at || "",
-            full_name: user.user_metadata?.full_name || "",
-            avatar_url: user.user_metadata?.avatar_url || "",
-            phone: user.user_metadata?.phone || "",
-            role: newProfile?.role || "landlord",
-            payment_bank_name: "",
-            payment_account_name: "",
-            payment_account_number: "",
-            payment_gcash_number: "",
-            payment_paymaya_number: "",
-            payment_other_details: "",
-          });
-
-          setFormData({
-            full_name: user.user_metadata?.full_name || "",
-            phone: user.user_metadata?.phone || "",
-            payment_bank_name: "",
-            payment_account_name: "",
-            payment_account_number: "",
-            payment_gcash_number: "",
-            payment_paymaya_number: "",
-            payment_other_details: "",
-          });
-          return;
-        } else {
-          // Some other error occurred
-          throw new Error(`Database error: ${profileError.message}`);
-        }
-      }
-
-      setUserProfile({
-        id: user.id,
-        email: user.email || "",
-        created_at: user.created_at || "",
-        full_name: user.user_metadata?.full_name || "",
-        avatar_url: user.user_metadata?.avatar_url || "",
-        phone: user.user_metadata?.phone || "",
-        role: profileData?.role || "landlord",
-        // Payment details from profiles table
-        payment_bank_name: profileData?.payment_bank_name || "",
-        payment_account_name: profileData?.payment_account_name || "",
-        payment_account_number: profileData?.payment_account_number || "",
-        payment_gcash_number: profileData?.payment_gcash_number || "",
-        payment_paymaya_number: profileData?.payment_paymaya_number || "",
-        payment_other_details: profileData?.payment_other_details || "",
-      });
-
-      setFormData({
-        full_name: user.user_metadata?.full_name || "",
-        phone: user.user_metadata?.phone || "",
-        payment_bank_name: profileData?.payment_bank_name || "",
-        payment_account_name: profileData?.payment_account_name || "",
-        payment_account_number: profileData?.payment_account_number || "",
-        payment_gcash_number: profileData?.payment_gcash_number || "",
-        payment_paymaya_number: profileData?.payment_paymaya_number || "",
-        payment_other_details: profileData?.payment_other_details || "",
-      });
-    } catch (err) {
-      console.error("Error fetching user profile:", err);
-      setError(err instanceof Error ? err.message : "Failed to load profile");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSave = async () => {
     if (!userProfile) return;
@@ -179,44 +91,15 @@ export function UserProfile() {
     setError(null);
 
     try {
-      // Update auth user metadata
-      const { error: updateError } = await supabase.auth.updateUser({
-        data: {
-          full_name: formData.full_name,
-          phone: formData.phone,
-        },
-      });
-
-      if (updateError) throw updateError;
-
-      // Update payment details in profiles table
-      const { error: profileUpdateError } = await supabase
-        .from("profiles")
-        .update({
-          payment_bank_name: formData.payment_bank_name,
-          payment_account_name: formData.payment_account_name,
-          payment_account_number: formData.payment_account_number,
-          payment_gcash_number: formData.payment_gcash_number,
-          payment_paymaya_number: formData.payment_paymaya_number,
-          payment_other_details: formData.payment_other_details,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", userProfile.id);
-
-      if (profileUpdateError) throw profileUpdateError;
-
+      const loaded = await saveProfile(formData);
       setUserProfile({
-        ...userProfile,
-        full_name: formData.full_name,
-        phone: formData.phone,
-        payment_bank_name: formData.payment_bank_name,
-        payment_account_name: formData.payment_account_name,
-        payment_account_number: formData.payment_account_number,
-        payment_gcash_number: formData.payment_gcash_number,
-        payment_paymaya_number: formData.payment_paymaya_number,
-        payment_other_details: formData.payment_other_details,
+        id: loaded.id,
+        email: loaded.email,
+        created_at: loaded.createdAt,
+        role: loaded.role,
+        ...loaded.form,
       });
-
+      setFormData(loaded.form);
       setIsEditing(false);
       toast.success("Profile updated successfully");
     } catch (err) {
