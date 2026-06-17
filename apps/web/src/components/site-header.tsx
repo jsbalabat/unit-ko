@@ -13,7 +13,7 @@ import {
   Bell,
 } from "lucide-react";
 import { MultiStepPopup } from "@/components/form-add-property";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useSyncExternalStore } from "react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,75 +23,65 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { supabase } from "@/lib/supabase";
+import { api } from "@/lib/api-client";
+import { logoutLandlord } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+// A one-second clock exposed as an external store so the header reads the time
+// during render instead of seeding it with a synchronous setState on mount.
+let clockSnapshot: number | null = null;
+
+function subscribeClock(onTick: () => void) {
+  clockSnapshot = Date.now();
+  const timer = setInterval(() => {
+    clockSnapshot = Date.now();
+    onTick();
+  }, 1000);
+  return () => clearInterval(timer);
+}
+
+function getClockSnapshot() {
+  return clockSnapshot;
+}
+
+function getClockServerSnapshot() {
+  return null;
+}
+
 export function SiteHeader() {
   const [isPopupOpen, setIsPopupOpen] = useState(false);
-  const [currentTime, setCurrentTime] = useState<Date | null>(null);
+  const clockMs = useSyncExternalStore(
+    subscribeClock,
+    getClockSnapshot,
+    getClockServerSnapshot,
+  );
+  const currentTime = clockMs === null ? null : new Date(clockMs);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [userPlan, setUserPlan] = useState<string>("Free Plan");
   const [userName, setUserName] = useState<string>("Juan Dela Cruz");
   const [userEmail, setUserEmail] = useState<string>("landlord@example.com");
   const router = useRouter();
 
-  // Update time every second, but only on the client side
   useEffect(() => {
-    // Set initial time only on the client side
-    setCurrentTime(new Date());
-
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  // Fetch user subscription plan and profile data
-  useEffect(() => {
-    const fetchUserData = async () => {
+    const loadAccount = async () => {
       try {
-        const {
-          data: { user },
-          error: authError,
-        } = await supabase.auth.getUser();
+        const [profile, subscription] = await Promise.all([
+          api.profile.get(),
+          api.subscription.current(),
+        ]);
 
-        if (authError || !user) return;
-
-        // Set email
-        setUserEmail(user.email || "landlord@example.com");
-
-        // Fetch profile data including subscription plan
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("subscription_plan, full_name")
-          .eq("id", user.id)
-          .single();
-
-        if (!profileError && profile) {
-          // Set user name
-          if (profile.full_name) {
-            setUserName(profile.full_name);
-          }
-
-          // Set plan display
-          const planDisplayNames: Record<string, string> = {
-            free: "Free Plan",
-            basic: "Basic Plan",
-            premium: "Premium Plan",
-            enterprise: "Enterprise Plan",
-          };
-
-          const plan = profile.subscription_plan || "free";
-          setUserPlan(planDisplayNames[plan] || "Free Plan");
-        }
+        if (profile.email) setUserEmail(profile.email);
+        if (profile.fullName) setUserName(profile.fullName);
+        setUserPlan(`${subscription.planName} Plan`);
       } catch (error) {
-        console.error("Error fetching user data:", error);
+        // A failed load just leaves the placeholder identity; the route guard
+        // owns redirecting when the session is actually invalid.
+        console.error("Error loading account header:", error);
       }
     };
 
-    fetchUserData();
+    loadAccount();
   }, []);
 
   const handlePropertyComplete = (data: unknown) => {
@@ -103,23 +93,11 @@ export function SiteHeader() {
     if (isLoggingOut) return;
 
     setIsLoggingOut(true);
-
     try {
-      // Sign out from Supabase
-      await supabase.auth.signOut();
-
-      // Clear all local storage (including custom session data)
-      localStorage.clear();
-      sessionStorage.clear();
-
-      // Navigate to login page
-      router.push("/auth/landlord/login");
-    } catch (error) {
-      console.error("Logout error:", error);
-      // Force navigation even if logout fails
-      router.push("/auth/landlord/login");
+      await logoutLandlord();
     } finally {
       setIsLoggingOut(false);
+      router.push("/auth/landlord/login");
     }
   };
 
