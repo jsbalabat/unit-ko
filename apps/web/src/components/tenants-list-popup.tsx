@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Building,
   Loader2,
@@ -21,10 +21,8 @@ import { Button } from "@/components/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-import {
-  listLandlordTenants,
-  type TenantListRow,
-} from "@/services/tenantService";
+import { listLandlordTenants } from "@/services/tenantService";
+import type { TenantListItem } from "@unitko/shared";
 
 export type TenantsListFilter = "all" | "unassigned";
 
@@ -40,40 +38,67 @@ export function TenantsListPopup({
   onClose,
   initialFilter = "all",
 }: TenantsListPopupProps) {
-  const [tenants, setTenants] = useState<TenantListRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [tenants, setTenants] = useState<TenantListItem[]>([]);
+  const [loading, setLoading] = useState(isOpen);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<TenantsListFilter>(initialFilter);
 
-  const load = async () => {
-    setLoading(true);
+  const applyTenants = useCallback((rows: TenantListItem[]) => {
+    setTenants(rows);
     setError(null);
-    try {
-      const rows = await listLandlordTenants();
-      setTenants(rows);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load tenants");
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, []);
+
+  // Manual retry from the error state.
+  const load = useCallback(() => {
+    setLoading(true);
+    return listLandlordTenants()
+      .then(applyTenants)
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Failed to load tenants"),
+      )
+      .finally(() => setLoading(false));
+  }, [applyTenants]);
+
+  // Reset the filter to the caller's chosen initial state (and re-enter the
+  // loading state when the popup opens) during render — per React's "adjust
+  // state on prop change" guidance — so the effect below only triggers the
+  // fetch, never a synchronous setState.
+  const [anchor, setAnchor] = useState({ open: isOpen, initial: initialFilter });
+  if (anchor.open !== isOpen || anchor.initial !== initialFilter) {
+    const justOpened = isOpen && !anchor.open;
+    setAnchor({ open: isOpen, initial: initialFilter });
+    if (isOpen) setFilter(initialFilter);
+    if (justOpened) setLoading(true);
+  }
 
   useEffect(() => {
-    if (isOpen) {
-      // Reset filter to the caller's chosen initial state every time the
-      // popup opens so each entry point lands on the right view.
-      setFilter(initialFilter);
-      void load();
-    }
-  }, [isOpen, initialFilter]);
+    if (!isOpen) return;
+    let ignore = false;
+    listLandlordTenants()
+      .then((rows) => {
+        if (!ignore) applyTenants(rows);
+      })
+      .catch((err) => {
+        if (!ignore)
+          setError(
+            err instanceof Error ? err.message : "Failed to load tenants",
+          );
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [isOpen, applyTenants]);
 
-  const unassignedCount = tenants.filter((t) => !t.property_id).length;
+  const unassignedCount = tenants.filter((t) => !t.propertyId).length;
   const assignedCount = tenants.length - unassignedCount;
 
   const visibleTenants = useMemo(
     () =>
       filter === "unassigned"
-        ? tenants.filter((t) => !t.property_id)
+        ? tenants.filter((t) => !t.propertyId)
         : tenants,
     [tenants, filter],
   );
@@ -171,11 +196,11 @@ export function TenantsListPopup({
                   className="flex items-start justify-between gap-3 p-3 rounded-md border bg-card hover:bg-muted/30 transition-colors"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium truncate">{t.tenant_name}</div>
+                    <div className="font-medium truncate">{t.tenantName}</div>
                     <div className="text-xs text-muted-foreground flex flex-col gap-0.5 mt-1">
                       <span className="inline-flex items-center gap-1.5">
                         <Phone className="h-3 w-3" />
-                        {t.contact_number || "—"}
+                        {t.contactNumber || "—"}
                       </span>
                       {t.email && (
                         <span className="inline-flex items-center gap-1.5 truncate">
@@ -186,10 +211,10 @@ export function TenantsListPopup({
                     </div>
                   </div>
                   <div className="flex-shrink-0">
-                    {t.property_unit_name ? (
+                    {t.propertyName ? (
                       <Badge variant="secondary" className="gap-1">
                         <Building className="h-3 w-3" />
-                        {t.property_unit_name}
+                        {t.propertyName}
                       </Badge>
                     ) : (
                       <Badge variant="outline" className="gap-1 text-muted-foreground">
