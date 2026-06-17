@@ -2,9 +2,11 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import {
   BILLING_FREQUENCIES,
   type BillingFrequency,
+  type PayoutChannel,
   type TenantDashboard,
 } from "@unitko/shared";
 import { BillingService } from "../billing/billing.service";
+import { toPayoutChannel } from "../common/payout";
 import { TenantDashboardRepository } from "./tenant-dashboard.repository";
 
 @Injectable()
@@ -25,6 +27,13 @@ export class TenantDashboardService {
     // Billing is reused from BillingService so the derived-figure mapping isn't
     // duplicated; scoped to the tenant's own active lease.
     const billingEntries = lease ? await this.billing.listForLease(lease.id) : [];
+
+    const payout = property
+      ? await this.repo.findLandlordPayout(property.landlord_id)
+      : null;
+    const payoutMethods: PayoutChannel[] = (payout?.landlord_payout_methods ?? [])
+      .map(toPayoutChannel)
+      .filter((m): m is PayoutChannel => m !== null);
 
     return {
       tenant: {
@@ -54,6 +63,8 @@ export class TenantDashboardService {
           }
         : null,
       billingEntries,
+      landlordName: payout?.full_name ?? null,
+      payoutMethods,
     };
   }
 }

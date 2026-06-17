@@ -22,10 +22,25 @@ export class TenantDashboardRepository {
     const { data, error } = await this.supabase.db
       .from("leases")
       .select(
-        "id, contract_periods, rent_start_date, rent_end_date, due_day, rent_amount, billing_frequency_code, properties(id, unit_name, property_type_code, property_location, rent_amount)",
+        "id, contract_periods, rent_start_date, rent_end_date, due_day, rent_amount, billing_frequency_code, properties(id, unit_name, property_type_code, property_location, rent_amount, landlord_id)",
       )
       .eq("tenant_id", tenantId)
       .eq("status", "active")
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+
+  // The landlord's display name + their payout channels, shown to the tenant so
+  // they know where to send rent. Reverse-embeds the methods so a landlord with
+  // none still returns their name with an empty list.
+  async findLandlordPayout(landlordId: string) {
+    const { data, error } = await this.supabase.db
+      .from("profiles")
+      .select(
+        "full_name, landlord_payout_methods(method, account_name, account_number, details)",
+      )
+      .eq("id", landlordId)
       .maybeSingle();
     if (error) throw error;
     return data;
