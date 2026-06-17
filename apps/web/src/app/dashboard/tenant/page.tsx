@@ -25,7 +25,11 @@ import {
   Banknote,
   AlertCircle,
 } from "lucide-react";
-import { TenantDashboardData } from "@/services/tenantService";
+import {
+  fetchTenantDashboard,
+  type TenantDashboardData,
+} from "@/services/tenantService";
+import { api } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/button";
 import {
@@ -56,18 +60,7 @@ function TenantDashboard() {
   useEffect(() => {
     const loadDashboard = async () => {
       try {
-        const response = await fetch("/api/tenant/dashboard", {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        });
-
-        if (!response.ok) {
-          router.push("/auth/tenant/login");
-          return;
-        }
-
-        const data = (await response.json()) as TenantDashboardData;
+        const data = await fetchTenantDashboard();
 
         if (data) {
           setDashboardData(data);
@@ -87,10 +80,7 @@ function TenantDashboard() {
 
   const handleLogout = async () => {
     try {
-      await fetch("/api/tenant-auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
+      await api.tenantAuth.logout();
     } finally {
       router.push("/auth/tenant/login");
     }
@@ -340,7 +330,10 @@ function TenantDashboard() {
         </div>
 
         {/* Landlord Payment Information */}
-        <LandlordPaymentInfo propertyId={property.id} />
+        <LandlordPaymentInfo
+          payoutMethods={dashboardData.payoutMethods}
+          landlordName={dashboardData.landlordName}
+        />
 
         {/* Billing Summary Card */}
         <Card>
