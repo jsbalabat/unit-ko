@@ -1,0 +1,134 @@
+import { NotFoundException } from "@nestjs/common";
+import { describe, expect, it, vi } from "vitest";
+import type { BillingEntry, RecordPaymentInput } from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
+import { BillingService } from "./billing.service";
+import { PaymentsRepository, type PaymentRow } from "./payments.repository";
+import { PaymentsService } from "./payments.service";
+
+const stub = <T extends object>(impl: Partial<T>): T => impl as T;
+
+const paymentRow = (over: Partial<PaymentRow> = {}): PaymentRow => ({
+  id: "pay1",
+  billing_entry_id: "entry1",
+  lease_id: "lease1",
+  tenant_id: "tenant1",
+  payment_type_code: "rent",
+  amount: 1000,
+  paid_at: "2026-06-01T00:00:00.000Z",
+  notes: null,
+  created_at: "2026-06-01T00:00:00.000Z",
+  ...over,
+});
+
+const entry = (over: Partial<BillingEntry> = {}): BillingEntry => ({
+  id: "entry1",
+  leaseId: "lease1",
+  periodId: null,
+  tenantId: "tenant1",
+  tenantName: "Ana Cruz",
+  dueDate: "2026-06-01",
+  rentDue: 1000,
+  otherCharges: 0,
+  grossDue: 1000,
+  paidAmount: 1000,
+  balance: 0,
+  status: "Paid",
+  sequence: 1,
+  charges: [],
+  ...over,
+});
+
+describe("PaymentsService.record", () => {
+  const input: RecordPaymentInput = {
+    billingEntryId: "entry1",
+    amount: 1000,
+    paymentType: "rent",
+  };
+
+  it("records via the RPC, logs the payment, and returns the refreshed invoice", async () => {
+    const recordRpc = vi
+      .fn<PaymentsRepository["recordViaAtomicRpc"]>()
+      .mockResolvedValue({ paymentId: "pay1", billingEntryId: "entry1" });
+    const log = vi.fn<ActivityService["log"]>().mockResolvedValue(undefined);
+    const getEntryDetail = vi
+      .fn<BillingService["getEntryDetail"]>()
+      .mockResolvedValue(entry());
+    const repo = stub<PaymentsRepository>({
+      recordViaAtomicRpc: recordRpc,
+      findById: vi
+        .fn<PaymentsRepository["findById"]>()
+        .mockResolvedValue(paymentRow()),
+    });
+    const service = new PaymentsService(
+      repo,
+      stub<BillingService>({ getEntryDetail }),
+      stub<ActivityService>({ log }),
+    );
+
+    const result = await service.record("landlord1", input);
+
+    expect(recordRpc).toHaveBeenCalledWith("landlord1", input);
+    expect(getEntryDetail).toHaveBeenCalledWith("entry1");
+    expect(result.payment.id).toBe("pay1");
+    expect(result.entry?.id).toBe("entry1");
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "payment_made",
+        userId: "landlord1",
+        tenantId: "tenant1",
+        leaseId: "lease1",
+      }),
+    );
+  });
+
+  it("returns a null entry for a lease-level payment not tied to an invoice", async () => {
+    const getEntryDetail = vi.fn<BillingService["getEntryDetail"]>();
+    const repo = stub<PaymentsRepository>({
+      recordViaAtomicRpc: vi
+        .fn<PaymentsRepository["recordViaAtomicRpc"]>()
+        .mockResolvedValue({ paymentId: "pay1", billingEntryId: null }),
+      findById: vi
+        .fn<PaymentsRepository["findById"]>()
+        .mockResolvedValue(paymentRow({ billing_entry_id: null })),
+    });
+    const service = new PaymentsService(
+      repo,
+      stub<BillingService>({ getEntryDetail }),
+      stub<ActivityService>({
+        log: vi.fn<ActivityService["log"]>().mockResolvedValue(undefined),
+      }),
+    );
+
+    const result = await service.record("landlord1", {
+      leaseId: "lease1",
+      amount: 500,
+      paymentType: "deposit",
+    });
+
+    expect(result.entry).toBeNull();
+    expect(getEntryDetail).not.toHaveBeenCalled();
+  });
+
+  it("rejects with NotFound when the ledger row can't be read back", async () => {
+    const repo = stub<PaymentsRepository>({
+      recordViaAtomicRpc: vi
+        .fn<PaymentsRepository["recordViaAtomicRpc"]>()
+        .mockResolvedValue({ paymentId: "pay1", billingEntryId: "entry1" }),
+      findById: vi
+        .fn<PaymentsRepository["findById"]>()
+        .mockResolvedValue(null),
+    });
+    const service = new PaymentsService(
+      repo,
+      stub<BillingService>({}),
+      stub<ActivityService>({
+        log: vi.fn<ActivityService["log"]>().mockResolvedValue(undefined),
+      }),
+    );
+
+    await expect(service.record("landlord1", input)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+});
