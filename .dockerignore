@@ -1,0 +1,19 @@
+# Keep the build context small and secret-free. Node deps and build outputs are
+# (re)created inside the image; env files and local tooling never belong in it.
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/out
+**/coverage
+**/*.log
+
+.git
+.gitignore
+.claude
+**/.env
+**/.env.*
+
+# Supabase CLI local state (containers/branches), never needed in an image.
+packages/db/supabase/.branches
+packages/db/supabase/.temp
