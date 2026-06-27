@@ -1,0 +1,53 @@
+# Boots the unitko app stack (web + api) as one unit for prod-like local runs.
+#
+# Supabase is an EXTERNAL backing service (12-Factor): in dev it's the
+# CLI-managed local stack on the host (reached via host.docker.internal); in
+# prod it's a managed/remote URL. Start it first, then bring the stack up:
+#   pnpm --filter @unitko/db db:start
+#   docker compose up --build
+#
+# Secrets come from a root `.env` (see .env.docker.example) — never committed.
+#
+# CAVEAT — local LANDLORD auth: GoTrue issues JWTs with issuer 127.0.0.1:54321,
+# but the in-container API reaches Supabase via host.docker.internal, so the
+# issuer check rejects landlord tokens here (401). Tenant flows + /health work.
+# See docs/Day-4-Overview.md for the why and the fixes.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: "3001"
+      WEB_ORIGIN: http://localhost:3000
+      SUPABASE_URL: http://host.docker.internal:54321
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:?set it in .env}
+      TENANT_SESSION_SECRET: ${TENANT_SESSION_SECRET:?set it in .env}
+    extra_hosts:
+      # Lets the container resolve the host (needed on Linux; a no-op on Desktop).
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      # NEXT_PUBLIC_* are baked into the client bundle at build time.
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:3001
+        NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?set it in .env}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
