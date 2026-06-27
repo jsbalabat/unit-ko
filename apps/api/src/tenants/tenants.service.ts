@@ -69,6 +69,14 @@ export class TenantsService {
     if (!row) {
       throw new NotFoundException("Tenant not found");
     }
+    await this.activity.log({
+      actionType: "tenant_updated",
+      description: `Tenant updated: ${row.tenant_name}`,
+      userId: landlordId,
+      tenantId,
+      propertyId: row.property_id,
+      metadata: { fields: Object.keys(input) },
+    });
     return this.toListItem(row);
   }
 
