@@ -71,7 +71,10 @@ import {
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
-import type { BillingEntry as ApiBillingEntry } from "@unitko/shared";
+import type {
+  ActivityLog,
+  BillingEntry as ApiBillingEntry,
+} from "@unitko/shared";
 import { api } from "@/lib/api-client";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
 import { EditBillingPopup } from "@/components/edit-billing-popup";
@@ -154,17 +157,6 @@ interface Property {
   created_at: string;
   updated_at: string;
   tenants?: Tenant[];
-}
-
-interface ActivityLog {
-  id: string;
-  property_id: string;
-  tenant_id: string | null;
-  user_id: string | null;
-  action_type: string;
-  description: string;
-  metadata: Record<string, unknown>;
-  created_at: string;
 }
 
 interface PropertyNote {
@@ -406,18 +398,7 @@ export function PropertyDetailsPopup({
         })),
       });
 
-      setActivityLogs(
-        activity.map((a) => ({
-          id: a.id,
-          property_id: a.propertyId ?? propertyId,
-          tenant_id: a.tenantId,
-          user_id: null,
-          action_type: a.actionType,
-          description: a.description,
-          metadata: a.metadata,
-          created_at: a.createdAt,
-        })),
-      );
+      setActivityLogs(activity);
     } catch (err) {
       console.error("Error fetching property details:", err);
       setError(
@@ -2597,11 +2578,11 @@ export function PropertyDetailsPopup({
                         >
                           <div className="flex-shrink-0 mt-1">
                             <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              {log.action_type.includes("payment") ? (
+                              {log.actionType.includes("payment") ? (
                                 <CreditCard className="h-4 w-4 text-green-600" />
-                              ) : log.action_type.includes("tenant") ? (
+                              ) : log.actionType.includes("tenant") ? (
                                 <User className="h-4 w-4 text-blue-600" />
-                              ) : log.action_type.includes("property") ? (
+                              ) : log.actionType.includes("property") ? (
                                 <Building className="h-4 w-4 text-purple-600" />
                               ) : (
                                 <AlertCircle className="h-4 w-4 text-muted-foreground" />
@@ -2613,7 +2594,7 @@ export function PropertyDetailsPopup({
                               {log.description}
                             </p>
                             <p className="text-xs text-muted-foreground mt-1">
-                              {formatDateTime(log.created_at)}
+                              {formatDateTime(log.createdAt)}
                             </p>
                           </div>
                         </div>
