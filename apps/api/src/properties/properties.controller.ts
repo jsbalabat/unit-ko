@@ -12,7 +12,19 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiOkResponse,
+  ApiParam,
+  ApiTags,
+} from "@nestjs/swagger";
+import {
   createPropertySchema,
+  propertyDetailSchema,
+  propertyNoteSchema,
+  propertySummarySchema,
   updatePropertySchema,
   writePropertyNoteSchema,
   type CreatePropertyInput,
@@ -26,16 +38,20 @@ import { SupabaseJwtGuard } from "../auth/supabase-jwt.guard";
 import { CurrentLandlord } from "../auth/current-landlord.decorator";
 import type { AuthenticatedLandlord } from "../auth/current-landlord.decorator";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { zodArraySchema, zodSchema } from "../common/openapi";
 import { PropertiesService } from "./properties.service";
 
 // All property routes require a verified landlord JWT. The landlord id comes
 // from the token (never the request), and every query is scoped to it.
+@ApiTags("properties")
+@ApiBearerAuth("landlord-jwt")
 @Controller("properties")
 @UseGuards(SupabaseJwtGuard)
 export class PropertiesController {
   constructor(private readonly service: PropertiesService) {}
 
   @Get()
+  @ApiOkResponse({ schema: zodArraySchema(propertySummarySchema) })
   list(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
   ): Promise<PropertySummary[]> {
@@ -44,6 +60,8 @@ export class PropertiesController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @ApiBody({ schema: zodSchema(createPropertySchema) })
+  @ApiCreatedResponse({ schema: zodSchema(propertyDetailSchema) })
   create(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Body(new ZodValidationPipe(createPropertySchema)) input: CreatePropertyInput,
@@ -52,6 +70,8 @@ export class PropertiesController {
   }
 
   @Get(":id")
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiOkResponse({ schema: zodSchema(propertyDetailSchema) })
   detail(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Param("id", ParseUUIDPipe) id: string,
@@ -60,6 +80,9 @@ export class PropertiesController {
   }
 
   @Patch(":id")
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiBody({ schema: zodSchema(updatePropertySchema) })
+  @ApiOkResponse({ schema: zodSchema(propertyDetailSchema) })
   update(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Param("id", ParseUUIDPipe) id: string,
@@ -70,6 +93,9 @@ export class PropertiesController {
 
   @Post(":id/notes")
   @HttpCode(HttpStatus.CREATED)
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiBody({ schema: zodSchema(writePropertyNoteSchema) })
+  @ApiCreatedResponse({ schema: zodSchema(propertyNoteSchema) })
   addNote(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Param("id", ParseUUIDPipe) id: string,
@@ -80,6 +106,10 @@ export class PropertiesController {
   }
 
   @Patch(":id/notes/:noteId")
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiParam({ name: "noteId", format: "uuid" })
+  @ApiBody({ schema: zodSchema(writePropertyNoteSchema) })
+  @ApiOkResponse({ schema: zodSchema(propertyNoteSchema) })
   updateNote(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Param("id", ParseUUIDPipe) id: string,
@@ -92,6 +122,9 @@ export class PropertiesController {
 
   @Delete(":id/notes/:noteId")
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiParam({ name: "noteId", format: "uuid" })
+  @ApiNoContentResponse()
   deleteNote(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Param("id", ParseUUIDPipe) id: string,
