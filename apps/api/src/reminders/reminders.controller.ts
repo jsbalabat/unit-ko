@@ -7,7 +7,14 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiCreatedResponse,
+  ApiTags,
+} from "@nestjs/swagger";
+import {
   recordReminderSchema,
+  reminderResultSchema,
   type RecordReminderInput,
   type ReminderResult,
 } from "@unitko/shared";
@@ -15,8 +22,11 @@ import { SupabaseJwtGuard } from "../auth/supabase-jwt.guard";
 import { CurrentLandlord } from "../auth/current-landlord.decorator";
 import type { AuthenticatedLandlord } from "../auth/current-landlord.decorator";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { zodSchema } from "../common/openapi";
 import { RemindersService } from "./reminders.service";
 
+@ApiTags("reminders")
+@ApiBearerAuth("landlord-jwt")
 @Controller("reminders")
 @UseGuards(SupabaseJwtGuard)
 export class RemindersController {
@@ -26,6 +36,8 @@ export class RemindersController {
   // unusable, 429 if already reminded today. SMS dispatch is a separate concern.
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @ApiBody({ schema: zodSchema(recordReminderSchema) })
+  @ApiCreatedResponse({ schema: zodSchema(reminderResultSchema) })
   record(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Body(new ZodValidationPipe(recordReminderSchema)) input: RecordReminderInput,
