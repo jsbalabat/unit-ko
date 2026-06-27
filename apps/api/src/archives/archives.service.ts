@@ -4,6 +4,7 @@ import type {
   ArchiveResult,
   ArchivedTenant,
 } from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
 import { ArchivesRepository } from "./archives.repository";
 
 // v_archived_tenants row (snake_case, all-nullable like any view).
@@ -29,13 +30,27 @@ interface ArchivedRow {
 
 @Injectable()
 export class ArchivesService {
-  constructor(private readonly repo: ArchivesRepository) {}
+  constructor(
+    private readonly repo: ArchivesRepository,
+    private readonly activity: ActivityService,
+  ) {}
 
   async archive(
     landlordId: string,
     input: ArchivePropertyInput,
   ): Promise<ArchiveResult> {
     const { leaseId } = await this.repo.archiveViaAtomicRpc(landlordId, input);
+    // Snapshot the from-property at event time so a tenant's history stays
+    // attributed to the unit they left, even after re-leasing elsewhere.
+    await this.activity.log({
+      actionType: "property_reset",
+      description: "Property reset",
+      userId: landlordId,
+      propertyId: input.propertyId,
+      tenantId: input.tenantId,
+      leaseId,
+      metadata: { remarks: input.remarks },
+    });
     return { archived: true, leaseId };
   }
 

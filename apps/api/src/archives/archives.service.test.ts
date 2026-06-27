@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ActivityService } from "../activity/activity.service";
 import { ArchivesRepository } from "./archives.repository";
 import { ArchivesService } from "./archives.service";
 
@@ -34,7 +35,8 @@ describe("ArchivesService.archive", () => {
         .fn<ArchivesRepository["archiveViaAtomicRpc"]>()
         .mockResolvedValue({ leaseId: "lease1" }),
     });
-    const service = new ArchivesService(repo);
+    const activity = stub<ActivityService>({ log: vi.fn() });
+    const service = new ArchivesService(repo, activity);
 
     const result = await service.archive("landlord1", {
       propertyId: "prop1",
@@ -43,6 +45,14 @@ describe("ArchivesService.archive", () => {
     });
 
     expect(result).toEqual({ archived: true, leaseId: "lease1" });
+    expect(activity.log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "property_reset",
+        propertyId: "prop1",
+        tenantId: "tenant1",
+        leaseId: "lease1",
+      }),
+    );
   });
 });
 
@@ -56,7 +66,8 @@ describe("ArchivesService.list", () => {
           archivedRow({ id: null }),
         ]),
     });
-    const service = new ArchivesService(repo);
+    const activity = stub<ActivityService>({ log: vi.fn() });
+    const service = new ArchivesService(repo, activity);
 
     const result = await service.list("landlord1");
 
