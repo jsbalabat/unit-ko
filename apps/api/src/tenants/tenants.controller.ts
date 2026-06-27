@@ -12,8 +12,18 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiParam,
+  ApiQuery,
+  ApiTags,
+} from "@nestjs/swagger";
+import {
   createTenantSchema,
   listTenantsQuerySchema,
+  tenantListItemSchema,
   updateTenantSchema,
   type CreateTenantInput,
   type ListTenantsQuery,
@@ -24,15 +34,20 @@ import { SupabaseJwtGuard } from "../auth/supabase-jwt.guard";
 import { CurrentLandlord } from "../auth/current-landlord.decorator";
 import type { AuthenticatedLandlord } from "../auth/current-landlord.decorator";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
+import { zodArraySchema, zodSchema } from "../common/openapi";
 import { TenantsService } from "./tenants.service";
 
 // Landlord-scoped tenant management. Identity comes from the verified JWT.
+@ApiTags("tenants")
+@ApiBearerAuth("landlord-jwt")
 @Controller("tenants")
 @UseGuards(SupabaseJwtGuard)
 export class TenantsController {
   constructor(private readonly service: TenantsService) {}
 
   @Get()
+  @ApiQuery({ name: "assigned", required: false, enum: ["true", "false"] })
+  @ApiOkResponse({ schema: zodArraySchema(tenantListItemSchema) })
   list(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Query(new ZodValidationPipe(listTenantsQuerySchema)) query: ListTenantsQuery,
@@ -42,6 +57,8 @@ export class TenantsController {
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
+  @ApiBody({ schema: zodSchema(createTenantSchema) })
+  @ApiCreatedResponse({ schema: zodSchema(tenantListItemSchema) })
   create(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Body(new ZodValidationPipe(createTenantSchema)) input: CreateTenantInput,
@@ -50,6 +67,9 @@ export class TenantsController {
   }
 
   @Patch(":id")
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiBody({ schema: zodSchema(updateTenantSchema) })
+  @ApiOkResponse({ schema: zodSchema(tenantListItemSchema) })
   update(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Param("id", ParseUUIDPipe) id: string,
