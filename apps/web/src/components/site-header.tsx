@@ -11,6 +11,7 @@ import {
   User,
   FileText,
   Bell,
+  Activity,
 } from "lucide-react";
 import { MultiStepPopup } from "@/components/form-add-property";
 import { useState, useEffect, useSyncExternalStore } from "react";
@@ -278,6 +279,13 @@ export function SiteHeader() {
                 <User className="mr-2 h-4 w-4" />
                 <span>Account</span>
               </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => router.push("/dashboard/landlord/activity")}
+                className="cursor-pointer"
+              >
+                <Activity className="mr-2 h-4 w-4" />
+                <span>Activity Log</span>
+              </DropdownMenuItem>
               <DropdownMenuItem className="cursor-pointer">
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Settings</span>
@@ -347,6 +355,14 @@ export function SiteHeader() {
               >
                 <User className="h-4 w-4" />
                 <span className="text-sm">Account</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuItem
+                onClick={() => router.push("/dashboard/landlord/activity")}
+                className="flex items-center gap-2 cursor-pointer"
+              >
+                <Activity className="h-4 w-4" />
+                <span className="text-sm">Activity Log</span>
               </DropdownMenuItem>
 
               <DropdownMenuItem className="flex items-center gap-2 cursor-pointer">
