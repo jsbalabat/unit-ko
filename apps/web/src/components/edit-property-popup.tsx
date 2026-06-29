@@ -370,14 +370,22 @@ export function EditPropertyPopup({
           contactNumber: firstTenant?.contactNumber || "",
           pax: initialPax,
           paxDetails,
-          contractMonths: schedule.length,
-          rentStartDate: firstDueDate ? firstDueDate.slice(0, 10) : "",
-          formBasis: inferBillingFrequency(schedule),
+          // Prefer the real lease terms now returned by the API; fall back to the
+          // values inferred from invoices for properties created before this read
+          // existed (or with no active lease).
+          contractMonths: detail.lease?.contractPeriods ?? schedule.length,
+          rentStartDate:
+            detail.lease?.rentStartDate ??
+            (firstDueDate ? firstDueDate.slice(0, 10) : ""),
+          formBasis: detail.lease?.billingFrequency ?? inferBillingFrequency(schedule),
           rentPerPerson:
             initialPax > 0
               ? Number((detail.rentAmount / initialPax).toFixed(2))
               : detail.rentAmount,
-          dueDay: inferredDueDay,
+          dueDay:
+            detail.lease?.dueDay != null
+              ? String(detail.lease.dueDay)
+              : inferredDueDay,
           billingSchedule: schedule.map((entry) => ({
             id: entry.id,
             dueDate: entry.dueDate ?? "",
