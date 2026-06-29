@@ -254,6 +254,65 @@ export type Database = {
           },
         ]
       }
+      billing_entry_revisions: {
+        Row: {
+          billing_entry_id: string
+          charges: Json
+          edited_at: string
+          edited_by: string | null
+          id: string
+          rent_due: number
+          status_code: string
+        }
+        Insert: {
+          billing_entry_id: string
+          charges?: Json
+          edited_at?: string
+          edited_by?: string | null
+          id?: string
+          rent_due: number
+          status_code: string
+        }
+        Update: {
+          billing_entry_id?: string
+          charges?: Json
+          edited_at?: string
+          edited_by?: string | null
+          id?: string
+          rent_due?: number
+          status_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "billing_entry_revisions_billing_entry_id_fkey"
+            columns: ["billing_entry_id"]
+            isOneToOne: false
+            referencedRelation: "billing_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_entry_revisions_billing_entry_id_fkey"
+            columns: ["billing_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_billing_entries_full"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_entry_revisions_edited_by_fkey"
+            columns: ["edited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_entry_revisions_status_code_fkey"
+            columns: ["status_code"]
+            isOneToOne: false
+            referencedRelation: "billing_statuses"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
       billing_frequencies: {
         Row: {
           code: string
