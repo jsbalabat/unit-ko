@@ -72,6 +72,7 @@ export interface TenantDashboardData {
     gross_due: number;
     status: string;
     billing_period: number;
+    updated_at: string | null;
   }[];
   landlordName: string | null;
   payoutMethods: PayoutChannel[];
@@ -111,6 +112,7 @@ export async function fetchTenantDashboard(): Promise<TenantDashboardData | null
       gross_due: e.grossDue,
       status: e.status === "Paid" ? "paid" : "pending",
       billing_period: e.sequence ?? 0,
+      updated_at: e.updatedAt,
     })),
     landlordName: dto.landlordName,
     payoutMethods: dto.payoutMethods,

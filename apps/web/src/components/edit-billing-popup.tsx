@@ -210,6 +210,13 @@ export function EditBillingPopup({
     [invoices],
   );
 
+  const lastUpdated = useMemo(() => {
+    const stamps = invoices
+      .map((e) => e.updatedAt)
+      .filter((t): t is string => Boolean(t));
+    return stamps.length ? stamps.reduce((a, b) => (b > a ? b : a)) : null;
+  }, [invoices]);
+
   const openPayment = (invoice: BillingEntry) => {
     setPayFor(invoice);
     setPayAmount(invoice.balance > 0 ? String(invoice.balance) : "");
@@ -284,6 +291,11 @@ export function EditBillingPopup({
               Record payments and adjust invoices. Edits stage as a draft and
               save on demand; balances and status are computed automatically.
             </DialogDescription>
+            {lastUpdated && (
+              <p className="text-xs text-muted-foreground">
+                Last updated {formatDateTime(lastUpdated)}
+              </p>
+            )}
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto px-6 pb-4">
@@ -651,8 +663,8 @@ function InvoiceRow({
         </div>
 
         <div className="flex items-center justify-between gap-2">
-          <div className="flex gap-2">
-            {dirty && (
+          <div className="flex items-center gap-2">
+            {dirty ? (
               <>
                 <Button size="sm" onClick={save} disabled={busy || !rentValid}>
                   Save changes
@@ -661,6 +673,12 @@ function InvoiceRow({
                   Reset
                 </Button>
               </>
+            ) : (
+              invoice.updatedAt && (
+                <span className="text-[11px] text-muted-foreground">
+                  Updated {formatDateTime(invoice.updatedAt)}
+                </span>
+              )
             )}
           </div>
           <div className="flex gap-2">

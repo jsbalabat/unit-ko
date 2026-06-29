@@ -45,6 +45,18 @@ import { LandlordPaymentInfo } from "@/components/landlord-payment-info";
 
 type BillingEntry = TenantDashboardData["billingEntries"][number];
 
+function formatTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function TenantDashboard() {
   const router = useRouter();
   const [dashboardData, setDashboardData] =
@@ -131,6 +143,13 @@ function TenantDashboard() {
   }
 
   const { tenant, property, billingEntries } = dashboardData;
+
+  const billingStamps = billingEntries
+    .map((e) => e.updated_at)
+    .filter((t): t is string => Boolean(t));
+  const lastUpdated = billingStamps.length
+    ? billingStamps.reduce((a, b) => (b > a ? b : a))
+    : null;
 
   // Calculate billing summary
   const paidBills = billingEntries.filter(
@@ -346,6 +365,11 @@ function TenantDashboard() {
                 <CardDescription>
                   Overview of your rental payments
                 </CardDescription>
+                {lastUpdated && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Last updated {formatTimestamp(lastUpdated)}
+                  </p>
+                )}
               </div>
               {billingEntries.length > 0 && (
                 <Button
