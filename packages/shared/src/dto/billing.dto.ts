@@ -47,6 +47,23 @@ export const updateBillingEntrySchema = z.object({
 });
 export type UpdateBillingEntryInput = z.infer<typeof updateBillingEntrySchema>;
 
+// One persisted revision of an invoice, written per edit by
+// update_billing_entry_atomic (a durable audit trail, distinct from the
+// best-effort activity log). otherCharges/grossDue are derived from the
+// snapshotted charge lines, mirroring billingEntrySchema's derived figures.
+export const billingRevisionSchema = z.object({
+  id: z.string().uuid(),
+  billingEntryId: z.string().uuid(),
+  rentDue: z.number(),
+  otherCharges: z.number(),
+  grossDue: z.number(),
+  charges: z.array(billingChargeItemSchema),
+  status: z.enum(BILLING_STATUSES),
+  editedBy: z.string().uuid().nullable(),
+  editedAt: z.string(),
+});
+export type BillingRevision = z.infer<typeof billingRevisionSchema>;
+
 // ── Payments ────────────────────────────────────────────────────────────────
 // POST /payments — pay against an invoice (billingEntryId) or a lease directly
 // (e.g. a deposit/advance not tied to a period). At least one id is required.
