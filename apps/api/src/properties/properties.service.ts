@@ -1,9 +1,11 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { BILLING_FREQUENCIES, type BillingFrequency } from "@unitko/shared";
 import type {
   BillingMode,
   CreatePropertyInput,
   OccupancyStatus,
   PropertyDetail,
+  PropertyLeaseTerms,
   PropertyNote,
   PropertySummary,
   UpdatePropertyInput,
@@ -36,6 +38,19 @@ interface PropertyRow {
   tenants: { count: number }[];
 }
 
+// Active-lease row as selected by the repository (snake_case from Postgres).
+// Numeric/text fields are typed wide so the Supabase row is assignable here.
+interface LeaseRow {
+  billing_frequency_code: string | null;
+  contract_periods: number | null;
+  rent_start_date: string | null;
+  rent_end_date: string | null;
+  due_day: number | null;
+  rent_amount: number | null;
+  advance_payment: number | null;
+  security_deposit: number | null;
+}
+
 // billing_mode is a free string at the type level but a CHECK-constrained value
 // in the DB; narrow it to the DTO union without an unchecked cast.
 function toBillingMode(value: string): BillingMode {
@@ -44,6 +59,31 @@ function toBillingMode(value: string): BillingMode {
 
 function toOccupancy(value: string | null): OccupancyStatus {
   return value === "occupied" ? "occupied" : "vacant";
+}
+
+// billing_frequency_code is FK-constrained to billing_frequencies (whose codes
+// mirror the enum); narrow it to the union without an unchecked cast.
+function toBillingFrequency(value: string | null): BillingFrequency {
+  for (const f of BILLING_FREQUENCIES) {
+    if (f === value) return f;
+  }
+  return "monthly";
+}
+
+// Maps the property's active-lease row to the DTO terms; null when the property
+// has no active lease. Exported for unit testing.
+export function toLeaseTerms(row: LeaseRow | null): PropertyLeaseTerms | null {
+  if (!row) return null;
+  return {
+    billingFrequency: toBillingFrequency(row.billing_frequency_code),
+    contractPeriods: row.contract_periods,
+    rentStartDate: row.rent_start_date,
+    rentEndDate: row.rent_end_date,
+    dueDay: row.due_day,
+    rentAmount: row.rent_amount ?? 0,
+    advancePayment: row.advance_payment ?? 0,
+    securityDeposit: row.security_deposit ?? 0,
+  };
 }
 
 function toNote(row: NoteRow): PropertyNote {
@@ -126,7 +166,8 @@ export class PropertiesService {
       throw new NotFoundException("Property not found");
     }
 
-    const { property, notes, amenities, tenants, occupancyStatus } = result;
+    const { property, notes, amenities, tenants, lease, occupancyStatus } =
+      result;
 
     return {
       ...this.toSummary(property, occupancyStatus),
@@ -148,6 +189,7 @@ export class PropertiesService {
         tenantSlot: t.tenant_slot,
         isActive: t.is_active,
       })),
+      lease: toLeaseTerms(lease),
     };
   }
 

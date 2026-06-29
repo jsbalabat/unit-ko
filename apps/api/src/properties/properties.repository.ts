@@ -84,10 +84,11 @@ export class PropertiesRepository {
     if (error) throw error;
     if (!property) return null;
 
-    const [notes, amenities, tenants, occupancy] = await Promise.all([
+    const [notes, amenities, tenants, lease, occupancy] = await Promise.all([
       this.fetchNotes(propertyId),
       this.fetchAmenities(propertyId),
       this.fetchTenants(propertyId),
+      this.fetchActiveLease(propertyId),
       this.fetchOccupancy([propertyId]),
     ]);
 
@@ -96,6 +97,7 @@ export class PropertiesRepository {
       notes,
       amenities,
       tenants,
+      lease,
       occupancyStatus: occupancy.get(propertyId) ?? null,
     };
   }
@@ -200,5 +202,24 @@ export class PropertiesRepository {
 
     if (error) throw error;
     return data ?? [];
+  }
+
+  // The property's current lease terms. Occupants share one set of terms in the
+  // create/update flow; limit(1) keeps maybeSingle valid for bed-space properties
+  // (which have one active lease per tenant, all carrying the same terms).
+  private async fetchActiveLease(propertyId: string) {
+    const { data, error } = await this.supabase.db
+      .from("leases")
+      .select(
+        "billing_frequency_code, contract_periods, rent_start_date, rent_end_date, due_day, rent_amount, advance_payment, security_deposit",
+      )
+      .eq("property_id", propertyId)
+      .eq("status", "active")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data;
   }
 }
