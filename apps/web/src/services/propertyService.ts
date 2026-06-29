@@ -59,24 +59,27 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 // contract: a property + shared lease terms + occupants + a billing schedule
 // whose charges become billing_charges rows (so other_charges stays derived).
 function toCreatePropertyInput(formData: PropertyFormData): CreatePropertyInput {
-  const occupants =
-    formData.maxTenants > 1 || formData.tenants.length > 0
-      ? formData.tenants
-      : [
-          {
-            tenantName: formData.tenantName,
-            tenantEmail: formData.tenantEmail,
-            contactNumber: formData.contactNumber,
-          },
-        ];
+  // Named occupants can live in the multi-tenant array (bed space) or the legacy
+  // single-tenant fields. Prefer named array entries; otherwise fall back to the
+  // legacy fields — so a single tenant entered there isn't dropped when empty
+  // bed-space slots exist. Only non-empty names become tenants.
+  const namedFromArray = formData.tenants.filter((t) => t.tenantName?.trim());
+  const legacyOccupant = formData.tenantName?.trim()
+    ? [
+        {
+          tenantName: formData.tenantName,
+          tenantEmail: formData.tenantEmail,
+          contactNumber: formData.contactNumber,
+        },
+      ]
+    : [];
+  const occupants = namedFromArray.length > 0 ? namedFromArray : legacyOccupant;
 
-  const tenants = occupants
-    .filter((t) => t.tenantName?.trim())
-    .map((t) => ({
-      tenantName: t.tenantName.trim(),
-      email: t.tenantEmail?.trim() || null,
-      contactNumber: t.contactNumber?.trim() || "",
-    }));
+  const tenants = occupants.map((t) => ({
+    tenantName: t.tenantName.trim(),
+    email: t.tenantEmail?.trim() || null,
+    contactNumber: t.contactNumber?.trim() || "",
+  }));
 
   const dueDayNum = Number.parseInt(formData.dueDay, 10);
   const dueDay =
