@@ -67,10 +67,26 @@ export const propertyTenantSchema = z.object({
 });
 export type PropertyTenant = z.infer<typeof propertyTenantSchema>;
 
+// Terms of the property's active lease. All occupants share one set of terms in
+// the create/update flow, so this represents the property's current lease.
+// Null when the property has no active lease yet.
+export const propertyLeaseTermsSchema = z.object({
+  billingFrequency: z.enum(BILLING_FREQUENCIES),
+  contractPeriods: z.number().int().nullable(),
+  rentStartDate: z.string().nullable(),
+  rentEndDate: z.string().nullable(),
+  dueDay: z.number().int().nullable(),
+  rentAmount: z.number(),
+  advancePayment: z.number(),
+  securityDeposit: z.number(),
+});
+export type PropertyLeaseTerms = z.infer<typeof propertyLeaseTermsSchema>;
+
 export const propertyDetailSchema = propertySummarySchema.extend({
   notes: z.array(propertyNoteSchema),
   amenities: z.array(propertyAmenitySchema),
   tenants: z.array(propertyTenantSchema),
+  lease: propertyLeaseTermsSchema.nullable(),
 });
 export type PropertyDetail = z.infer<typeof propertyDetailSchema>;
 
