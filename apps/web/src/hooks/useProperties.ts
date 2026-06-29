@@ -172,20 +172,27 @@ export function useProperties() {
     };
   }, [loadProperties, applyProperties]);
 
-  // Manual refresh re-enters the loading state; the initial load already starts
-  // in it.
-  const refetch = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    return loadProperties()
-      .then(applyProperties)
-      .catch((err) =>
-        setError(
-          err instanceof Error ? err.message : "Failed to fetch properties",
-        ),
-      )
-      .finally(() => setLoading(false));
-  }, [loadProperties, applyProperties]);
+  // Refresh the dashboard data. A "silent" refresh (used when an open popup
+  // triggers it) updates in place WITHOUT re-entering the full-screen loading
+  // state — otherwise the `if (loading)` skeleton unmounts the dashboard and the
+  // popup stack above it. A loud refresh (default) shows the skeleton.
+  const refetch = useCallback(
+    (silent = false) => {
+      if (!silent) setLoading(true);
+      setError(null);
+      return loadProperties()
+        .then(applyProperties)
+        .catch((err) =>
+          setError(
+            err instanceof Error ? err.message : "Failed to fetch properties",
+          ),
+        )
+        .finally(() => {
+          if (!silent) setLoading(false);
+        });
+    },
+    [loadProperties, applyProperties],
+  );
 
   return {
     properties,

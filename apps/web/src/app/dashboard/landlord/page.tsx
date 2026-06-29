@@ -1081,11 +1081,17 @@ function LandlordDashboard() {
         <PropertyDetailsPopup
           propertyId={selectedPropertyId}
           isOpen={isDetailsPopupOpen}
-          onClose={() => setIsDetailsPopupOpen(false)}
-          onEdit={handleEditProperty}
-          onSuccess={() => {
-            refetch();
+          onClose={() => {
+            setIsDetailsPopupOpen(false);
             setSelectedPropertyId(null);
+          }}
+          onEdit={handleEditProperty}
+          // SILENT refresh: a nested save must not re-enter the dashboard's
+          // loading skeleton, which would unmount this popup (and any billing/
+          // edit popup open within it). Refresh in place; closing stays explicit
+          // via onClose.
+          onSuccess={() => {
+            refetch(true);
           }}
           defaultTab={detailsActiveTab}
         />
