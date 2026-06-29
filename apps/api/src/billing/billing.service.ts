@@ -83,6 +83,8 @@ export class BillingService {
         balance: e.balance ?? 0,
         status: toBillingStatus(e.status_code),
         sequence: e.sequence,
+        createdAt: e.created_at,
+        updatedAt: e.updated_at,
         charges: r.charges,
       },
     ];

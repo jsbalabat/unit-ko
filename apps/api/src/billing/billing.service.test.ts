@@ -26,6 +26,8 @@ const view = (over: Partial<BillingEntryView> = {}): BillingEntryView => ({
   gross_due: 1000,
   paid_amount: 1000,
   balance: 0,
+  created_at: "2026-06-01T00:00:00Z",
+  updated_at: "2026-06-01T00:00:00Z",
   ...over,
 });
 
