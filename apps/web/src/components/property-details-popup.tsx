@@ -27,7 +27,7 @@
  * - BillingEntry.gross_due and paid_amount are treated as direct row amounts
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -337,10 +337,15 @@ export function PropertyDetailsPopup({
   // terms (contract length, start date, due day, advance/deposit) come from the
   // property's shared active lease. `overflow` has no normalized equivalent
   // (credit is derived from the payments ledger), so it stays 0.
+  //
+  // Tracks the currently-loaded property so a background refresh of the same
+  // property doesn't re-trigger the full-screen loader — which would unmount an
+  // open child popup (billing/edit) via the `if (loading) return` early-return.
+  const loadedPropertyRef = useRef<string | null>(null);
   const fetchPropertyDetails = useCallback(async () => {
     if (!isOpen || !propertyId) return;
 
-    setLoading(true);
+    if (loadedPropertyRef.current !== propertyId) setLoading(true);
     setError(null);
 
     try {
@@ -401,6 +406,7 @@ export function PropertyDetailsPopup({
       });
 
       setActivityLogs(activity);
+      loadedPropertyRef.current = propertyId;
     } catch (err) {
       console.error("Error fetching property details:", err);
       setError(
