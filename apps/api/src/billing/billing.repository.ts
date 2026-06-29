@@ -31,6 +31,18 @@ export interface EnrichedEntry {
   charges: BillingChargeItem[];
 }
 
+// Raw row from billing_entry_revisions. `charges` is the stored jsonb snapshot,
+// validated when the service maps it to the DTO.
+export interface BillingRevisionRow {
+  id: string;
+  billing_entry_id: string;
+  rent_due: number;
+  charges: unknown;
+  status_code: string;
+  edited_by: string | null;
+  edited_at: string;
+}
+
 @Injectable()
 export class BillingRepository {
   constructor(private readonly supabase: SupabaseService) {}
@@ -151,6 +163,30 @@ export class BillingRepository {
 
     const chargesByEntry = await this.fetchCharges([entryId]);
     return { entry, tenantId, tenantName, charges: chargesByEntry.get(entryId) ?? [] };
+  }
+
+  // Landlord that owns the property the entry's lease belongs to — for read-path
+  // ownership checks (writes verify inside the RPC).
+  async findEntryLandlord(entryId: string): Promise<string | null> {
+    const { data, error } = await this.supabase.db
+      .from("billing_entries")
+      .select("leases(properties(landlord_id))")
+      .eq("id", entryId)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.leases?.properties?.landlord_id ?? null;
+  }
+
+  async findRevisionsByEntry(entryId: string): Promise<BillingRevisionRow[]> {
+    const { data, error } = await this.supabase.db
+      .from("billing_entry_revisions")
+      .select(
+        "id, billing_entry_id, rent_due, charges, status_code, edited_by, edited_at",
+      )
+      .eq("billing_entry_id", entryId)
+      .order("edited_at", { ascending: false });
+    if (error) throw error;
+    return data ?? [];
   }
 
   // Edit + recompute happen inside the function (ownership is checked there too).

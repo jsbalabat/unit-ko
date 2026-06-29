@@ -18,9 +18,11 @@ import {
 } from "@nestjs/swagger";
 import {
   billingEntrySchema,
+  billingRevisionSchema,
   listBillingQuerySchema,
   updateBillingEntrySchema,
   type BillingEntry,
+  type BillingRevision,
   type ListBillingQuery,
   type UpdateBillingEntryInput,
 } from "@unitko/shared";
@@ -61,5 +63,16 @@ export class BillingController {
     input: UpdateBillingEntryInput,
   ): Promise<BillingEntry> {
     return this.service.updateEntry(landlord.id, id, input);
+  }
+
+  // Durable edit history for one owned invoice (newest first).
+  @Get("entries/:id/revisions")
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiOkResponse({ schema: zodArraySchema(billingRevisionSchema) })
+  listRevisions(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<BillingRevision[]> {
+    return this.service.listRevisions(landlord.id, id);
   }
 }

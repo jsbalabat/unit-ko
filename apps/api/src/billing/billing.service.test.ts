@@ -156,3 +156,90 @@ describe("BillingService.updateEntry", () => {
     expect(log).not.toHaveBeenCalled();
   });
 });
+
+describe("BillingService.listRevisions", () => {
+  it("rejects with NotFound when the entry is not the landlord's", async () => {
+    const repo = stub<BillingRepository>({
+      findEntryLandlord: vi
+        .fn<BillingRepository["findEntryLandlord"]>()
+        .mockResolvedValue("another-landlord"),
+    });
+    const service = new BillingService(repo, stub<ActivityService>({}));
+
+    await expect(
+      service.listRevisions("landlord1", "entry1"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("maps revisions, deriving otherCharges/grossDue from the jsonb charge lines", async () => {
+    const repo = stub<BillingRepository>({
+      findEntryLandlord: vi
+        .fn<BillingRepository["findEntryLandlord"]>()
+        .mockResolvedValue("landlord1"),
+      findRevisionsByEntry: vi
+        .fn<BillingRepository["findRevisionsByEntry"]>()
+        .mockResolvedValue([
+          {
+            id: "rev1",
+            billing_entry_id: "entry1",
+            rent_due: 1000,
+            charges: [
+              { name: "Water", amount: 200 },
+              { name: "Electricity", amount: 300 },
+            ],
+            status_code: "Partial",
+            edited_by: "landlord1",
+            edited_at: "2026-06-29T10:00:00.000Z",
+          },
+        ]),
+    });
+    const service = new BillingService(repo, stub<ActivityService>({}));
+
+    const [rev] = await service.listRevisions("landlord1", "entry1");
+
+    expect(rev).toEqual({
+      id: "rev1",
+      billingEntryId: "entry1",
+      rentDue: 1000,
+      otherCharges: 500,
+      grossDue: 1500,
+      charges: [
+        { name: "Water", amount: 200 },
+        { name: "Electricity", amount: 300 },
+      ],
+      status: "Partial",
+      editedBy: "landlord1",
+      editedAt: "2026-06-29T10:00:00.000Z",
+    });
+  });
+
+  it("drops a malformed jsonb snapshot to an empty charge set", async () => {
+    const repo = stub<BillingRepository>({
+      findEntryLandlord: vi
+        .fn<BillingRepository["findEntryLandlord"]>()
+        .mockResolvedValue("landlord1"),
+      findRevisionsByEntry: vi
+        .fn<BillingRepository["findRevisionsByEntry"]>()
+        .mockResolvedValue([
+          {
+            id: "rev1",
+            billing_entry_id: "entry1",
+            rent_due: 1000,
+            charges: "not-an-array",
+            status_code: "not-a-real-status",
+            edited_by: null,
+            edited_at: "2026-06-29T10:00:00.000Z",
+          },
+        ]),
+    });
+    const service = new BillingService(repo, stub<ActivityService>({}));
+
+    const [rev] = await service.listRevisions("landlord1", "entry1");
+
+    expect(rev?.charges).toEqual([]);
+    expect(rev?.otherCharges).toBe(0);
+    expect(rev?.grossDue).toBe(1000);
+    expect(rev?.status).toBe("Not Yet Set");
+    expect(rev?.editedBy).toBeNull();
+  });
+});

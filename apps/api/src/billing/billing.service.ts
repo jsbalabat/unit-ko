@@ -1,12 +1,20 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { z } from "zod";
 import {
   BILLING_STATUSES,
+  billingChargeItemSchema,
+  type BillingChargeItem,
   type BillingEntry,
+  type BillingRevision,
   type BillingStatus,
   type UpdateBillingEntryInput,
 } from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
-import { BillingRepository, type EnrichedEntry } from "./billing.repository";
+import {
+  BillingRepository,
+  type BillingRevisionRow,
+  type EnrichedEntry,
+} from "./billing.repository";
 
 @Injectable()
 export class BillingService {
@@ -64,6 +72,20 @@ export class BillingService {
     return this.toEntry(row)[0] ?? null;
   }
 
+  // Edit history for one owned invoice, newest first. Ownership is verified here
+  // since the read doesn't pass through the recompute RPC.
+  async listRevisions(
+    landlordId: string,
+    entryId: string,
+  ): Promise<BillingRevision[]> {
+    const owner = await this.repo.findEntryLandlord(entryId);
+    if (owner !== landlordId) {
+      throw new NotFoundException("Billing entry not found");
+    }
+    const rows = await this.repo.findRevisionsByEntry(entryId);
+    return rows.map((row) => toRevision(row));
+  }
+
   // Returns a 0-or-1 array so a null-id view row is simply dropped (no `!`).
   private toEntry(r: EnrichedEntry): BillingEntry[] {
     const e = r.entry;
@@ -97,4 +119,27 @@ function toBillingStatus(code: string | null): BillingStatus {
     if (s === code) return s;
   }
   return "Not Yet Set";
+}
+
+function toRevision(row: BillingRevisionRow): BillingRevision {
+  const charges = parseCharges(row.charges);
+  const otherCharges = charges.reduce((sum, c) => sum + c.amount, 0);
+  return {
+    id: row.id,
+    billingEntryId: row.billing_entry_id,
+    rentDue: row.rent_due,
+    otherCharges,
+    grossDue: row.rent_due + otherCharges,
+    charges,
+    status: toBillingStatus(row.status_code),
+    editedBy: row.edited_by,
+    editedAt: row.edited_at,
+  };
+}
+
+// The revision's charge lines are a stored jsonb snapshot; validate the shape at
+// this boundary rather than trusting the column's loose `Json` type.
+function parseCharges(value: unknown): BillingChargeItem[] {
+  const parsed = z.array(billingChargeItemSchema).safeParse(value);
+  return parsed.success ? parsed.data : [];
 }
