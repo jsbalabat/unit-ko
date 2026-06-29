@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import type { BillingEntry } from "@unitko/shared";
+import type {
+  BillingChargeItem,
+  BillingEntry,
+  BillingRevision,
+  UpdateBillingEntryInput,
+} from "@unitko/shared";
 import { api, ApiError } from "@/lib/api-client";
 import {
   Dialog,
@@ -24,8 +29,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Building2, Receipt, Pencil } from "lucide-react";
+import {
+  Loader2,
+  Building2,
+  Receipt,
+  Pencil,
+  RefreshCw,
+  History,
+} from "lucide-react";
 import { OtherChargesPopup } from "@/components/other-charges-popup";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 
 interface EditBillingPopupProps {
   propertyId: string;
@@ -49,6 +68,18 @@ function peso(amount: number): string {
   })}`;
 }
 
+function formatDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 const STATUS_TONE: Record<string, string> = {
   Paid: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
   Partial: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300",
@@ -58,8 +89,9 @@ const STATUS_TONE: Record<string, string> = {
 // Per-tenant invoice manager. Reads the tenant's invoices (derived figures) and
 // mutates only through the API: payments go to the ledger (POST /payments) and
 // rent/charges/due-date edits go through PATCH /billing/entries/:id, which
-// recomputes status server-side. Structural changes (lease terms, the schedule
-// itself) live in the property editor — reachable via onSwitchToProperty.
+// recomputes status server-side. Edits stage in a per-invoice draft and commit
+// on one explicit Save (no field-level auto-save). Structural changes (lease
+// terms, the schedule itself) live in the property editor — via onSwitchToProperty.
 export function EditBillingPopup({
   propertyId,
   tenantId,
@@ -80,8 +112,11 @@ export function EditBillingPopup({
   const [payDate, setPayDate] = useState("");
   const [payNotes, setPayNotes] = useState("");
 
-  // Charges editor (reuses the add-property charges popup).
-  const [chargesFor, setChargesFor] = useState<BillingEntry | null>(null);
+  // Edit-history drawer.
+  const [historyFor, setHistoryFor] = useState<BillingEntry | null>(null);
+  const [revisions, setRevisions] = useState<BillingRevision[]>([]);
+  const [revisionsLoading, setRevisionsLoading] = useState(false);
+  const [revisionsError, setRevisionsError] = useState<string | null>(null);
 
   // Pure fetch: this tenant's invoices, no state writes.
   const fetchInvoices = useCallback(
@@ -97,7 +132,7 @@ export function EditBillingPopup({
     setError(null);
   }, []);
 
-  // Manual refresh after a mutation (record payment / edit charges).
+  // Refetch after a mutation (record payment / save invoice) or the Refresh control.
   const load = useCallback(() => {
     setLoading(true);
     return fetchInvoices()
@@ -114,6 +149,17 @@ export function EditBillingPopup({
   if (wasOpen !== isOpen) {
     setWasOpen(isOpen);
     if (isOpen) setLoading(true);
+  }
+
+  // Reset the history drawer when it opens for a different invoice — in render,
+  // not the effect, to avoid a synchronous setState there.
+  const historyId = historyFor?.id ?? null;
+  const [lastHistoryId, setLastHistoryId] = useState(historyId);
+  if (lastHistoryId !== historyId) {
+    setLastHistoryId(historyId);
+    setRevisions([]);
+    setRevisionsError(null);
+    setRevisionsLoading(historyId !== null);
   }
 
   useEffect(() => {
@@ -136,6 +182,28 @@ export function EditBillingPopup({
       ignore = true;
     };
   }, [isOpen, fetchInvoices, applyInvoices]);
+
+  useEffect(() => {
+    if (!historyFor) return;
+    let ignore = false;
+    api.billing
+      .revisions(historyFor.id)
+      .then((rows) => {
+        if (!ignore) setRevisions(rows);
+      })
+      .catch((err) => {
+        if (!ignore)
+          setRevisionsError(
+            err instanceof Error ? err.message : "Failed to load history",
+          );
+      })
+      .finally(() => {
+        if (!ignore) setRevisionsLoading(false);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [historyFor]);
 
   const tenantName = useMemo(
     () => invoices.find((e) => e.tenantName)?.tenantName ?? "this tenant",
@@ -181,13 +249,15 @@ export function EditBillingPopup({
     }
   };
 
-  const patchEntry = async (
+  // One PATCH carrying the whole draft; the server recomputes status atomically.
+  const saveEntry = async (
     invoice: BillingEntry,
-    body: Parameters<typeof api.billing.update>[1],
+    body: UpdateBillingEntryInput,
   ) => {
     setBusyId(invoice.id);
     try {
       await api.billing.update(invoice.id, body);
+      toast.success(`Period ${invoice.sequence ?? "—"} updated`);
       await load();
       onSuccess?.();
     } catch (err) {
@@ -211,8 +281,8 @@ export function EditBillingPopup({
               Billing — {tenantName}
             </DialogTitle>
             <DialogDescription>
-              Record payments and adjust invoices. Balances and status are
-              computed automatically.
+              Record payments and adjust invoices. Edits stage as a draft and
+              save on demand; balances and status are computed automatically.
             </DialogDescription>
           </DialogHeader>
 
@@ -231,15 +301,28 @@ export function EditBillingPopup({
               </div>
             ) : (
               <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    {invoices.length} invoice{invoices.length === 1 ? "" : "s"}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void load()}
+                    disabled={loading}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5 mr-1" />
+                    Refresh
+                  </Button>
+                </div>
                 {invoices.map((invoice) => (
                   <InvoiceRow
                     key={invoice.id}
                     invoice={invoice}
                     busy={busyId === invoice.id}
                     onRecordPayment={() => openPayment(invoice)}
-                    onEditCharges={() => setChargesFor(invoice)}
-                    onSaveRent={(rentDue) => patchEntry(invoice, { rentDue })}
-                    onSaveDueDate={(dueDate) => patchEntry(invoice, { dueDate })}
+                    onViewHistory={() => setHistoryFor(invoice)}
+                    onSave={(body) => saveEntry(invoice, body)}
                   />
                 ))}
               </div>
@@ -335,27 +418,82 @@ export function EditBillingPopup({
         </DialogContent>
       </Dialog>
 
-      {/* Edit charges */}
-      {chargesFor && (
-        <OtherChargesPopup
-          isOpen={chargesFor !== null}
-          onClose={() => setChargesFor(null)}
-          month={chargesFor.sequence ?? 0}
-          dueDate={chargesFor.dueDate ?? ""}
-          existingItems={chargesFor.charges.map((c, i) => ({
-            id: `charge-${i}`,
-            name: c.name,
-            amount: c.amount,
-          }))}
-          onSave={(_total, items) => {
-            const target = chargesFor;
-            setChargesFor(null);
-            void patchEntry(target, {
-              charges: items.map((i) => ({ name: i.name, amount: i.amount })),
-            });
-          }}
-        />
-      )}
+      {/* Edit history */}
+      <Sheet
+        open={historyFor !== null}
+        onOpenChange={(open) => (!open ? setHistoryFor(null) : null)}
+      >
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Edit history</SheetTitle>
+            <SheetDescription>
+              {historyFor
+                ? `Period ${historyFor.sequence ?? "—"} — every saved change, newest first.`
+                : ""}
+            </SheetDescription>
+          </SheetHeader>
+
+          <div className="px-4 pb-6 space-y-3">
+            {revisionsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : revisionsError ? (
+              <div className="py-8 text-center text-sm text-destructive">
+                {revisionsError}
+              </div>
+            ) : revisions.length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground text-sm">
+                No edits recorded yet.
+              </div>
+            ) : (
+              revisions.map((rev) => (
+                <Card key={rev.id} className="border">
+                  <CardContent className="p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {formatDateTime(rev.editedAt)}
+                      </span>
+                      <Badge
+                        className={
+                          STATUS_TONE[rev.status] ??
+                          "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
+                        }
+                      >
+                        {rev.status}
+                      </Badge>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-sm">
+                      <div>
+                        <p className="text-[11px] text-muted-foreground">Rent</p>
+                        <p className="font-medium">{peso(rev.rentDue)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-muted-foreground">Other</p>
+                        <p className="font-medium">{peso(rev.otherCharges)}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-muted-foreground">Gross</p>
+                        <p className="font-medium">{peso(rev.grossDue)}</p>
+                      </div>
+                    </div>
+                    {rev.charges.length > 0 && (
+                      <div className="border-t pt-2 space-y-1 text-xs text-muted-foreground">
+                        {rev.charges.map((c, i) => (
+                          <div key={i} className="flex justify-between gap-2">
+                            <span className="truncate">{c.name}</span>
+                            <span>{peso(c.amount)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ))
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </>
   );
 }
@@ -364,35 +502,74 @@ interface InvoiceRowProps {
   invoice: BillingEntry;
   busy: boolean;
   onRecordPayment: () => void;
-  onEditCharges: () => void;
-  onSaveRent: (rentDue: number) => void;
-  onSaveDueDate: (dueDate: string) => void;
+  onViewHistory: () => void;
+  onSave: (body: UpdateBillingEntryInput) => void;
 }
 
+function chargesSignature(charges: BillingChargeItem[]): string {
+  return charges.map((c) => `${c.name}:${c.amount}`).join("|");
+}
+
+function sumCharges(charges: BillingChargeItem[]): number {
+  return charges.reduce((total, c) => total + c.amount, 0);
+}
+
+// Edits stage in a local draft and commit on one explicit Save → a single PATCH
+// (the server recomputes status). Reset discards the draft; nothing auto-saves.
 function InvoiceRow({
   invoice,
   busy,
   onRecordPayment,
-  onEditCharges,
-  onSaveRent,
-  onSaveDueDate,
+  onViewHistory,
+  onSave,
 }: InvoiceRowProps) {
-  const [editingRent, setEditingRent] = useState(false);
-  const [rentValue, setRentValue] = useState(String(invoice.rentDue));
-  const [editingDate, setEditingDate] = useState(false);
-  const [dateValue, setDateValue] = useState(invoice.dueDate ?? "");
+  const [draftRent, setDraftRent] = useState(String(invoice.rentDue));
+  const [draftDate, setDraftDate] = useState(invoice.dueDate ?? "");
+  const [draftCharges, setDraftCharges] = useState<BillingChargeItem[]>(
+    invoice.charges,
+  );
+  const [editingCharges, setEditingCharges] = useState(false);
 
-  const commitRent = () => {
-    const next = Number(rentValue);
-    setEditingRent(false);
-    if (Number.isFinite(next) && next >= 0 && next !== invoice.rentDue) {
-      onSaveRent(next);
-    }
+  // Resync the draft when the persisted invoice changes (e.g. a save bumps
+  // updatedAt) — in render, not an effect, to avoid a synchronous setState there.
+  const version = [
+    invoice.rentDue,
+    invoice.dueDate ?? "",
+    invoice.updatedAt ?? "",
+    chargesSignature(invoice.charges),
+  ].join("§");
+  const [lastVersion, setLastVersion] = useState(version);
+  if (lastVersion !== version) {
+    setLastVersion(version);
+    setDraftRent(String(invoice.rentDue));
+    setDraftDate(invoice.dueDate ?? "");
+    setDraftCharges(invoice.charges);
+  }
+
+  const rentNum = Number(draftRent);
+  const rentValid = draftRent !== "" && Number.isFinite(rentNum) && rentNum >= 0;
+  const rentChanged = rentValid && rentNum !== invoice.rentDue;
+  const dateChanged = draftDate !== "" && draftDate !== (invoice.dueDate ?? "");
+  const chargesChanged =
+    chargesSignature(draftCharges) !== chargesSignature(invoice.charges);
+  const dirty = rentChanged || dateChanged || chargesChanged;
+
+  const draftOtherCharges = sumCharges(draftCharges);
+  const draftGross = (rentValid ? rentNum : invoice.rentDue) + draftOtherCharges;
+  const draftBalance = draftGross - invoice.paidAmount;
+
+  const reset = () => {
+    setDraftRent(String(invoice.rentDue));
+    setDraftDate(invoice.dueDate ?? "");
+    setDraftCharges(invoice.charges);
   };
 
-  const commitDate = () => {
-    setEditingDate(false);
-    if (dateValue && dateValue !== invoice.dueDate) onSaveDueDate(dateValue);
+  const save = () => {
+    const body: UpdateBillingEntryInput = {};
+    if (rentChanged) body.rentDue = rentNum;
+    if (dateChanged) body.dueDate = draftDate;
+    if (chargesChanged) body.charges = draftCharges;
+    if (Object.keys(body).length > 0) onSave(body);
   };
 
   return (
@@ -411,92 +588,122 @@ function InvoiceRow({
             >
               {invoice.status}
             </Badge>
+            {dirty && (
+              <Badge
+                variant="outline"
+                className="text-[10px] border-amber-300 text-amber-600"
+              >
+                Unsaved
+              </Badge>
+            )}
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           </div>
-          <div className="text-xs text-muted-foreground">
-            {editingDate ? (
-              <Input
-                type="date"
-                autoFocus
-                value={dateValue}
-                onChange={(e) => setDateValue(e.target.value)}
-                onBlur={commitDate}
-                className="h-7 w-36 text-xs"
-              />
-            ) : (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 hover:text-foreground"
-                onClick={() => setEditingDate(true)}
-              >
-                Due {invoice.dueDate ?? "—"}
-                <Pencil className="h-3 w-3" />
-              </button>
-            )}
-          </div>
+          <Input
+            type="date"
+            aria-label="Due date"
+            value={draftDate}
+            onChange={(e) => setDraftDate(e.target.value)}
+            className="h-7 w-36 text-xs"
+          />
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm">
-          <div>
+          <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Rent</p>
-            {editingRent ? (
-              <Input
-                type="number"
-                autoFocus
-                min="0"
-                value={rentValue}
-                onChange={(e) => setRentValue(e.target.value)}
-                onBlur={commitRent}
-                className="h-7 text-sm"
-              />
-            ) : (
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 font-medium hover:text-primary"
-                onClick={() => setEditingRent(true)}
-              >
-                {peso(invoice.rentDue)}
-                <Pencil className="h-3 w-3" />
-              </button>
-            )}
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={draftRent}
+              onChange={(e) => setDraftRent(e.target.value)}
+              className="h-7 text-sm"
+            />
           </div>
-          <div>
+          <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Other charges</p>
             <button
               type="button"
               className="inline-flex items-center gap-1 font-medium hover:text-primary"
-              onClick={onEditCharges}
+              onClick={() => setEditingCharges(true)}
             >
-              {peso(invoice.otherCharges)}
+              {peso(draftOtherCharges)}
               <Pencil className="h-3 w-3" />
             </button>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Paid / Due</p>
             <p className="font-medium">
-              {peso(invoice.paidAmount)} / {peso(invoice.grossDue)}
+              {peso(invoice.paidAmount)} / {peso(draftGross)}
             </p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Balance</p>
             <p
               className={`font-semibold ${
-                invoice.balance > 0
+                draftBalance > 0
                   ? "text-red-600 dark:text-red-400"
                   : "text-green-600 dark:text-green-400"
               }`}
             >
-              {peso(invoice.balance)}
+              {peso(draftBalance)}
             </p>
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <Button size="sm" onClick={onRecordPayment} disabled={busy}>
-            Record Payment
-          </Button>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex gap-2">
+            {dirty && (
+              <>
+                <Button size="sm" onClick={save} disabled={busy || !rentValid}>
+                  Save changes
+                </Button>
+                <Button size="sm" variant="ghost" onClick={reset} disabled={busy}>
+                  Reset
+                </Button>
+              </>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onViewHistory}
+              disabled={busy}
+            >
+              <History className="h-3.5 w-3.5 mr-1" />
+              History
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onRecordPayment}
+              disabled={busy}
+            >
+              Record Payment
+            </Button>
+          </div>
         </div>
       </CardContent>
+
+      {editingCharges && (
+        <OtherChargesPopup
+          isOpen
+          onClose={() => setEditingCharges(false)}
+          month={invoice.sequence ?? 0}
+          dueDate={draftDate || invoice.dueDate || ""}
+          existingItems={draftCharges.map((c, i) => ({
+            id: `charge-${i}`,
+            name: c.name,
+            amount: c.amount,
+          }))}
+          onSave={(_total, items) => {
+            setDraftCharges(
+              items.map((i) => ({ name: i.name, amount: i.amount })),
+            );
+            setEditingCharges(false);
+          }}
+        />
+      )}
     </Card>
   );
 }
