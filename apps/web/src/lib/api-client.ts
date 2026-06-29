@@ -5,6 +5,7 @@ import type {
   ArchivePropertyInput,
   ArchiveResult,
   BillingEntry,
+  BillingRevision,
   CreatePropertyInput,
   CreateTenantInput,
   Profile,
@@ -173,6 +174,8 @@ export const api = {
         method: "PATCH",
         body: input,
       }),
+    revisions: (id: string) =>
+      request<BillingRevision[]>(`/billing/entries/${id}/revisions`),
   },
 
   payments: {
