@@ -333,9 +333,10 @@ export function PropertyDetailsPopup({
 
   // Composes the property detail, its invoices, and its activity log from the
   // API into the nested, snake_case `Property` shape the rest of this component
-  // renders. Derived billing figures map onto the legacy column names; fields
-  // the normalized model no longer stores per tenant (overflow, deposit/advance,
-  // contract terms) default to 0/empty so the existing UI degrades gracefully.
+  // renders. Derived billing figures map onto the legacy column names; lease
+  // terms (contract length, start date, due day, advance/deposit) come from the
+  // property's shared active lease. `overflow` has no normalized equivalent
+  // (credit is derived from the payments ledger), so it stays 0.
   const fetchPropertyDetails = useCallback(async () => {
     if (!isOpen || !propertyId) return;
 
@@ -385,12 +386,13 @@ export function PropertyDetailsPopup({
           email: t.email ?? undefined,
           contact_number: t.contactNumber,
           tenant_slot: t.tenantSlot ?? undefined,
-          contract_months: 0,
-          rent_start_date: "",
-          due_day: "",
+          contract_months: detail.lease?.contractPeriods ?? 0,
+          rent_start_date: detail.lease?.rentStartDate ?? "",
+          due_day:
+            detail.lease?.dueDay != null ? String(detail.lease.dueDay) : "",
           is_active: t.isActive,
-          advance_payment: 0,
-          security_deposit: 0,
+          advance_payment: detail.lease?.advancePayment ?? 0,
+          security_deposit: detail.lease?.securityDeposit ?? 0,
           overflow: 0,
           created_at: "",
           updated_at: "",
