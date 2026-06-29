@@ -24,6 +24,9 @@ export const billingEntrySchema = z.object({
   balance: z.number(),
   status: z.enum(BILLING_STATUSES),
   sequence: z.number().int().nullable(),
+  // Nullable at the DTO level because the view erases the table's NOT NULL.
+  createdAt: z.string().nullable(),
+  updatedAt: z.string().nullable(),
   charges: z.array(billingChargeItemSchema),
 });
 export type BillingEntry = z.infer<typeof billingEntrySchema>;
