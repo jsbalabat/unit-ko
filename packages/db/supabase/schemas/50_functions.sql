@@ -683,6 +683,18 @@ begin
 
   update public.billing_entries set status_code = v_new_status, updated_at = now()
   where id = p_entry_id;
+
+  -- Durable per-edit history: snapshot the resulting state + the editing landlord.
+  insert into public.billing_entry_revisions (billing_entry_id, rent_due, charges, status_code, edited_by)
+  select
+    p_entry_id, be.rent_due,
+    coalesce((
+      select jsonb_agg(jsonb_build_object('name', bc.name, 'amount', bc.amount) order by bc.created_at)
+      from public.billing_charges bc where bc.billing_entry_id = p_entry_id
+    ), '[]'::jsonb),
+    be.status_code, p_landlord_id
+  from public.billing_entries be
+  where be.id = p_entry_id;
 end;
 $$;
 

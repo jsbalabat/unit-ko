@@ -16,6 +16,7 @@ alter table public.leases enable row level security;
 alter table public.billing_periods enable row level security;
 alter table public.billing_entries enable row level security;
 alter table public.billing_charges enable row level security;
+alter table public.billing_entry_revisions enable row level security;
 alter table public.payments enable row level security;
 alter table public.reminder_logs enable row level security;
 alter table public.activity_logs enable row level security;

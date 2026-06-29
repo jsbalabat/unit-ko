@@ -38,6 +38,23 @@ create table public.billing_charges (
 
 create index idx_billing_charges_entry on public.billing_charges (billing_entry_id);
 
+-- Per-edit audit trail. update_billing_entry_atomic snapshots the resulting
+-- rent_due + charge lines + status and the editing landlord on every edit, so an
+-- invoice's full revision history is durable and queryable. charges is a genuine
+-- point-in-time document (the lines as they stood), hence jsonb not a relation.
+create table public.billing_entry_revisions (
+  id uuid primary key default gen_random_uuid(),
+  billing_entry_id uuid not null references public.billing_entries(id) on delete cascade,
+  rent_due numeric(12, 2) not null,
+  charges jsonb not null default '[]'::jsonb,
+  status_code text not null references public.billing_statuses(code),
+  edited_by uuid references public.profiles(id) on delete set null,
+  edited_at timestamptz not null default now()
+);
+
+create index idx_billing_entry_revisions_entry
+  on public.billing_entry_revisions (billing_entry_id, edited_at desc);
+
 -- Payments ledger. Replaces the single paid_amount column and the tenant.overflow
 -- field with one row per payment, so paid amount and credit become derived sums.
 create table public.payments (
