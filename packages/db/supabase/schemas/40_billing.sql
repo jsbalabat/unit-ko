@@ -67,6 +67,10 @@ create table public.payments (
   paid_at timestamptz not null default now(),
   recorded_by uuid references public.profiles(id) on delete set null,
   notes text,
+  -- true when this allocation cascaded in from an overpayment on a different
+  -- invoice (the waterfall) rather than the invoice the landlord targeted; a
+  -- recording-time fact, so the invoice history can flag it.
+  is_overflow boolean not null default false,
   created_at timestamptz not null default now()
 );
 

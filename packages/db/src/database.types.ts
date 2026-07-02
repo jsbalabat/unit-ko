@@ -539,6 +539,7 @@ export type Database = {
           billing_entry_id: string | null
           created_at: string
           id: string
+          is_overflow: boolean
           lease_id: string
           notes: string | null
           paid_at: string
@@ -551,6 +552,7 @@ export type Database = {
           billing_entry_id?: string | null
           created_at?: string
           id?: string
+          is_overflow?: boolean
           lease_id: string
           notes?: string | null
           paid_at?: string
@@ -563,6 +565,7 @@ export type Database = {
           billing_entry_id?: string | null
           created_at?: string
           id?: string
+          is_overflow?: boolean
           lease_id?: string
           notes?: string | null
           paid_at?: string

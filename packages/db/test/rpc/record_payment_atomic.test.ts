@@ -1,16 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { withRollback } from "../helpers/client";
-import { seedLandlord, seedLeaseWithEntry } from "../helpers/fixtures";
+import {
+  seedEntry,
+  seedLandlord,
+  seedLeaseWithEntry,
+} from "../helpers/fixtures";
 import { readStatus } from "../helpers/reads";
 import { callRpc } from "../helpers/rpc";
 
-// record_payment_atomic (schemas/50_functions.sql) inserts a ledger row, resolves
-// ownership, and recomputes status_code from the 5-way ladder. A payment always
-// makes paid_amount > 0, so this RPC reaches Paid/Partial/Not-Yet-Set — Overdue is
+// record_payment_atomic (schemas/50_functions.sql) waterfalls a rent payment
+// across the lease's unpaid invoices, recomputes status_code from the 5-way
+// ladder, and books surplus as a lease-level credit. A payment always makes
+// paid_amount > 0, so this RPC reaches Paid/Partial/Not-Yet-Set — Overdue is
 // only reachable via update_billing_entry_atomic (no payment involved).
 interface RecordResult {
   paymentId: string;
   billingEntryId: string | null;
+  propertyId: string | null;
+  appliedCount: number;
+  creditAmount: number;
 }
 
 describe("record_payment_atomic", () => {
@@ -83,6 +91,77 @@ describe("record_payment_atomic", () => {
       });
 
       expect(await readStatus(tx, entryId)).toBe("Not Yet Set");
+    });
+  });
+
+  it("waterfalls the overpayment onto the next unpaid invoice and flags the overflow", async () => {
+    await withRollback(async (tx) => {
+      const landlordId = await seedLandlord(tx);
+      const { propertyId, leaseId, entryId } = await seedLeaseWithEntry(
+        tx,
+        landlordId,
+        { entry: { rentDue: 1000, dueDate: "2026-06-01", sequence: 1 } },
+      );
+      const nextId = await seedEntry(tx, leaseId, {
+        rentDue: 500,
+        dueDate: "2026-07-01",
+        sequence: 2,
+      });
+
+      // ₱1200 targeting the first invoice: 1000 settles it, 200 cascades onto
+      // the second (leaving it Partial), nothing left over.
+      const res = await callRpc<RecordResult>(
+        tx,
+        "record_payment_atomic",
+        landlordId,
+        { billingEntryId: entryId, amount: 1200, paymentType: "rent" },
+      );
+
+      expect(res.billingEntryId).toBe(entryId);
+      expect(res.propertyId).toBe(propertyId);
+      expect(res.appliedCount).toBe(2);
+      expect(res.creditAmount).toBe(0);
+      expect(await readStatus(tx, entryId)).toBe("Paid");
+      expect(await readStatus(tx, nextId)).toBe("Partial");
+
+      const targeted = await tx.query<{ is_overflow: boolean }>(
+        `select is_overflow from public.payments where billing_entry_id = $1`,
+        [entryId],
+      );
+      const cascaded = await tx.query<{ is_overflow: boolean }>(
+        `select is_overflow from public.payments where billing_entry_id = $1`,
+        [nextId],
+      );
+      expect(targeted.rows).toEqual([{ is_overflow: false }]);
+      expect(cascaded.rows).toEqual([{ is_overflow: true }]);
+    });
+  });
+
+  it("books surplus beyond every invoice as an overflow lease-level credit", async () => {
+    await withRollback(async (tx) => {
+      const landlordId = await seedLandlord(tx);
+      const { leaseId, entryId } = await seedLeaseWithEntry(tx, landlordId, {
+        entry: { rentDue: 1000 },
+      });
+
+      const res = await callRpc<RecordResult>(
+        tx,
+        "record_payment_atomic",
+        landlordId,
+        { billingEntryId: entryId, amount: 1300, paymentType: "rent" },
+      );
+
+      expect(res.appliedCount).toBe(1);
+      expect(res.creditAmount).toBe(300);
+
+      const credit = await tx.query<{ is_overflow: boolean; amount: string }>(
+        `select is_overflow, amount from public.payments
+         where lease_id = $1 and billing_entry_id is null`,
+        [leaseId],
+      );
+      expect(credit.rows).toHaveLength(1);
+      expect(credit.rows[0].is_overflow).toBe(true);
+      expect(Number(credit.rows[0].amount)).toBe(300);
     });
   });
 
