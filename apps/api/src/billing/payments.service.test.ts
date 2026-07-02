@@ -51,7 +51,13 @@ describe("PaymentsService.record", () => {
   it("records via the RPC, logs the payment, and returns the refreshed invoice", async () => {
     const recordRpc = vi
       .fn<PaymentsRepository["recordViaAtomicRpc"]>()
-      .mockResolvedValue({ paymentId: "pay1", billingEntryId: "entry1" });
+      .mockResolvedValue({
+        paymentId: "pay1",
+        billingEntryId: "entry1",
+        propertyId: "prop1",
+        appliedCount: 1,
+        creditAmount: 0,
+      });
     const log = vi.fn<ActivityService["log"]>().mockResolvedValue(undefined);
     const getEntryDetail = vi
       .fn<BillingService["getEntryDetail"]>()
@@ -78,8 +84,51 @@ describe("PaymentsService.record", () => {
       expect.objectContaining({
         actionType: "payment_made",
         userId: "landlord1",
+        propertyId: "prop1",
         tenantId: "tenant1",
         leaseId: "lease1",
+      }),
+    );
+  });
+
+  it("logs the full entered amount and the waterfall spread, not the first allocation", async () => {
+    // The RPC returns the first allocation row (a fragment); the activity feed
+    // must reflect the total the landlord entered and how far it spread.
+    const log = vi.fn<ActivityService["log"]>().mockResolvedValue(undefined);
+    const repo = stub<PaymentsRepository>({
+      recordViaAtomicRpc: vi
+        .fn<PaymentsRepository["recordViaAtomicRpc"]>()
+        .mockResolvedValue({
+          paymentId: "pay1",
+          billingEntryId: "entry1",
+          propertyId: "prop1",
+          appliedCount: 2,
+          creditAmount: 0,
+        }),
+      findById: vi
+        .fn<PaymentsRepository["findById"]>()
+        .mockResolvedValue(paymentRow({ amount: 300 })),
+    });
+    const service = new PaymentsService(
+      repo,
+      stub<BillingService>({
+        getEntryDetail: vi
+          .fn<BillingService["getEntryDetail"]>()
+          .mockResolvedValue(entry()),
+      }),
+      stub<ActivityService>({ log }),
+    );
+
+    await service.record("landlord1", {
+      billingEntryId: "entry1",
+      amount: 500,
+      paymentType: "rent",
+    });
+
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        description: "Payment recorded: ₱500 · applied across 2 periods",
+        metadata: expect.objectContaining({ amount: 500, appliedCount: 2 }),
       }),
     );
   });
@@ -89,7 +138,13 @@ describe("PaymentsService.record", () => {
     const repo = stub<PaymentsRepository>({
       recordViaAtomicRpc: vi
         .fn<PaymentsRepository["recordViaAtomicRpc"]>()
-        .mockResolvedValue({ paymentId: "pay1", billingEntryId: null }),
+        .mockResolvedValue({
+          paymentId: "pay1",
+          billingEntryId: null,
+          propertyId: "prop1",
+          appliedCount: 0,
+          creditAmount: 0,
+        }),
       findById: vi
         .fn<PaymentsRepository["findById"]>()
         .mockResolvedValue(paymentRow({ billing_entry_id: null })),
@@ -116,7 +171,13 @@ describe("PaymentsService.record", () => {
     const repo = stub<PaymentsRepository>({
       recordViaAtomicRpc: vi
         .fn<PaymentsRepository["recordViaAtomicRpc"]>()
-        .mockResolvedValue({ paymentId: "pay1", billingEntryId: "entry1" }),
+        .mockResolvedValue({
+          paymentId: "pay1",
+          billingEntryId: "entry1",
+          propertyId: "prop1",
+          appliedCount: 1,
+          creditAmount: 0,
+        }),
       findById: vi
         .fn<PaymentsRepository["findById"]>()
         .mockResolvedValue(null),

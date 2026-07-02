@@ -14,6 +14,17 @@ export interface PaymentRow {
   created_at: string;
 }
 
+// What record_payment_atomic reports back. paymentId/billingEntryId are the
+// first allocation (the payment can split into several ledger rows); propertyId
+// + appliedCount + creditAmount describe the whole recorded payment for the log.
+export interface RecordedPayment {
+  paymentId: string;
+  billingEntryId: string | null;
+  propertyId: string | null;
+  appliedCount: number;
+  creditAmount: number;
+}
+
 @Injectable()
 export class PaymentsRepository {
   constructor(private readonly supabase: SupabaseService) {}
@@ -23,7 +34,7 @@ export class PaymentsRepository {
   async recordViaAtomicRpc(
     landlordId: string,
     input: RecordPaymentInput,
-  ): Promise<{ paymentId: string; billingEntryId: string | null }> {
+  ): Promise<RecordedPayment> {
     const { data, error } = await this.supabase.db.rpc("record_payment_atomic", {
       p_landlord_id: landlordId,
       p_payload: input,
@@ -40,6 +51,12 @@ export class PaymentsRepository {
         paymentId: data.paymentId,
         billingEntryId:
           typeof data.billingEntryId === "string" ? data.billingEntryId : null,
+        propertyId:
+          typeof data.propertyId === "string" ? data.propertyId : null,
+        appliedCount:
+          typeof data.appliedCount === "number" ? data.appliedCount : 0,
+        creditAmount:
+          typeof data.creditAmount === "number" ? data.creditAmount : 0,
       };
     }
     throw new Error("record_payment_atomic returned an unexpected result");

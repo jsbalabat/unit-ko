@@ -16,23 +16,27 @@ export class PaymentsService {
     landlordId: string,
     input: RecordPaymentInput,
   ): Promise<RecordPaymentResult> {
-    const { paymentId, billingEntryId } = await this.repo.recordViaAtomicRpc(
-      landlordId,
-      input,
-    );
+    const { paymentId, billingEntryId, propertyId, appliedCount, creditAmount } =
+      await this.repo.recordViaAtomicRpc(landlordId, input);
 
     const paymentRow = await this.repo.findById(paymentId);
     if (!paymentRow) {
       throw new NotFoundException("Payment not found after recording");
     }
 
+    // record_payment_atomic may split one payment into several ledger rows
+    // (waterfall) and paymentRow is only the first; log the full amount the
+    // landlord entered, not that fragment. propertyId attributes the entry so it
+    // surfaces in the property's activity feed (which filters by property).
+    const spread = appliedCount > 1 ? ` · applied across ${appliedCount} periods` : "";
     await this.activity.log({
       actionType: "payment_made",
-      description: `Payment recorded: ₱${paymentRow.amount}`,
+      description: `Payment recorded: ₱${input.amount}${spread}`,
       userId: landlordId,
+      propertyId,
       tenantId: paymentRow.tenant_id,
       leaseId: paymentRow.lease_id,
-      metadata: { amount: paymentRow.amount, billingEntryId },
+      metadata: { amount: input.amount, billingEntryId, appliedCount, creditAmount },
     });
 
     // The invoice (if any) re-read through the derived view, so the response
