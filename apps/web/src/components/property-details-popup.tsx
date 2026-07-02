@@ -758,57 +758,29 @@ export function PropertyDetailsPopup({
         selectedTenantIndex !== null && tenantIdsByIndex[selectedTenantIndex]
           ? tenantIdsByIndex[selectedTenantIndex]
           : activeTenant.id;
-      const tenantInvoices = billingEntries
-        .filter((entry) => entry.tenant_id === targetTenantId)
-        .sort(
-          (a, b) =>
-            new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
-        );
-      const leaseId = tenantInvoices.find((entry) => entry.lease_id)?.lease_id;
+      const leaseId = billingEntries.find(
+        (entry) => entry.tenant_id === targetTenantId && entry.lease_id,
+      )?.lease_id;
+      if (!leaseId) throw new Error("No active lease to record against");
       const paidAt = receiptDate
         ? new Date(receiptDate).toISOString()
         : undefined;
       const notes = paymentNote.trim() || undefined;
 
-      if (paymentType === "deposit" || paymentType === "advance") {
-        // Deposit/advance are lease-level ledger facts — never allocated to an
-        // invoice, so they don't reduce a rent balance.
-        if (!leaseId) throw new Error("No active lease to record against");
-        await api.payments.record({
-          leaseId,
-          amount: paymentAmount,
-          paymentType,
-          paidAt,
-          notes,
-        });
-      } else {
-        // Rent settles oldest invoices first; any leftover becomes a lease-level
-        // credit. paid_amount/balance/status stay derived server-side.
-        let remaining = paymentAmount;
-        for (const invoice of tenantInvoices) {
-          if (remaining <= 0) break;
-          const balance = invoice.gross_due - (invoice.paid_amount ?? 0);
-          if (balance <= 0) continue;
-          const pay = Math.min(remaining, balance);
-          await api.payments.record({
-            billingEntryId: invoice.id,
-            amount: pay,
-            paymentType: "rent",
-            paidAt,
-            notes,
-          });
-          remaining -= pay;
-        }
-        if (remaining > 0 && leaseId) {
-          await api.payments.record({
-            leaseId,
-            amount: remaining,
-            paymentType: "rent",
-            paidAt,
-            notes,
-          });
-        }
-      }
+      // The API waterfalls a rent payment across the lease's unpaid invoices
+      // (oldest-first, capped per invoice) and books any surplus as a lease-level
+      // credit; deposit/advance stay lease-level. paid_amount/balance/status stay
+      // derived, so a single POST does the whole allocation.
+      await api.payments.record({
+        leaseId,
+        amount: paymentAmount,
+        paymentType:
+          paymentType === "deposit" || paymentType === "advance"
+            ? paymentType
+            : "rent",
+        paidAt,
+        notes,
+      });
 
       await fetchPropertyDetails();
       onSuccess?.();
