@@ -32,8 +32,9 @@ import { RemindersService } from "./reminders.service";
 export class RemindersController {
   constructor(private readonly service: RemindersService) {}
 
-  // Records a once-per-day reminder for an invoice. 422 if the tenant's phone is
-  // unusable, 429 if already reminded today. SMS dispatch is a separate concern.
+  // Sends a once-per-day rent reminder for an invoice (email-first via Zapier).
+  // 422 if the tenant has no usable email, 429 if already reminded today. A failed
+  // dispatch still returns 201 with status 'failed' — the outcome, not an error.
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiBody({ schema: zodSchema(recordReminderSchema) })

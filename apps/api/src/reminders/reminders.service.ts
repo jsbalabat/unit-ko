@@ -5,14 +5,17 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from "@nestjs/common";
+import { z } from "zod";
 import type { RecordReminderInput, ReminderResult } from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
+import { ReminderDispatcher } from "./reminder-dispatcher.service";
 import { RemindersRepository } from "./reminders.repository";
 
 @Injectable()
 export class RemindersService {
   constructor(
     private readonly repo: RemindersRepository,
+    private readonly dispatcher: ReminderDispatcher,
     private readonly activity: ActivityService,
   ) {}
 
@@ -25,56 +28,88 @@ export class RemindersService {
       throw new NotFoundException("Billing entry not found");
     }
 
-    // Validate the phone BEFORE claiming, so an invalid number doesn't burn the
+    // Validate the recipient BEFORE claiming, so a missing email doesn't burn the
     // once-per-day slot.
-    const recipient = normalizePhoneToE164(ctx.contactNumber);
+    const recipient = normalizeEmail(ctx.email);
     if (!recipient) {
       throw new UnprocessableEntityException(
-        "Tenant contact number must be a valid PH mobile number (e.g. +639XXXXXXXXX or 09XXXXXXXXX).",
+        "Tenant email is required to send an email reminder.",
       );
     }
 
-    const claimed = await this.repo.claimForToday(landlordId, input.billingEntryId);
-    if (!claimed) {
+    const logId = await this.repo.claim(landlordId, input.billingEntryId);
+    if (!logId) {
       throw new HttpException(
         "A reminder was already sent today for this invoice.",
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
 
+    // Claim recorded a 'pending' row; dispatch, then settle it with the REAL
+    // outcome (never optimistically 'sent'). A failed send is a 200 with
+    // status 'failed', not an exception — the landlord sees it and can retry.
+    const message = buildReminderMessage(
+      ctx.tenantName,
+      ctx.propertyName,
+      ctx.dueDate,
+      ctx.amount,
+    );
+    const sentAt = new Date().toISOString();
+    const outcome = await this.dispatcher.send({
+      event: "rent_due_today",
+      sentAt,
+      reminderLogId: logId,
+      channel: "email",
+      recipient,
+      tenantName: ctx.tenantName,
+      propertyName: ctx.propertyName,
+      dueDate: ctx.dueDate,
+      amount: ctx.amount,
+      message,
+    });
+
+    const status = outcome.ok ? "sent" : "failed";
+    await this.repo.markResult(
+      logId,
+      status,
+      outcome.ok ? sentAt : null,
+      outcome.error,
+    );
+
     await this.activity.log({
       actionType: "tenant_reminder_sent",
-      description: `Reminder sent to ${ctx.tenantName}`,
+      description: outcome.ok
+        ? `Reminder emailed to ${ctx.tenantName}`
+        : `Reminder to ${ctx.tenantName} failed to send`,
       userId: landlordId,
       metadata: {
         billingEntryId: input.billingEntryId,
         recipient,
-        amount: ctx.amount,
+        channel: "email",
+        status,
+        error: outcome.error,
       },
     });
 
     return {
-      recorded: true,
+      status,
+      channel: "email",
       tenantName: ctx.tenantName,
       propertyName: ctx.propertyName,
       recipient,
       dueDate: ctx.dueDate,
       amount: ctx.amount,
-      message: buildReminderMessage(ctx.tenantName, ctx.propertyName, ctx.dueDate, ctx.amount),
+      message,
+      error: outcome.error,
     };
   }
 }
 
-// Ported from the legacy reminder route. Accepts common PH mobile formats and
-// returns +639XXXXXXXXX, or null if it isn't a valid PH mobile number.
-function normalizePhoneToE164(phone: string): string | null {
-  const trimmed = phone.trim();
-  const digitsOnly = phone.replace(/\D/g, "");
-  if (/^\+639\d{9}$/.test(trimmed)) return trimmed;
-  if (/^09\d{9}$/.test(digitsOnly)) return `+63${digitsOnly.slice(1)}`;
-  if (/^9\d{9}$/.test(digitsOnly)) return `+63${digitsOnly}`;
-  if (/^639\d{9}$/.test(digitsOnly)) return `+${digitsOnly}`;
-  return null;
+// Trim + validate the tenant's email; null if absent or malformed.
+function normalizeEmail(email: string | null): string | null {
+  const trimmed = email?.trim();
+  if (!trimmed) return null;
+  return z.string().email().safeParse(trimmed).success ? trimmed : null;
 }
 
 function buildReminderMessage(

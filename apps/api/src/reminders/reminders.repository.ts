@@ -1,9 +1,10 @@
 import { Injectable } from "@nestjs/common";
+import type { ReminderStatus } from "@unitko/shared";
 import { SupabaseService } from "../supabase/supabase.service";
 
 export interface ReminderContext {
   tenantName: string;
-  contactNumber: string;
+  email: string | null;
   propertyName: string;
   dueDate: string | null;
   amount: number;
@@ -29,7 +30,7 @@ export class RemindersRepository {
 
     const { data: lease, error: lErr } = await this.supabase.db
       .from("leases")
-      .select("tenants(tenant_name, contact_number), properties(unit_name, landlord_id)")
+      .select("tenants(tenant_name, email), properties(unit_name, landlord_id)")
       .eq("id", entry.lease_id)
       .maybeSingle();
     if (lErr) throw lErr;
@@ -47,24 +48,40 @@ export class RemindersRepository {
 
     return {
       tenantName: tenant.tenant_name,
-      contactNumber: tenant.contact_number,
+      email: tenant.email,
       propertyName: property.unit_name,
       dueDate: entry.due_date,
       amount: amountRow?.gross_due ?? 0,
     };
   }
 
-  // Atomic once-per-day claim. Returns false if a reminder was already logged
-  // for this invoice today.
-  async claimForToday(
+  // Atomic once-per-day claim: inserts a 'pending' reminder_logs row and returns
+  // its id, or null when today's slot is already held by an active attempt.
+  async claim(
     landlordId: string,
     billingEntryId: string,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
     const { data, error } = await this.supabase.db.rpc("claim_tenant_reminder", {
       p_landlord_id: landlordId,
       p_billing_entry_id: billingEntryId,
+      p_channel: "email",
     });
     if (error) throw error;
-    return data === true;
+    return typeof data === "string" ? data : null;
+  }
+
+  // Settle a claimed reminder with the true dispatch outcome. sent_at is stamped
+  // only on success; last_error carries the failure reason otherwise.
+  async markResult(
+    logId: string,
+    status: Exclude<ReminderStatus, "pending">,
+    sentAt: string | null,
+    error: string | null,
+  ): Promise<void> {
+    const { error: dbErr } = await this.supabase.db
+      .from("reminder_logs")
+      .update({ status_code: status, sent_at: sentAt, last_error: error })
+      .eq("id", logId);
+    if (dbErr) throw dbErr;
   }
 }

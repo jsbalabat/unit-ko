@@ -816,30 +816,51 @@ export type Database = {
         }
         Relationships: []
       }
+      reminder_channels: {
+        Row: {
+          code: string
+          label: string
+        }
+        Insert: {
+          code: string
+          label: string
+        }
+        Update: {
+          code?: string
+          label?: string
+        }
+        Relationships: []
+      }
       reminder_logs: {
         Row: {
           billing_entry_id: string
-          channel: string
+          channel_code: string
           created_at: string
+          delivered_at: string | null
           id: string
-          sent_at: string
-          status: string
+          last_error: string | null
+          sent_at: string | null
+          status_code: string
         }
         Insert: {
           billing_entry_id: string
-          channel?: string
+          channel_code?: string
           created_at?: string
+          delivered_at?: string | null
           id?: string
-          sent_at?: string
-          status?: string
+          last_error?: string | null
+          sent_at?: string | null
+          status_code?: string
         }
         Update: {
           billing_entry_id?: string
-          channel?: string
+          channel_code?: string
           created_at?: string
+          delivered_at?: string | null
           id?: string
-          sent_at?: string
-          status?: string
+          last_error?: string | null
+          sent_at?: string | null
+          status_code?: string
         }
         Relationships: [
           {
@@ -856,7 +877,36 @@ export type Database = {
             referencedRelation: "v_billing_entries_full"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "reminder_logs_channel_code_fkey"
+            columns: ["channel_code"]
+            isOneToOne: false
+            referencedRelation: "reminder_channels"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "reminder_logs_status_code_fkey"
+            columns: ["status_code"]
+            isOneToOne: false
+            referencedRelation: "reminder_statuses"
+            referencedColumns: ["code"]
+          },
         ]
+      }
+      reminder_statuses: {
+        Row: {
+          code: string
+          label: string
+        }
+        Insert: {
+          code: string
+          label: string
+        }
+        Update: {
+          code?: string
+          label?: string
+        }
+        Relationships: []
       }
       subscription_plans: {
         Row: {
@@ -1139,8 +1189,12 @@ export type Database = {
         Returns: Json
       }
       claim_tenant_reminder: {
-        Args: { p_billing_entry_id: string; p_landlord_id: string }
-        Returns: boolean
+        Args: {
+          p_billing_entry_id: string
+          p_channel?: string
+          p_landlord_id: string
+        }
+        Returns: string
       }
       create_property_atomic: {
         Args: { p_landlord_id: string; p_payload: Json }

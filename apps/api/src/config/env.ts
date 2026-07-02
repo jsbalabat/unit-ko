@@ -22,6 +22,14 @@ export const envSchema = z.object({
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     z.string().min(1).optional(),
   ),
+
+  // The Zapier catch-hook the reminder dispatcher POSTs to (email-first). Optional
+  // so the API boots without it; when unset, a reminder is recorded as 'failed'
+  // rather than sent. A present-but-blank value is treated as unset.
+  ZAPIER_RENT_DUE_WEBHOOK: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().url().optional(),
+  ),
 });
 
 export type Env = z.infer<typeof envSchema>;
