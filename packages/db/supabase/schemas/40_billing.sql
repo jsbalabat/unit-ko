@@ -77,15 +77,19 @@ create table public.payments (
 create index idx_payments_entry on public.payments (billing_entry_id);
 create index idx_payments_lease on public.payments (lease_id);
 
--- Replaces billing_entries.last_reminded_at; keeps full reminder history and
--- makes the "once per day" rule a simple existence check.
+-- One row per reminder dispatch attempt (replaces billing_entries.last_reminded_at).
+-- status_code walks pending → sent | failed as the dispatcher fires the webhook and
+-- records the true outcome: created_at is the claim time, sent_at is set only once a
+-- send is accepted, delivered_at is set later by the optional delivery callback.
 create table public.reminder_logs (
   id uuid primary key default gen_random_uuid(),
   billing_entry_id uuid not null references public.billing_entries(id) on delete cascade,
-  channel text not null default 'sms',
-  status text not null default 'sent',
-  sent_at timestamptz not null default now(),
-  created_at timestamptz not null default now()
+  channel_code text not null default 'email' references public.reminder_channels(code),
+  status_code text not null default 'pending' references public.reminder_statuses(code),
+  last_error text,
+  created_at timestamptz not null default now(),
+  sent_at timestamptz,
+  delivered_at timestamptz
 );
 
-create index idx_reminder_logs_entry on public.reminder_logs (billing_entry_id, sent_at);
+create index idx_reminder_logs_entry on public.reminder_logs (billing_entry_id, created_at);

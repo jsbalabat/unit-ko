@@ -62,6 +62,17 @@ insert into public.activity_action_types (code, label) values
   ('legacy_event', 'Legacy event')
 on conflict (code) do nothing;
 
+insert into public.reminder_channels (code, label) values
+  ('email', 'Email'),
+  ('sms', 'SMS')
+on conflict (code) do nothing;
+
+insert into public.reminder_statuses (code, label) values
+  ('pending', 'Pending'),
+  ('sent', 'Sent'),
+  ('failed', 'Failed')
+on conflict (code) do nothing;
+
 insert into public.amenities (code, label) values
   ('wifi', 'Wi-Fi'),
   ('parking', 'Parking'),

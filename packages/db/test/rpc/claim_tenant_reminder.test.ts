@@ -4,33 +4,37 @@ import { seedLandlord, seedLeaseWithEntry } from "../helpers/fixtures";
 import { callRpc } from "../helpers/rpc";
 
 // claim_tenant_reminder (schemas/50_functions.sql) is the once-per-day claim that
-// replaced last_reminded_at: it locks the entry, returns false if already
-// reminded today, and otherwise logs the reminder.
+// replaced last_reminded_at: it locks the entry, inserts a 'pending' reminder_logs
+// row and returns its id, or returns null when today's slot is already held by an
+// active (pending/sent) attempt. A prior 'failed' attempt frees the slot.
 describe("claim_tenant_reminder", () => {
-  it("grants the first claim of the day and logs it", async () => {
+  it("grants the first claim of the day and logs a pending row", async () => {
     await withRollback(async (tx) => {
       const landlordId = await seedLandlord(tx);
       const { entryId } = await seedLeaseWithEntry(tx, landlordId, {
         entry: { rentDue: 1000 },
       });
 
-      const claimed = await callRpc<boolean>(
+      const logId = await callRpc<string | null>(
         tx,
         "claim_tenant_reminder",
         landlordId,
         entryId,
       );
-      expect(claimed).toBe(true);
+      expect(logId).toEqual(expect.any(String));
 
-      const { rows } = await tx.query(
-        `select 1 from public.reminder_logs where billing_entry_id = $1`,
-        [entryId],
+      const { rows } = await tx.query<{
+        status_code: string;
+        channel_code: string;
+      }>(
+        `select status_code, channel_code from public.reminder_logs where id = $1`,
+        [logId],
       );
-      expect(rows).toHaveLength(1);
+      expect(rows).toEqual([{ status_code: "pending", channel_code: "email" }]);
     });
   });
 
-  it("denies a second claim the same day and does not double-log", async () => {
+  it("denies a second claim while an active attempt holds the day's slot", async () => {
     await withRollback(async (tx) => {
       const landlordId = await seedLandlord(tx);
       const { entryId } = await seedLeaseWithEntry(tx, landlordId, {
@@ -38,17 +42,62 @@ describe("claim_tenant_reminder", () => {
       });
 
       expect(
-        await callRpc<boolean>(tx, "claim_tenant_reminder", landlordId, entryId),
-      ).toBe(true);
+        await callRpc<string | null>(
+          tx,
+          "claim_tenant_reminder",
+          landlordId,
+          entryId,
+        ),
+      ).toEqual(expect.any(String));
       expect(
-        await callRpc<boolean>(tx, "claim_tenant_reminder", landlordId, entryId),
-      ).toBe(false);
+        await callRpc<string | null>(
+          tx,
+          "claim_tenant_reminder",
+          landlordId,
+          entryId,
+        ),
+      ).toBeNull();
 
       const { rows } = await tx.query<{ n: number }>(
         `select count(*)::int as n from public.reminder_logs where billing_entry_id = $1`,
         [entryId],
       );
       expect(rows[0].n).toBe(1);
+    });
+  });
+
+  it("frees the day's slot for a retry after a failed attempt", async () => {
+    await withRollback(async (tx) => {
+      const landlordId = await seedLandlord(tx);
+      const { entryId } = await seedLeaseWithEntry(tx, landlordId, {
+        entry: { rentDue: 1000 },
+      });
+
+      const firstId = await callRpc<string | null>(
+        tx,
+        "claim_tenant_reminder",
+        landlordId,
+        entryId,
+      );
+      await tx.query(
+        `update public.reminder_logs set status_code = 'failed' where id = $1`,
+        [firstId],
+      );
+
+      const retryId = await callRpc<string | null>(
+        tx,
+        "claim_tenant_reminder",
+        landlordId,
+        entryId,
+      );
+      expect(retryId).toEqual(expect.any(String));
+      expect(retryId).not.toBe(firstId);
+
+      const { rows } = await tx.query<{ n: number }>(
+        `select count(*)::int as n from public.reminder_logs where billing_entry_id = $1`,
+        [entryId],
+      );
+      expect(rows[0].n).toBe(2);
     });
   });
 

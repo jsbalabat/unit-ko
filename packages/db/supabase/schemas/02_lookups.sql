@@ -43,6 +43,16 @@ create table public.activity_action_types (
   label text not null
 );
 
+create table public.reminder_channels (
+  code text primary key,
+  label text not null
+);
+
+create table public.reminder_statuses (
+  code text primary key,
+  label text not null
+);
+
 create table public.amenities (
   code text primary key,
   label text not null

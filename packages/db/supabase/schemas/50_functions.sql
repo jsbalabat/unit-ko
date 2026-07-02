@@ -565,20 +565,24 @@ $$;
 revoke execute on function public.record_payment_atomic(uuid, jsonb) from public;
 grant execute on function public.record_payment_atomic(uuid, jsonb) to service_role;
 
--- Atomic once-per-day reminder claim (reminder_logs replaces last_reminded_at).
--- Locks the entry so concurrent claims serialize; returns false if already
--- reminded today. Locked to service_role.
+-- Atomic once-per-day reminder claim. Locks the entry so concurrent claims
+-- serialize, then inserts a 'pending' reminder_logs row and returns its id — or
+-- null if today's slot is already held by an active (pending/sent) attempt. A
+-- prior 'failed' attempt frees the slot for a same-day retry. The dispatcher
+-- fills in the real outcome afterward. Locked to service_role.
 create or replace function public.claim_tenant_reminder(
   p_landlord_id uuid,
-  p_billing_entry_id uuid
+  p_billing_entry_id uuid,
+  p_channel text default 'email'
 )
-returns boolean
+returns uuid
 language plpgsql
 security invoker
 set search_path = public
 as $$
 declare
   v_landlord_check uuid;
+  v_log_id uuid;
 begin
   if p_landlord_id is null then raise exception 'landlord id is required'; end if;
 
@@ -596,19 +600,21 @@ begin
   if exists (
     select 1 from public.reminder_logs
     where billing_entry_id = p_billing_entry_id
-      and sent_at >= date_trunc('day', now())
+      and created_at >= date_trunc('day', now())
+      and status_code in ('pending', 'sent')
   ) then
-    return false;
+    return null;
   end if;
 
-  insert into public.reminder_logs (billing_entry_id, channel, status)
-  values (p_billing_entry_id, 'sms', 'sent');
-  return true;
+  insert into public.reminder_logs (billing_entry_id, channel_code, status_code)
+  values (p_billing_entry_id, p_channel, 'pending')
+  returning id into v_log_id;
+  return v_log_id;
 end;
 $$;
 
-revoke execute on function public.claim_tenant_reminder(uuid, uuid) from public;
-grant execute on function public.claim_tenant_reminder(uuid, uuid) to service_role;
+revoke execute on function public.claim_tenant_reminder(uuid, uuid, text) from public;
+grant execute on function public.claim_tenant_reminder(uuid, uuid, text) to service_role;
 
 -- Archive a tenant + reset their property slot: end the active lease (→ surfaces
 -- in v_archived_tenants) and deactivate/unassign the tenant. No deletes; history
