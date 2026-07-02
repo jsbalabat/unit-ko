@@ -44,6 +44,14 @@ export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 export const PAYOUT_METHODS = ["bank", "gcash", "paymaya", "other"] as const;
 export type PayoutMethod = (typeof PAYOUT_METHODS)[number];
 
+// Reminder dispatch channel + lifecycle (mirror reminder_channels /
+// reminder_statuses). A reminder_logs row walks pending → sent | failed.
+export const REMINDER_CHANNELS = ["email", "sms"] as const;
+export type ReminderChannel = (typeof REMINDER_CHANNELS)[number];
+
+export const REMINDER_STATUSES = ["pending", "sent", "failed"] as const;
+export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
+
 export const ACTIVITY_ACTION_TYPES = [
   "property_created",
   "property_updated",
