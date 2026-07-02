@@ -20,10 +20,12 @@ import {
   billingEntrySchema,
   billingRevisionSchema,
   listBillingQuerySchema,
+  paymentAllocationSchema,
   updateBillingEntrySchema,
   type BillingEntry,
   type BillingRevision,
   type ListBillingQuery,
+  type PaymentAllocation,
   type UpdateBillingEntryInput,
 } from "@unitko/shared";
 import { SupabaseJwtGuard } from "../auth/supabase-jwt.guard";
@@ -74,5 +76,16 @@ export class BillingController {
     @Param("id", ParseUUIDPipe) id: string,
   ): Promise<BillingRevision[]> {
     return this.service.listRevisions(landlord.id, id);
+  }
+
+  // Payments applied to one owned invoice (newest first), for the history drawer.
+  @Get("entries/:id/payments")
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiOkResponse({ schema: zodArraySchema(paymentAllocationSchema) })
+  listPayments(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<PaymentAllocation[]> {
+    return this.service.listPayments(landlord.id, id);
   }
 }

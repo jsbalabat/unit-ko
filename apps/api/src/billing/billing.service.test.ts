@@ -243,3 +243,54 @@ describe("BillingService.listRevisions", () => {
     expect(rev?.editedBy).toBeNull();
   });
 });
+
+describe("BillingService.listPayments", () => {
+  it("rejects with NotFound when the entry is not the landlord's", async () => {
+    const repo = stub<BillingRepository>({
+      findEntryLandlord: vi
+        .fn<BillingRepository["findEntryLandlord"]>()
+        .mockResolvedValue("another-landlord"),
+    });
+    const service = new BillingService(repo, stub<ActivityService>({}));
+
+    await expect(
+      service.listPayments("landlord1", "entry1"),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("maps payment rows, preserving the waterfall overflow flag", async () => {
+    const repo = stub<BillingRepository>({
+      findEntryLandlord: vi
+        .fn<BillingRepository["findEntryLandlord"]>()
+        .mockResolvedValue("landlord1"),
+      findPaymentsByEntry: vi
+        .fn<BillingRepository["findPaymentsByEntry"]>()
+        .mockResolvedValue([
+          {
+            id: "pay1",
+            billing_entry_id: "entry1",
+            payment_type_code: "rent",
+            amount: 200,
+            is_overflow: true,
+            paid_at: "2026-06-29T10:00:00.000Z",
+            notes: null,
+            created_at: "2026-06-29T10:00:00.000Z",
+          },
+        ]),
+    });
+    const service = new BillingService(repo, stub<ActivityService>({}));
+
+    const [payment] = await service.listPayments("landlord1", "entry1");
+
+    expect(payment).toEqual({
+      id: "pay1",
+      billingEntryId: "entry1",
+      amount: 200,
+      paymentType: "rent",
+      isOverflow: true,
+      paidAt: "2026-06-29T10:00:00.000Z",
+      notes: null,
+      createdAt: "2026-06-29T10:00:00.000Z",
+    });
+  });
+});

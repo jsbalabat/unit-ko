@@ -7,6 +7,7 @@ import {
   type BillingEntry,
   type BillingRevision,
   type BillingStatus,
+  type PaymentAllocation,
   type UpdateBillingEntryInput,
 } from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
@@ -14,6 +15,7 @@ import {
   BillingRepository,
   type BillingRevisionRow,
   type EnrichedEntry,
+  type PaymentAllocationRow,
 } from "./billing.repository";
 
 @Injectable()
@@ -86,6 +88,20 @@ export class BillingService {
     return rows.map((row) => toRevision(row));
   }
 
+  // Payments applied to one owned invoice, newest first, for the history drawer.
+  // Ownership is verified here since this read bypasses the recompute RPC.
+  async listPayments(
+    landlordId: string,
+    entryId: string,
+  ): Promise<PaymentAllocation[]> {
+    const owner = await this.repo.findEntryLandlord(entryId);
+    if (owner !== landlordId) {
+      throw new NotFoundException("Billing entry not found");
+    }
+    const rows = await this.repo.findPaymentsByEntry(entryId);
+    return rows.map((row) => toPaymentAllocation(row));
+  }
+
   // Returns a 0-or-1 array so a null-id view row is simply dropped (no `!`).
   private toEntry(r: EnrichedEntry): BillingEntry[] {
     const e = r.entry;
@@ -134,6 +150,19 @@ function toRevision(row: BillingRevisionRow): BillingRevision {
     status: toBillingStatus(row.status_code),
     editedBy: row.edited_by,
     editedAt: row.edited_at,
+  };
+}
+
+function toPaymentAllocation(row: PaymentAllocationRow): PaymentAllocation {
+  return {
+    id: row.id,
+    billingEntryId: row.billing_entry_id,
+    amount: row.amount,
+    paymentType: row.payment_type_code,
+    isOverflow: row.is_overflow,
+    paidAt: row.paid_at,
+    notes: row.notes,
+    createdAt: row.created_at,
   };
 }
 

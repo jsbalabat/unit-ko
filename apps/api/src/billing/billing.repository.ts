@@ -43,6 +43,19 @@ export interface BillingRevisionRow {
   edited_at: string;
 }
 
+// A payments-ledger row applied to one invoice, for the invoice history drawer.
+// is_overflow flags allocations that cascaded in from the waterfall.
+export interface PaymentAllocationRow {
+  id: string;
+  billing_entry_id: string | null;
+  payment_type_code: string;
+  amount: number;
+  is_overflow: boolean;
+  paid_at: string;
+  notes: string | null;
+  created_at: string;
+}
+
 @Injectable()
 export class BillingRepository {
   constructor(private readonly supabase: SupabaseService) {}
@@ -185,6 +198,18 @@ export class BillingRepository {
       )
       .eq("billing_entry_id", entryId)
       .order("edited_at", { ascending: false });
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  async findPaymentsByEntry(entryId: string): Promise<PaymentAllocationRow[]> {
+    const { data, error } = await this.supabase.db
+      .from("payments")
+      .select(
+        "id, billing_entry_id, payment_type_code, amount, is_overflow, paid_at, notes, created_at",
+      )
+      .eq("billing_entry_id", entryId)
+      .order("paid_at", { ascending: false });
     if (error) throw error;
     return data ?? [];
   }
