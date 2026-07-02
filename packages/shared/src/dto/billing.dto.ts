@@ -64,6 +64,22 @@ export const billingRevisionSchema = z.object({
 });
 export type BillingRevision = z.infer<typeof billingRevisionSchema>;
 
+// One payment ledger row applied to an invoice, for the invoice history drawer
+// (a payment shown alongside the edit revisions). isOverflow marks money that
+// cascaded in from an overpayment on another period (the waterfall), so the UI
+// can flag it. billingEntryId is non-null for this per-invoice view.
+export const paymentAllocationSchema = z.object({
+  id: z.string().uuid(),
+  billingEntryId: z.string().uuid().nullable(),
+  amount: z.number(),
+  paymentType: z.string(),
+  isOverflow: z.boolean(),
+  paidAt: z.string(),
+  notes: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type PaymentAllocation = z.infer<typeof paymentAllocationSchema>;
+
 // ── Payments ────────────────────────────────────────────────────────────────
 // POST /payments — pay against an invoice (billingEntryId) or a lease directly
 // (e.g. a deposit/advance not tied to a period). At least one id is required.
