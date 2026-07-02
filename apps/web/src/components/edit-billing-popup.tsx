@@ -6,6 +6,7 @@ import type {
   BillingChargeItem,
   BillingEntry,
   BillingRevision,
+  PaymentAllocation,
   UpdateBillingEntryInput,
 } from "@unitko/shared";
 import { api, ApiError } from "@/lib/api-client";
@@ -36,6 +37,8 @@ import {
   Pencil,
   RefreshCw,
   History,
+  CreditCard,
+  ArrowDownToLine,
 } from "lucide-react";
 import { OtherChargesPopup } from "@/components/other-charges-popup";
 import {
@@ -86,6 +89,15 @@ const STATUS_TONE: Record<string, string> = {
   Overdue: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
 };
 
+function paymentTypeLabel(value: string): string {
+  return PAYMENT_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+// One row of the invoice history drawer: an edit revision or a payment.
+type HistoryItem =
+  | { kind: "revision"; at: string; rev: BillingRevision }
+  | { kind: "payment"; at: string; pay: PaymentAllocation };
+
 // Per-tenant invoice manager. Reads the tenant's invoices (derived figures) and
 // mutates only through the API: payments go to the ledger (POST /payments) and
 // rent/charges/due-date edits go through PATCH /billing/entries/:id, which
@@ -112,11 +124,12 @@ export function EditBillingPopup({
   const [payDate, setPayDate] = useState("");
   const [payNotes, setPayNotes] = useState("");
 
-  // Edit-history drawer.
+  // History drawer — an invoice's edits and payments, merged newest-first.
   const [historyFor, setHistoryFor] = useState<BillingEntry | null>(null);
   const [revisions, setRevisions] = useState<BillingRevision[]>([]);
-  const [revisionsLoading, setRevisionsLoading] = useState(false);
-  const [revisionsError, setRevisionsError] = useState<string | null>(null);
+  const [payments, setPayments] = useState<PaymentAllocation[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   // Pure fetch: this tenant's invoices, no state writes.
   const fetchInvoices = useCallback(
@@ -158,8 +171,9 @@ export function EditBillingPopup({
   if (lastHistoryId !== historyId) {
     setLastHistoryId(historyId);
     setRevisions([]);
-    setRevisionsError(null);
-    setRevisionsLoading(historyId !== null);
+    setPayments([]);
+    setHistoryError(null);
+    setHistoryLoading(historyId !== null);
   }
 
   useEffect(() => {
@@ -186,24 +200,42 @@ export function EditBillingPopup({
   useEffect(() => {
     if (!historyFor) return;
     let ignore = false;
-    api.billing
-      .revisions(historyFor.id)
-      .then((rows) => {
-        if (!ignore) setRevisions(rows);
+    Promise.all([
+      api.billing.revisions(historyFor.id),
+      api.billing.payments(historyFor.id),
+    ])
+      .then(([revs, pays]) => {
+        if (ignore) return;
+        setRevisions(revs);
+        setPayments(pays);
       })
       .catch((err) => {
         if (!ignore)
-          setRevisionsError(
+          setHistoryError(
             err instanceof Error ? err.message : "Failed to load history",
           );
       })
       .finally(() => {
-        if (!ignore) setRevisionsLoading(false);
+        if (!ignore) setHistoryLoading(false);
       });
     return () => {
       ignore = true;
     };
   }, [historyFor]);
+
+  // Edits (editedAt) and payments (paidAt) interleaved, newest first.
+  const historyItems = useMemo<HistoryItem[]>(
+    () =>
+      [
+        ...revisions.map(
+          (rev): HistoryItem => ({ kind: "revision", at: rev.editedAt, rev }),
+        ),
+        ...payments.map(
+          (pay): HistoryItem => ({ kind: "payment", at: pay.paidAt, pay }),
+        ),
+      ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()),
+    [revisions, payments],
+  );
 
   const tenantName = useMemo(
     () => invoices.find((e) => e.tenantName)?.tenantName ?? "this tenant",
@@ -430,78 +462,122 @@ export function EditBillingPopup({
         </DialogContent>
       </Dialog>
 
-      {/* Edit history */}
+      {/* Invoice history — edits + payments */}
       <Sheet
         open={historyFor !== null}
         onOpenChange={(open) => (!open ? setHistoryFor(null) : null)}
       >
         <SheetContent className="w-full sm:max-w-md overflow-y-auto">
           <SheetHeader>
-            <SheetTitle>Edit history</SheetTitle>
+            <SheetTitle>History</SheetTitle>
             <SheetDescription>
               {historyFor
-                ? `Period ${historyFor.sequence ?? "—"} — every saved change, newest first.`
+                ? `Period ${historyFor.sequence ?? "—"} — edits and payments, newest first.`
                 : ""}
             </SheetDescription>
           </SheetHeader>
 
           <div className="px-4 pb-6 space-y-3">
-            {revisionsLoading ? (
+            {historyLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : revisionsError ? (
+            ) : historyError ? (
               <div className="py-8 text-center text-sm text-destructive">
-                {revisionsError}
+                {historyError}
               </div>
-            ) : revisions.length === 0 ? (
+            ) : historyItems.length === 0 ? (
               <div className="py-12 text-center text-muted-foreground text-sm">
-                No edits recorded yet.
+                No edits or payments recorded yet.
               </div>
             ) : (
-              revisions.map((rev) => (
-                <Card key={rev.id} className="border">
-                  <CardContent className="p-3 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        {formatDateTime(rev.editedAt)}
-                      </span>
-                      <Badge
-                        className={
-                          STATUS_TONE[rev.status] ??
-                          "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
-                        }
-                      >
-                        {rev.status}
-                      </Badge>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-sm">
-                      <div>
-                        <p className="text-[11px] text-muted-foreground">Rent</p>
-                        <p className="font-medium">{peso(rev.rentDue)}</p>
+              historyItems.map((item) =>
+                item.kind === "revision" ? (
+                  <Card key={`rev-${item.rev.id}`} className="border">
+                    <CardContent className="p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <Pencil className="h-3.5 w-3.5" />
+                          {formatDateTime(item.rev.editedAt)}
+                        </span>
+                        <Badge
+                          className={
+                            STATUS_TONE[item.rev.status] ??
+                            "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
+                          }
+                        >
+                          {item.rev.status}
+                        </Badge>
                       </div>
-                      <div>
-                        <p className="text-[11px] text-muted-foreground">Other</p>
-                        <p className="font-medium">{peso(rev.otherCharges)}</p>
+                      <div className="grid grid-cols-3 gap-2 text-sm">
+                        <div>
+                          <p className="text-[11px] text-muted-foreground">Rent</p>
+                          <p className="font-medium">{peso(item.rev.rentDue)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-muted-foreground">Other</p>
+                          <p className="font-medium">
+                            {peso(item.rev.otherCharges)}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[11px] text-muted-foreground">Gross</p>
+                          <p className="font-medium">{peso(item.rev.grossDue)}</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-[11px] text-muted-foreground">Gross</p>
-                        <p className="font-medium">{peso(rev.grossDue)}</p>
+                      {item.rev.charges.length > 0 && (
+                        <div className="border-t pt-2 space-y-1 text-xs text-muted-foreground">
+                          {item.rev.charges.map((c, i) => (
+                            <div key={i} className="flex justify-between gap-2">
+                              <span className="truncate">{c.name}</span>
+                              <span>{peso(c.amount)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card key={`pay-${item.pay.id}`} className="border">
+                    <CardContent className="p-3 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+                          <CreditCard className="h-3.5 w-3.5 text-green-600" />
+                          {formatDateTime(item.pay.paidAt)}
+                        </span>
+                        {item.pay.isOverflow ? (
+                          <Badge className="gap-1 bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-300">
+                            <ArrowDownToLine className="h-3 w-3" />
+                            Waterfall
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+                            Payment
+                          </Badge>
+                        )}
                       </div>
-                    </div>
-                    {rev.charges.length > 0 && (
-                      <div className="border-t pt-2 space-y-1 text-xs text-muted-foreground">
-                        {rev.charges.map((c, i) => (
-                          <div key={i} className="flex justify-between gap-2">
-                            <span className="truncate">{c.name}</span>
-                            <span>{peso(c.amount)}</span>
-                          </div>
-                        ))}
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-sm font-semibold text-green-700 dark:text-green-400">
+                          +{peso(item.pay.amount)}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {paymentTypeLabel(item.pay.paymentType)}
+                        </span>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ))
+                      {item.pay.isOverflow && (
+                        <p className="text-[11px] text-muted-foreground">
+                          Cascaded here from an overpayment on another period.
+                        </p>
+                      )}
+                      {item.pay.notes && (
+                        <p className="border-t pt-2 text-xs text-muted-foreground">
+                          {item.pay.notes}
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
+                ),
+              )
             )}
           </div>
         </SheetContent>

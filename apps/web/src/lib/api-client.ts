@@ -8,6 +8,7 @@ import type {
   BillingRevision,
   CreatePropertyInput,
   CreateTenantInput,
+  PaymentAllocation,
   Profile,
   PropertyDetail,
   PropertyNote,
@@ -176,6 +177,8 @@ export const api = {
       }),
     revisions: (id: string) =>
       request<BillingRevision[]>(`/billing/entries/${id}/revisions`),
+    payments: (id: string) =>
+      request<PaymentAllocation[]>(`/billing/entries/${id}/payments`),
   },
 
   payments: {
