@@ -309,6 +309,7 @@ function LandlordDashboard() {
       tenantName: string;
       tenantPhone: string;
       totalAmount: number;
+      reminderAmount: number;
     }[] = [];
 
     properties.forEach((property) => {
@@ -326,8 +327,10 @@ function LandlordDashboard() {
         let totalAmount = 0;
         let unpaidPeriods = 0;
         let oldestDueTime: number | null = null;
-        // The reminder targets a single invoice; use the most overdue one.
+        // The reminder targets a single invoice — the most overdue one — so its id
+        // and gross due drive the dispatch and match the confirm-dialog preview.
         let oldestEntryId: string | null = null;
+        let oldestEntryGross = 0;
 
         activeTenant.billing_entries.forEach((entry) => {
           const dueDate = new Date(entry.due_date);
@@ -371,6 +374,7 @@ function LandlordDashboard() {
             if (oldestDueTime === null || dueTime < oldestDueTime) {
               oldestDueTime = dueTime;
               oldestEntryId = entry.id;
+              oldestEntryGross = grossDue;
             }
           }
         });
@@ -395,6 +399,7 @@ function LandlordDashboard() {
             tenantName: activeTenant.tenant_name,
             tenantPhone: activeTenant.contact_number,
             totalAmount,
+            reminderAmount: oldestEntryGross,
           });
         }
       });
@@ -682,7 +687,7 @@ function LandlordDashboard() {
                                     item.tenantPhone,
                                     item.propertyName,
                                     item.dueDate,
-                                    item.totalAmount,
+                                    item.reminderAmount,
                                     item.billingEntryId,
                                   )
                                 }
