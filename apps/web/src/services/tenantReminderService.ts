@@ -9,19 +9,30 @@ interface ReminderPayload {
   billingEntryId: string;
 }
 
-// Records a once-per-day rent reminder through the API, which rebuilds the
-// message from trusted DB data. Actual SMS dispatch (Zapier/UniSMS) is a
-// separate, currently-paused integration — the endpoint records, it doesn't send.
+// Sends a once-per-day rent reminder through the API, which rebuilds the message
+// from trusted DB data and dispatches it by email via Zapier. The response carries
+// the settled outcome: a 201 can still report status 'failed' (unconfigured webhook
+// or a delivery error), which we surface as a failure rather than a false success.
 export async function sendTenantReminder(payload: ReminderPayload): Promise<{
   success: boolean;
   message: string;
   alreadySentToday?: boolean;
 }> {
   try {
-    await api.reminders.record({ billingEntryId: payload.billingEntryId });
+    const result = await api.reminders.record({
+      billingEntryId: payload.billingEntryId,
+    });
+    if (result.status === "sent") {
+      return {
+        success: true,
+        message: `Reminder emailed to ${payload.tenantName}.`,
+      };
+    }
     return {
-      success: true,
-      message: `Reminder recorded for ${payload.tenantName}.`,
+      success: false,
+      message:
+        result.error ??
+        `The reminder to ${payload.tenantName} could not be delivered.`,
     };
   } catch (error) {
     // 429 = the once-per-day slot was already claimed today.
@@ -37,7 +48,7 @@ export async function sendTenantReminder(payload: ReminderPayload): Promise<{
       message:
         error instanceof Error
           ? error.message
-          : "Failed to record reminder. Please try again.",
+          : "Failed to send reminder. Please try again.",
     };
   }
 }
