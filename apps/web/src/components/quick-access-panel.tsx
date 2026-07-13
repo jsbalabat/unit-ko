@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ReminderActivity } from "@/components/reminder-activity";
 import { peso, formatDate } from "@/lib/format";
 
 // "One Look. One Click." — a consolidated dashboard panel. Sections land
@@ -80,6 +81,7 @@ export function QuickAccessPanel({ actions }: { actions?: ReactNode }) {
             </div>
           ) : null}
         </section>
+        <ReminderActivity />
       </CardContent>
     </Card>
   );
