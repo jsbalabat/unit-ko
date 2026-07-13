@@ -10,6 +10,21 @@ export interface ReminderContext {
   amount: number;
 }
 
+// A row from the feed view (v_reminder_logs_full). View columns are all-nullable
+// at the type level (Postgres can't prove a view column non-null); the service
+// narrows when mapping to the DTO.
+export interface ReminderLogView {
+  id: string | null;
+  status_code: string | null;
+  channel_code: string | null;
+  last_error: string | null;
+  created_at: string | null;
+  sent_at: string | null;
+  due_date: string | null;
+  tenant_name: string | null;
+  property_name: string | null;
+}
+
 @Injectable()
 export class RemindersRepository {
   constructor(private readonly supabase: SupabaseService) {}
@@ -83,5 +98,23 @@ export class RemindersRepository {
       .update({ status_code: status, sent_at: sentAt, last_error: error })
       .eq("id", logId);
     if (dbErr) throw dbErr;
+  }
+
+  // Recent reminders for a landlord via the feed view, already joined to
+  // tenant/property and filterable by landlord_id. Newest first.
+  async findRecentByLandlord(
+    landlordId: string,
+    limit: number,
+  ): Promise<ReminderLogView[]> {
+    const { data, error } = await this.supabase.db
+      .from("v_reminder_logs_full")
+      .select(
+        "id, status_code, channel_code, last_error, created_at, sent_at, due_date, tenant_name, property_name",
+      )
+      .eq("landlord_id", landlordId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    return data ?? [];
   }
 }

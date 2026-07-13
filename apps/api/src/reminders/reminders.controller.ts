@@ -1,28 +1,33 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiBody,
   ApiCreatedResponse,
+  ApiOkResponse,
   ApiTags,
 } from "@nestjs/swagger";
 import {
   recordReminderSchema,
+  reminderLogSchema,
   reminderResultSchema,
   type RecordReminderInput,
+  type ReminderLog,
   type ReminderResult,
 } from "@unitko/shared";
 import { SupabaseJwtGuard } from "../auth/supabase-jwt.guard";
 import { CurrentLandlord } from "../auth/current-landlord.decorator";
 import type { AuthenticatedLandlord } from "../auth/current-landlord.decorator";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
-import { zodSchema } from "../common/openapi";
+import { zodArraySchema, zodSchema } from "../common/openapi";
 import { RemindersService } from "./reminders.service";
 
 @ApiTags("reminders")
@@ -44,5 +49,19 @@ export class RemindersController {
     @Body(new ZodValidationPipe(recordReminderSchema)) input: RecordReminderInput,
   ): Promise<ReminderResult> {
     return this.service.record(landlord.id, input);
+  }
+
+  // Recent reminders across the landlord's portfolio (newest first) for the
+  // dashboard cycle feed. Optional ?limit (default 10, capped at 50).
+  @Get()
+  @ApiOkResponse({ schema: zodArraySchema(reminderLogSchema) })
+  list(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Query("limit") limit?: string,
+  ): Promise<ReminderLog[]> {
+    return this.service.listRecent(
+      landlord.id,
+      limit ? Number(limit) : undefined,
+    );
   }
 }

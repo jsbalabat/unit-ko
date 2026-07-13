@@ -1182,6 +1182,59 @@ export type Database = {
         }
         Relationships: []
       }
+      v_reminder_logs_full: {
+        Row: {
+          billing_entry_id: string | null
+          channel_code: string | null
+          created_at: string | null
+          delivered_at: string | null
+          due_date: string | null
+          id: string | null
+          landlord_id: string | null
+          last_error: string | null
+          property_name: string | null
+          sent_at: string | null
+          status_code: string | null
+          tenant_name: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "properties_landlord_id_fkey"
+            columns: ["landlord_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_logs_billing_entry_id_fkey"
+            columns: ["billing_entry_id"]
+            isOneToOne: false
+            referencedRelation: "billing_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_logs_billing_entry_id_fkey"
+            columns: ["billing_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_billing_entries_full"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reminder_logs_channel_code_fkey"
+            columns: ["channel_code"]
+            isOneToOne: false
+            referencedRelation: "reminder_channels"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "reminder_logs_status_code_fkey"
+            columns: ["status_code"]
+            isOneToOne: false
+            referencedRelation: "reminder_statuses"
+            referencedColumns: ["code"]
+          },
+        ]
+      }
     }
     Functions: {
       archive_and_reset_property_atomic: {

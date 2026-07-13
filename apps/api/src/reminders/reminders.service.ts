@@ -6,10 +6,21 @@ import {
   UnprocessableEntityException,
 } from "@nestjs/common";
 import { z } from "zod";
-import type { RecordReminderInput, ReminderResult } from "@unitko/shared";
+import {
+  REMINDER_CHANNELS,
+  REMINDER_STATUSES,
+  type RecordReminderInput,
+  type ReminderChannel,
+  type ReminderLog,
+  type ReminderResult,
+  type ReminderStatus,
+} from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
 import { ReminderDispatcher } from "./reminder-dispatcher.service";
-import { RemindersRepository } from "./reminders.repository";
+import {
+  RemindersRepository,
+  type ReminderLogView,
+} from "./reminders.repository";
 
 @Injectable()
 export class RemindersService {
@@ -103,6 +114,26 @@ export class RemindersService {
       error: outcome.error,
     };
   }
+
+  async listRecent(landlordId: string, limit?: number): Promise<ReminderLog[]> {
+    const requested =
+      typeof limit === "number" && Number.isFinite(limit) ? limit : 10;
+    const capped = Math.min(Math.max(requested, 1), 50);
+    const rows = await this.repo.findRecentByLandlord(landlordId, capped);
+    return rows
+      .filter((r): r is ReminderLogView & { id: string } => r.id !== null)
+      .map((r) => ({
+        id: r.id,
+        status: toReminderStatus(r.status_code),
+        channel: toReminderChannel(r.channel_code),
+        tenantName: r.tenant_name,
+        propertyName: r.property_name,
+        dueDate: r.due_date,
+        createdAt: r.created_at ?? "",
+        sentAt: r.sent_at,
+        error: r.last_error,
+      }));
+  }
 }
 
 // Trim + validate the tenant's email; null if absent or malformed.
@@ -130,4 +161,25 @@ function buildReminderMessage(
     maximumFractionDigits: 2,
   });
   return `Hi ${tenantName}, your rent for ${propertyName} is due on ${formattedDate} with a total amount of ₱${amountStr}. Please settle your account. Thank you!`;
+}
+
+const REMINDER_STATUS_SET = new Set<string>(REMINDER_STATUSES);
+const REMINDER_CHANNEL_SET = new Set<string>(REMINDER_CHANNELS);
+
+function isReminderStatus(code: string): code is ReminderStatus {
+  return REMINDER_STATUS_SET.has(code);
+}
+
+function isReminderChannel(code: string): code is ReminderChannel {
+  return REMINDER_CHANNEL_SET.has(code);
+}
+
+// The feed view types status/channel as free strings; the base columns are
+// FK-constrained to the lookups, so narrow defensively rather than trust blindly.
+function toReminderStatus(code: string | null): ReminderStatus {
+  return code !== null && isReminderStatus(code) ? code : "failed";
+}
+
+function toReminderChannel(code: string | null): ReminderChannel {
+  return code !== null && isReminderChannel(code) ? code : "email";
 }

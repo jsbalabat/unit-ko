@@ -161,3 +161,81 @@ describe("RemindersService.record", () => {
     );
   });
 });
+
+describe("RemindersService.listRecent", () => {
+  it("maps feed rows to DTOs, dropping null-id rows", async () => {
+    const findRecentByLandlord = vi
+      .fn<RemindersRepository["findRecentByLandlord"]>()
+      .mockResolvedValue([
+        {
+          id: "r1",
+          status_code: "sent",
+          channel_code: "email",
+          last_error: null,
+          created_at: "2026-07-13T09:00:00.000Z",
+          sent_at: "2026-07-13T09:00:01.000Z",
+          due_date: "2026-07-01",
+          tenant_name: "Ana Cruz",
+          property_name: "Unit 1",
+        },
+        {
+          id: null,
+          status_code: "sent",
+          channel_code: "email",
+          last_error: null,
+          created_at: "2026-07-13T08:00:00.000Z",
+          sent_at: null,
+          due_date: null,
+          tenant_name: null,
+          property_name: null,
+        },
+      ]);
+    const service = new RemindersService(
+      stub<RemindersRepository>({ findRecentByLandlord }),
+      stub<ReminderDispatcher>({}),
+      stub<ActivityService>({}),
+    );
+
+    const result = await service.listRecent("landlord1", 5);
+
+    expect(findRecentByLandlord).toHaveBeenCalledWith("landlord1", 5);
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: "r1",
+      status: "sent",
+      channel: "email",
+      tenantName: "Ana Cruz",
+      propertyName: "Unit 1",
+      dueDate: "2026-07-01",
+    });
+  });
+
+  it("falls back to 'failed' for an unrecognized status code", async () => {
+    const service = new RemindersService(
+      stub<RemindersRepository>({
+        findRecentByLandlord: vi
+          .fn<RemindersRepository["findRecentByLandlord"]>()
+          .mockResolvedValue([
+            {
+              id: "r2",
+              status_code: "bogus",
+              channel_code: null,
+              last_error: "boom",
+              created_at: "2026-07-13T07:00:00.000Z",
+              sent_at: null,
+              due_date: null,
+              tenant_name: "Bea",
+              property_name: "Unit 2",
+            },
+          ]),
+      }),
+      stub<ReminderDispatcher>({}),
+      stub<ActivityService>({}),
+    );
+
+    const result = await service.listRecent("landlord1");
+
+    expect(result[0]?.status).toBe("failed");
+    expect(result[0]?.channel).toBe("email");
+  });
+});
