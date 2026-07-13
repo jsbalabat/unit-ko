@@ -61,7 +61,7 @@ export function SendReminderConfirm({
     <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
       <AlertDialogContent className="max-w-md">
         <AlertDialogHeader>
-          <AlertDialogTitle>Send SMS Reminder</AlertDialogTitle>
+          <AlertDialogTitle>Send Rent Reminder</AlertDialogTitle>
         </AlertDialogHeader>
         <div className="space-y-3 px-4">
           <div className="text-sm text-foreground font-medium">
@@ -78,7 +78,7 @@ export function SendReminderConfirm({
           </div>
           <div className="bg-muted p-3 rounded-md border border-border">
             <p className="text-xs text-muted-foreground mb-1 font-medium">
-              SMS Message:
+              Message:
             </p>
             <p className="text-sm text-foreground italic whitespace-pre-wrap">
               {message}
@@ -96,7 +96,7 @@ export function SendReminderConfirm({
             disabled={isSubmitting || isLoading}
             className="bg-primary hover:bg-primary/90"
           >
-            {isSubmitting ? "Sending..." : "Send SMS"}
+            {isSubmitting ? "Sending..." : "Send"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
