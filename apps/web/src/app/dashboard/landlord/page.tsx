@@ -63,7 +63,7 @@ function LandlordDashboard() {
   const [detailsActiveTab, setDetailsActiveTab] = useState<string>("details");
   const { properties, stats, loading, error, refetch } = useProperties();
 
-  // SMS Reminder states
+  // Rent reminder confirmation dialog state
   const [isReminderConfirmOpen, setIsReminderConfirmOpen] = useState(false);
   const [selectedReminder, setSelectedReminder] = useState<{
     tenantName: string;
@@ -299,6 +299,7 @@ function LandlordDashboard() {
 
     const items: {
       id: string;
+      billingEntryId: string;
       propertyId: string;
       propertyName: string;
       location: string;
@@ -325,6 +326,8 @@ function LandlordDashboard() {
         let totalAmount = 0;
         let unpaidPeriods = 0;
         let oldestDueTime: number | null = null;
+        // The reminder targets a single invoice; use the most overdue one.
+        let oldestEntryId: string | null = null;
 
         activeTenant.billing_entries.forEach((entry) => {
           const dueDate = new Date(entry.due_date);
@@ -367,11 +370,12 @@ function LandlordDashboard() {
             const dueTime = dueDate.getTime();
             if (oldestDueTime === null || dueTime < oldestDueTime) {
               oldestDueTime = dueTime;
+              oldestEntryId = entry.id;
             }
           }
         });
 
-        if (unpaidPeriods > 0 && oldestDueTime !== null) {
+        if (unpaidPeriods > 0 && oldestDueTime !== null && oldestEntryId !== null) {
           const daysOverdue = Math.max(
             1,
             Math.ceil(
@@ -381,6 +385,7 @@ function LandlordDashboard() {
 
           items.push({
             id: `${property.id}-${activeTenant.id}`,
+            billingEntryId: oldestEntryId,
             propertyId: property.id,
             propertyName: property.unit_name,
             location: property.property_location,
@@ -678,10 +683,10 @@ function LandlordDashboard() {
                                     item.propertyName,
                                     item.dueDate,
                                     item.totalAmount,
-                                    item.id,
+                                    item.billingEntryId,
                                   )
                                 }
-                                title="Send SMS reminder"
+                                title="Send rent reminder"
                                 disabled={isSendingReminder}
                               >
                                 <Send className="h-3.5 w-3.5" />
