@@ -9,6 +9,7 @@ import { PropertiesModule } from "./properties/properties.module";
 import { TenantsModule } from "./tenants/tenants.module";
 import { BillingModule } from "./billing/billing.module";
 import { RemindersModule } from "./reminders/reminders.module";
+import { ResponsesModule } from "./responses/responses.module";
 import { TenantModule } from "./tenant/tenant.module";
 import { ArchivesModule } from "./archives/archives.module";
 import { SubscriptionsModule } from "./subscriptions/subscriptions.module";
@@ -27,6 +28,7 @@ import { ProfileModule } from "./profile/profile.module";
     TenantsModule,
     BillingModule,
     RemindersModule,
+    ResponsesModule,
     TenantModule,
     ArchivesModule,
     SubscriptionsModule,
