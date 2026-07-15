@@ -1005,6 +1005,90 @@ export type Database = {
           },
         ]
       }
+      tenant_response_types: {
+        Row: {
+          code: string
+          label: string
+        }
+        Insert: {
+          code: string
+          label: string
+        }
+        Update: {
+          code?: string
+          label?: string
+        }
+        Relationships: []
+      }
+      tenant_responses: {
+        Row: {
+          billing_entry_id: string
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string
+          id: string
+          note: string | null
+          response_type_code: string
+          tenant_id: string
+        }
+        Insert: {
+          billing_entry_id: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          response_type_code: string
+          tenant_id: string
+        }
+        Update: {
+          billing_entry_id?: string
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          id?: string
+          note?: string | null
+          response_type_code?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_responses_billing_entry_id_fkey"
+            columns: ["billing_entry_id"]
+            isOneToOne: false
+            referencedRelation: "billing_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_responses_billing_entry_id_fkey"
+            columns: ["billing_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_billing_entries_full"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_responses_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_responses_response_type_code_fkey"
+            columns: ["response_type_code"]
+            isOneToOne: false
+            referencedRelation: "tenant_response_types"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "tenant_responses_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tenants: {
         Row: {
           contact_number: string
@@ -1232,6 +1316,67 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "reminder_statuses"
             referencedColumns: ["code"]
+          },
+        ]
+      }
+      v_tenant_responses_full: {
+        Row: {
+          billing_entry_id: string | null
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string | null
+          due_date: string | null
+          id: string | null
+          landlord_id: string | null
+          note: string | null
+          property_name: string | null
+          response_type_code: string | null
+          response_type_label: string | null
+          tenant_id: string | null
+          tenant_name: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "properties_landlord_id_fkey"
+            columns: ["landlord_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_responses_billing_entry_id_fkey"
+            columns: ["billing_entry_id"]
+            isOneToOne: false
+            referencedRelation: "billing_entries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_responses_billing_entry_id_fkey"
+            columns: ["billing_entry_id"]
+            isOneToOne: false
+            referencedRelation: "v_billing_entries_full"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_responses_confirmed_by_fkey"
+            columns: ["confirmed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_responses_response_type_code_fkey"
+            columns: ["response_type_code"]
+            isOneToOne: false
+            referencedRelation: "tenant_response_types"
+            referencedColumns: ["code"]
+          },
+          {
+            foreignKeyName: "tenant_responses_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
           },
         ]
       }
