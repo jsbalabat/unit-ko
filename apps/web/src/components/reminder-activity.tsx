@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { BellRing, Loader2 } from "lucide-react";
+import useSWR from "swr";
 import type { ReminderLog } from "@unitko/shared";
 import { api } from "@/lib/api-client";
+import { liveFeedOptions } from "@/lib/swr";
 import { formatDateTime } from "@/lib/format";
 
 const STATUS_STYLE: Record<
@@ -29,27 +30,13 @@ const STATUS_STYLE: Record<
 
 // The reminder-cycle feed: the most recent rent reminders and how each one
 // actually settled (sent / failed / pending), resolved to tenant + property.
+// Auto-revalidates on focus/reconnect and a slow interval (see liveFeedOptions).
 export function ReminderActivity() {
-  const [logs, setLogs] = useState<ReminderLog[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let ignore = false;
-    api.reminders
-      .recent(8)
-      .then((rows) => {
-        if (!ignore) setLogs(rows);
-      })
-      .catch((err) => {
-        if (!ignore)
-          setError(
-            err instanceof Error ? err.message : "Failed to load reminders",
-          );
-      });
-    return () => {
-      ignore = true;
-    };
-  }, []);
+  const { data: logs, error } = useSWR(
+    "reminder-activity",
+    () => api.reminders.recent(8),
+    liveFeedOptions,
+  );
 
   return (
     <section>
@@ -57,9 +44,11 @@ export function ReminderActivity() {
         <BellRing className="h-3.5 w-3.5" />
         Reminder Activity
       </h3>
-      {error ? (
-        <p className="py-2 text-sm text-destructive">{error}</p>
-      ) : logs === null ? (
+      {logs === undefined && error ? (
+        <p className="py-2 text-sm text-destructive">
+          Failed to load reminders
+        </p>
+      ) : logs === undefined ? (
         <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading…
