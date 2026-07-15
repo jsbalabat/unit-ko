@@ -52,6 +52,14 @@ export type ReminderChannel = (typeof REMINDER_CHANNELS)[number];
 export const REMINDER_STATUSES = ["pending", "sent", "failed"] as const;
 export type ReminderStatus = (typeof REMINDER_STATUSES)[number];
 
+export const TENANT_RESPONSE_TYPES = [
+  "acknowledged",
+  "will_pay",
+  "already_paid",
+  "disputed",
+] as const;
+export type TenantResponseType = (typeof TENANT_RESPONSE_TYPES)[number];
+
 export const ACTIVITY_ACTION_TYPES = [
   "property_created",
   "property_updated",

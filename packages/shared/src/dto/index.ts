@@ -3,6 +3,7 @@ export * from "./property.dto";
 export * from "./tenant.dto";
 export * from "./billing.dto";
 export * from "./reminder.dto";
+export * from "./tenant-response.dto";
 export * from "./tenant-dashboard.dto";
 export * from "./archive.dto";
 export * from "./subscription.dto";
