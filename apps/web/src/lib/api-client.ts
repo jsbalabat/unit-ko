@@ -8,6 +8,7 @@ import type {
   BillingRevision,
   CreatePropertyInput,
   CreateTenantInput,
+  CreateTenantResponseInput,
   PaymentAllocation,
   Profile,
   PropertyDetail,
@@ -25,6 +26,7 @@ import type {
   TenantListItem,
   TenantLoginDto,
   TenantLoginResponse,
+  TenantResponse,
   TenantSessionResponse,
   UpdatePropertyInput,
   UpdateProfileInput,
@@ -118,6 +120,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     body: body === undefined ? undefined : JSON.stringify(body),
     // Tenant routes authenticate via the session cookie set by the API.
     credentials: auth === "tenant" ? "include" : "same-origin",
+    // Reads must reflect the latest writes (e.g. a landlord confirmation showing
+    // on the tenant's next load); a cached GET would surface stale state.
+    cache: "no-store",
   });
 
   if (!response.ok) throw await parseError(response);
@@ -196,6 +201,17 @@ export const api = {
       }),
   },
 
+  // Landlord side of tenant bill-responses: review the portfolio's responses and
+  // stamp receipt. The tenant side lives under `tenant.responses`.
+  responses: {
+    list: (limit?: number) =>
+      request<TenantResponse[]>("/responses", {
+        query: limit ? { limit } : undefined,
+      }),
+    confirm: (id: string) =>
+      request<TenantResponse>(`/responses/${id}/confirm`, { method: "POST" }),
+  },
+
   subscription: {
     current: () => request<Subscription>("/subscription"),
     plans: () => request<SubscriptionPlanInfo[]>("/subscription/plans"),
@@ -234,6 +250,19 @@ export const api = {
   tenant: {
     dashboard: () =>
       request<TenantDashboard>("/tenant/dashboard", { auth: "tenant" }),
+    responses: {
+      list: (limit?: number) =>
+        request<TenantResponse[]>("/tenant/responses", {
+          query: limit ? { limit } : undefined,
+          auth: "tenant",
+        }),
+      create: (input: CreateTenantResponseInput) =>
+        request<TenantResponse>("/tenant/responses", {
+          method: "POST",
+          body: input,
+          auth: "tenant",
+        }),
+    },
   },
 
   profile: {
