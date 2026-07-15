@@ -115,7 +115,8 @@ select
   be.due_date,
   t.tenant_name,
   pr.unit_name      as property_name,
-  pr.landlord_id
+  pr.landlord_id,
+  tr.tenant_id
 from public.tenant_responses tr
 join public.tenant_response_types rt on rt.code = tr.response_type_code
 join public.billing_entries be       on be.id = tr.billing_entry_id
