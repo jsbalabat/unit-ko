@@ -11,11 +11,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ReminderActivity } from "@/components/reminder-activity";
+import { TenantResponses } from "@/components/tenant-responses";
 import { peso, formatDate } from "@/lib/format";
 
-// "One Look. One Click." — a consolidated dashboard panel. Sections land
-// incrementally: first the landlord's own SaaS bill to UnitKo; the Zapier cycle
-// and tenant-response sections follow.
+// "One Look. One Click." — a consolidated dashboard panel: the landlord's own
+// SaaS bill to UnitKo, the reminder-dispatch cycle, and how tenants have
+// responded to their bills.
 export function QuickAccessPanel({ actions }: { actions?: ReactNode }) {
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +83,7 @@ export function QuickAccessPanel({ actions }: { actions?: ReactNode }) {
           ) : null}
         </section>
         <ReminderActivity />
+        <TenantResponses />
       </CardContent>
     </Card>
   );
