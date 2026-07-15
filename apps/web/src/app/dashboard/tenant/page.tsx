@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import useSWR from "swr";
 import { withTenantAuth } from "@/components/auth/withTenantAuth";
 import {
   Card,
@@ -29,7 +30,10 @@ import {
   fetchTenantDashboard,
   type TenantDashboardData,
 } from "@/services/tenantService";
+import type { TenantResponse } from "@unitko/shared";
 import { api } from "@/lib/api-client";
+import { liveFeedOptions } from "@/lib/swr";
+import { TenantBillResponse } from "@/components/tenant-bill-response";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/button";
 import {
@@ -68,6 +72,29 @@ function TenantDashboard() {
   );
   const [isTraditionalPaymentOpen, setIsTraditionalPaymentOpen] =
     useState(false);
+  const { data: responses, mutate: mutateResponses } = useSWR(
+    "tenant-responses",
+    () => api.tenant.responses.list(),
+    liveFeedOptions,
+  );
+
+  // Keyed by billing entry so each row shows its latest response. The list is
+  // newest-first, so the first row seen per entry wins.
+  const responsesByEntry = useMemo(() => {
+    const byEntry: Record<string, TenantResponse> = {};
+    for (const row of responses ?? []) {
+      if (!byEntry[row.billingEntryId]) byEntry[row.billingEntryId] = row;
+    }
+    return byEntry;
+  }, [responses]);
+
+  const handleResponseSubmitted = (response: TenantResponse) => {
+    // Prepend the just-created response (newest-first) so its row updates at
+    // once; SWR reconciles with the server on the next revalidation.
+    void mutateResponses((current) => [response, ...(current ?? [])], {
+      revalidate: false,
+    });
+  };
 
   useEffect(() => {
     const loadDashboard = async () => {
@@ -475,8 +502,8 @@ function TenantDashboard() {
                           })()}
                         </p>
                       </div>
-                      <div className="text-right">
-                        <div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
                           <p className="font-semibold text-lg">
                             ₱{entry.gross_due.toLocaleString()}
                           </p>
@@ -485,6 +512,11 @@ function TenantDashboard() {
                             ₱{entry.other_charges.toLocaleString()}
                           </p>
                         </div>
+                        <TenantBillResponse
+                          billingEntryId={entry.id}
+                          existing={responsesByEntry[entry.id] ?? null}
+                          onSubmitted={handleResponseSubmitted}
+                        />
                       </div>
                     </div>
                   ))}
