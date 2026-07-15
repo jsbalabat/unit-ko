@@ -20,6 +20,7 @@ alter table public.billing_entry_revisions enable row level security;
 alter table public.payments enable row level security;
 alter table public.reminder_logs enable row level security;
 alter table public.activity_logs enable row level security;
+alter table public.tenant_responses enable row level security;
 
 -- Lookups are non-sensitive reference data; expose read-only to everyone.
 alter table public.property_types enable row level security;
@@ -30,6 +31,7 @@ alter table public.subscription_plans enable row level security;
 alter table public.subscription_statuses enable row level security;
 alter table public.activity_action_types enable row level security;
 alter table public.amenities enable row level security;
+alter table public.tenant_response_types enable row level security;
 
 create policy property_types_read on public.property_types for select to anon, authenticated using (true);
 create policy billing_statuses_read on public.billing_statuses for select to anon, authenticated using (true);
@@ -39,3 +41,4 @@ create policy subscription_plans_read on public.subscription_plans for select to
 create policy subscription_statuses_read on public.subscription_statuses for select to anon, authenticated using (true);
 create policy activity_action_types_read on public.activity_action_types for select to anon, authenticated using (true);
 create policy amenities_read on public.amenities for select to anon, authenticated using (true);
+create policy tenant_response_types_read on public.tenant_response_types for select to anon, authenticated using (true);

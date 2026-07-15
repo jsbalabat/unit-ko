@@ -57,3 +57,8 @@ create table public.amenities (
   code text primary key,
   label text not null
 );
+
+create table public.tenant_response_types (
+  code text primary key,
+  label text not null
+);

@@ -93,3 +93,20 @@ create table public.reminder_logs (
 );
 
 create index idx_reminder_logs_entry on public.reminder_logs (billing_entry_id, created_at);
+
+-- A tenant's response to a specific bill (acknowledge / will pay / already paid /
+-- dispute) with an optional note. The landlord reviews these and stamps
+-- confirmed_at/confirmed_by once seen — a lightweight two-step handshake, not a
+-- payment (money still flows only through the payments ledger).
+create table public.tenant_responses (
+  id uuid primary key default gen_random_uuid(),
+  billing_entry_id uuid not null references public.billing_entries(id) on delete cascade,
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  response_type_code text not null references public.tenant_response_types(code),
+  note text,
+  created_at timestamptz not null default now(),
+  confirmed_at timestamptz,
+  confirmed_by uuid references public.profiles(id)
+);
+
+create index idx_tenant_responses_entry on public.tenant_responses (billing_entry_id, created_at);

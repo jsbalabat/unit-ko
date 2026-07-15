@@ -73,6 +73,13 @@ insert into public.reminder_statuses (code, label) values
   ('failed', 'Failed')
 on conflict (code) do nothing;
 
+insert into public.tenant_response_types (code, label) values
+  ('acknowledged', 'Acknowledged'),
+  ('will_pay', 'Will pay'),
+  ('already_paid', 'Already paid'),
+  ('disputed', 'Dispute')
+on conflict (code) do nothing;
+
 insert into public.amenities (code, label) values
   ('wifi', 'Wi-Fi'),
   ('parking', 'Parking'),
