@@ -185,7 +185,12 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
 
   return (
     <div className="space-y-4">
-      <div className="sticky top-0 bg-muted/20 pb-2 border-b">
+      {/* The panel renders muted/20 over the dialog's bg-background, so the
+          sticky header needs that exact colour at full opacity — bg-muted/20
+          here would stay 20% transparent and let the card scroll through it.
+          color-mix keeps it correct in both themes, since both vars swap.
+          -mx-4/px-4 spans the panel's padding so nothing bleeds up the sides. */}
+      <div className="sticky top-0 z-10 -mx-4 px-4 pt-1 pb-2 border-b bg-[color-mix(in_oklab,var(--muted)_20%,var(--background))]">
         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
           Live Preview
         </h3>
