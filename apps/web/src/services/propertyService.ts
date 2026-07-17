@@ -58,7 +58,9 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 // Translates the form's flat, legacy-shaped state into the normalized create
 // contract: a property + shared lease terms + occupants + a billing schedule
 // whose charges become billing_charges rows (so other_charges stays derived).
-function toCreatePropertyInput(formData: PropertyFormData): CreatePropertyInput {
+export function toCreatePropertyInput(
+  formData: PropertyFormData,
+): CreatePropertyInput {
   // Named occupants can live in the multi-tenant array (bed space) or the legacy
   // single-tenant fields. Prefer named array entries; otherwise fall back to the
   // legacy fields — so a single tenant entered there isn't dropped when empty
