@@ -199,6 +199,15 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
   const filledTenantsCount =
     formData.tenants?.filter((t) => t.tenantName && t.tenantName.trim() !== "")
       .length || 0;
+
+  // Mirrors the wizard's own derivation: the preview shows Occupied when the
+  // landlord is entering tenants. The saved property's real occupancy comes from
+  // the server (v_property_occupancy) once the lease exists.
+  const isAddingTenants =
+    formData.maxTenants > 1
+      ? filledTenantsCount > 0
+      : Boolean(formData.tenantName?.trim());
+
   const paxCount =
     formData.maxTenants > 1
       ? filledTenantsCount > 0
@@ -249,24 +258,16 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
                 {formData.propertyType || "Property Type"}
               </p>
             </div>
-            {(() => {
-              const previewIsOccupied =
-                formData.maxTenants > 1
-                  ? filledTenantsCount > 0
-                  : Boolean(formData.tenantName?.trim());
-              return (
-                <div
-                  className={cn(
-                    "px-2 py-1 rounded text-xs font-medium",
-                    previewIsOccupied
-                      ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
-                      : "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
-                  )}
-                >
-                  {previewIsOccupied ? "Occupied" : "Vacant"}
-                </div>
-              );
-            })()}
+            <div
+              className={cn(
+                "px-2 py-1 rounded text-xs font-medium",
+                isAddingTenants
+                  ? "bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"
+                  : "bg-orange-100 text-orange-700 dark:bg-orange-950/50 dark:text-orange-300",
+              )}
+            >
+              {isAddingTenants ? "Occupied" : "Vacant"}
+            </div>
           </div>
 
           {formData.propertyLocation && (
