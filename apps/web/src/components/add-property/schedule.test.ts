@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PropertyFormData } from "./form-types";
-import { buildBillingSchedule } from "./schedule";
+import { buildBillingSchedule, scheduleInputsKey } from "./schedule";
 
 // Fixed so Overdue/Not Yet Due never depends on when the suite runs.
 const TODAY = new Date(2026, 0, 15);
@@ -231,6 +231,37 @@ describe("buildBillingSchedule", () => {
       );
 
       expect(periods.map((p) => p.dueDate)).toEqual(expected);
+    });
+  });
+
+  describe("scheduleInputsKey", () => {
+    it("is stable for the same inputs", () => {
+      expect(scheduleInputsKey(form())).toBe(scheduleInputsKey(form()));
+    });
+
+    // Regenerating destroys per-period edits, so anything the builder reads must
+    // move the key — and anything it ignores must not.
+    it.each([
+      ["formBasis", { formBasis: "weekly" as const }],
+      ["contractMonths", { contractMonths: 6 }],
+      ["rentStartDate", { rentStartDate: "2026-03-01" }],
+      ["rentPerCollection", { rentPerCollection: 9_999 }],
+      ["rentAmount", { rentAmount: 9_999 }],
+      ["collectionDates", { collectionDates: [1, 16] }],
+      ["collectionDay", { collectionDay: "friday" }],
+    ])("changes when %s changes", (_field, overrides) => {
+      expect(scheduleInputsKey(form(overrides))).not.toBe(
+        scheduleInputsKey(form()),
+      );
+    });
+
+    it.each([
+      ["unitName", { unitName: "Renamed" }],
+      ["propertyLocation", { propertyLocation: "456 Other Street, Manila" }],
+      ["maxTenants", { maxTenants: 4 }],
+      ["advancePayment", { advancePayment: 1_000 }],
+    ])("ignores %s, which the builder never reads", (_field, overrides) => {
+      expect(scheduleInputsKey(form(overrides))).toBe(scheduleInputsKey(form()));
     });
   });
 

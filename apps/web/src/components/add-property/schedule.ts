@@ -37,6 +37,29 @@ function lastDayOf(year: number, month: number): number {
 }
 
 /**
+ * The inputs {@link buildBillingSchedule} actually reads, as a comparable key.
+ *
+ * Callers use it to skip regeneration when nothing that shapes the schedule has
+ * changed. Regenerating throws away every per-period edit the landlord made on
+ * the review step — other charges, hand-set rents, hand-set due dates — so it
+ * must only happen when the schedule is genuinely stale.
+ *
+ * Keep this in step with what buildBillingSchedule reads; a missing field here
+ * means a stale schedule survives an edit that should have rebuilt it.
+ */
+export function scheduleInputsKey(formData: PropertyFormData): string {
+  return JSON.stringify([
+    formData.formBasis,
+    formData.contractMonths,
+    formData.rentStartDate,
+    formData.rentPerCollection,
+    formData.rentAmount,
+    formData.collectionDates,
+    formData.collectionDay,
+  ]);
+}
+
+/**
  * Builds the draft billing schedule for the add-property wizard.
  *
  * `rentDue` is **per tenant**, not the property total: create_property_atomic
