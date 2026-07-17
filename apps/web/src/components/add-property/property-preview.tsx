@@ -74,6 +74,16 @@ export function PropertyPreview({
 
   const namedTenants = formData.tenants.filter((t) => t.tenantName);
 
+  // Each card's rows are individually gated, so reaching the step isn't enough
+  // to have anything to show — without these the panel renders a bare heading
+  // over an empty body. Keep each predicate covering exactly the fields its
+  // card's rows read, or a card reappears empty.
+  const hasBillingSetup = Boolean(
+    formData.rentStartDate || formData.contractMonths > 0 || formData.billingType,
+  );
+  const hasAccounting =
+    formData.advancePayment > 0 || formData.securityDeposit > 0;
+
   return (
     <div className="space-y-4">
       {/* The panel renders muted/20 over the dialog's bg-background, so the
@@ -225,7 +235,7 @@ export function PropertyPreview({
             </CardContent>
           </Card>
 
-          {currentStep >= 2 && isAddingTenants && (
+          {currentStep >= 2 && isAddingTenants && hasBillingSetup && (
             <Card className="shadow-sm">
               <CardContent className="p-4 space-y-3">
                 <h4 className="text-sm font-semibold flex items-center gap-2">
@@ -312,7 +322,7 @@ export function PropertyPreview({
             </Card>
           )}
 
-          {currentStep >= 3 && isAddingTenants && (
+          {currentStep >= 3 && isAddingTenants && hasAccounting && (
             <Card className="shadow-sm">
               <CardContent className="p-4 space-y-3">
                 <h4 className="text-sm font-semibold flex items-center gap-2">
