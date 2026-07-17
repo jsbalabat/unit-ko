@@ -58,21 +58,9 @@ import { cn } from "@/lib/utils";
 import type {
   PropertyFormData,
   TenantInfo,
-  ValidationErrors,
 } from "@/components/add-property/form-types";
-import {
-  billableTenantCount,
-  isAddingTenants as deriveIsAddingTenants,
-  isValid,
-  validateBillingSchedule as checkBillingSchedule,
-  validateStep1 as checkStep1,
-  validateStep2 as checkStep2,
-  validateTenants as checkTenants,
-} from "@/components/add-property/validation";
-import {
-  buildBillingSchedule,
-  scheduleInputsKey,
-} from "@/components/add-property/schedule";
+import { isAddingTenants as deriveIsAddingTenants } from "@/components/add-property/validation";
+import { usePropertyForm } from "@/hooks/usePropertyForm";
 
 // Deterministic date formatting to prevent hydration mismatches
 const formatDate = (dateString: string): string => {
@@ -133,8 +121,9 @@ interface PropertyPreviewProps {
 }
 
 // Whether the preview has anything real to show. Until the landlord types
-// something the card would render, it's all placeholders ("Unit Name",
-// "₱0/month") — worse than showing nothing, so the caller drops the panel.
+// something the cards would render, they'd be all placeholders ("Unit Name",
+// "₱0/month"); the panel says so plainly instead. The column itself stays put so
+// the form doesn't reflow the moment the first character is typed.
 function hasPreviewContent(formData: PropertyFormData): boolean {
   return Boolean(
     formData.unitName.trim() ||
@@ -199,8 +188,19 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
         </p>
       </div>
 
-      {/* Property Card Preview */}
-      <Card className="shadow-md">
+      {!hasPreviewContent(formData) ? (
+        <div className="rounded-lg border border-dashed border-border py-10 px-4 text-center">
+          <p className="text-sm text-muted-foreground">
+            No information input yet
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Your property will appear here as you fill in the form.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Property Card Preview */}
+          <Card className="shadow-md">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-start justify-between">
             <div className="flex-1">
@@ -495,6 +495,8 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
             </div>
           </CardContent>
         </Card>
+          )}
+        </>
       )}
     </div>
   );
@@ -512,33 +514,8 @@ export function MultiStepPopup({
   onComplete,
 }: MultiStepPopupProps) {
   const [currentStep, setCurrentStep] = useState(1);
-  const [errors, setErrors] = useState<ValidationErrors>({});
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formData, setFormData] = useState<PropertyFormData>({
-    unitName: "",
-    propertyType: "",
-    tenantName: "",
-    tenantEmail: "",
-    contactNumber: "",
-    pax: 0,
-    maxTenants: 0,
-    tenants: [],
-    propertyLocation: "",
-    billingType: "",
-    contractMonths: 0,
-    rentStartDate: "",
-    dueDay: "",
-    rentAmount: 0,
-    formBasis: "",
-    collectionDay: "",
-    collectionDates: [],
-    rentPerCollection: 0,
-    advancePayment: 0,
-    securityDeposit: 0,
-    leaseDate: "",
-    billingSchedule: [],
-  });
   const [isOtherChargesPopupOpen, setIsOtherChargesPopupOpen] = useState(false);
   const [selectedBillingIndex, setSelectedBillingIndex] = useState<
     number | null
@@ -547,105 +524,26 @@ export function MultiStepPopup({
   const [editingRentValue, setEditingRentValue] = useState<number>(0);
   const [editingDateIndex, setEditingDateIndex] = useState<number | null>(null);
   const [editingDateValue, setEditingDateValue] = useState<string>("");
-  // Which inputs the current billingSchedule was built from; null = never built.
-  const [scheduleGeneratedFrom, setScheduleGeneratedFrom] = useState<
-    string | null
-  >(null);
 
-  const isAddingTenants = deriveIsAddingTenants(formData);
+  // The wizard's data, derivations and syncs live here; this component keeps
+  // only step navigation and its own popup/editing state.
+  const {
+    formData,
+    setFormData,
+    errors,
+    setErrors,
+    isAddingTenants,
+    updateFormData,
+    reset: resetForm,
+    generateBillingSchedule,
+    validateStep1,
+    validateStep2,
+    validateBillingSchedule,
+    validateTenants,
+  } = usePropertyForm();
 
   // Tenant steps (lease terms, billing) only exist when tenants are being added.
   const totalSteps = isAddingTenants ? 4 : 2;
-
-  // Keep collectionDates/collectionDay consistent with the billing basis.
-  // Adjusted during render (per React's "adjust state on prop change" guidance)
-  // instead of an effect that synchronously sets state.
-  const collectionDatesLength = formData.collectionDates.length;
-  const [basisAnchor, setBasisAnchor] = useState({
-    formBasis: formData.formBasis,
-    collectionDatesLength,
-    collectionDay: formData.collectionDay,
-  });
-  if (
-    basisAnchor.formBasis !== formData.formBasis ||
-    basisAnchor.collectionDatesLength !== collectionDatesLength ||
-    basisAnchor.collectionDay !== formData.collectionDay
-  ) {
-    setBasisAnchor({
-      formBasis: formData.formBasis,
-      collectionDatesLength,
-      collectionDay: formData.collectionDay,
-    });
-    if (formData.formBasis === "bi-weekly" && collectionDatesLength !== 2) {
-      setFormData((prev) => ({ ...prev, collectionDates: [1, 16] }));
-    } else if (formData.formBasis === "monthly" && collectionDatesLength !== 1) {
-      setFormData((prev) => ({ ...prev, collectionDates: [1] }));
-    } else if (formData.formBasis === "weekly" && !formData.collectionDay) {
-      setFormData((prev) => ({ ...prev, collectionDay: "monday" }));
-    }
-  }
-
-  // Keep the property's total rent in sync with per-collection rent × tenant
-  // count. Adjusted during render (per React's "adjust state on prop change"
-  // guidance) instead of an effect that synchronously sets state.
-  const [rentSyncAnchor, setRentSyncAnchor] = useState({
-    rentPerCollection: formData.rentPerCollection,
-    isAddingTenants,
-    billingType: formData.billingType,
-    rentAmount: formData.rentAmount,
-    maxTenants: formData.maxTenants,
-    tenants: formData.tenants,
-  });
-  if (
-    rentSyncAnchor.rentPerCollection !== formData.rentPerCollection ||
-    rentSyncAnchor.isAddingTenants !== isAddingTenants ||
-    rentSyncAnchor.billingType !== formData.billingType ||
-    rentSyncAnchor.rentAmount !== formData.rentAmount ||
-    rentSyncAnchor.maxTenants !== formData.maxTenants ||
-    rentSyncAnchor.tenants !== formData.tenants
-  ) {
-    setRentSyncAnchor({
-      rentPerCollection: formData.rentPerCollection,
-      isAddingTenants,
-      billingType: formData.billingType,
-      rentAmount: formData.rentAmount,
-      maxTenants: formData.maxTenants,
-      tenants: formData.tenants,
-    });
-    if (
-      isAddingTenants &&
-      formData.billingType === "pre-organized" &&
-      formData.rentPerCollection > 0
-    ) {
-      const totalPropertyRent =
-        formData.rentPerCollection * billableTenantCount(formData);
-
-      if (totalPropertyRent !== formData.rentAmount) {
-        setFormData((prev) => ({ ...prev, rentAmount: totalPropertyRent }));
-      }
-    }
-  }
-
-  // Validation functions
-  // The rules live in ./add-property/validation (pure, unit-tested); these
-  // wrappers only bridge them to component state.
-  const validateStep1 = (): boolean => {
-    const newErrors = checkStep1(formData);
-    setErrors(newErrors);
-    return isValid(newErrors);
-  };
-
-  const validateStep2 = (): boolean => {
-    const newErrors = checkStep2(formData);
-    setErrors(newErrors);
-    return isValid(newErrors);
-  };
-
-  const validateBillingSchedule = (): boolean => {
-    const newErrors = checkBillingSchedule();
-    setErrors(newErrors);
-    return isValid(newErrors);
-  };
 
   // Helper function to generate tenant fields based on maxTenants
   const handleMaxTenantsChange = (value: number) => {
@@ -689,12 +587,6 @@ export function MultiStepPopup({
     });
   };
 
-  // Validate all tenants for occupied bed space
-  const validateTenants = (): boolean => {
-    const newErrors = checkTenants(formData);
-    setErrors(newErrors);
-    return isValid(newErrors);
-  };
 
   const handleOtherChargesClick = (index: number) => {
     setSelectedBillingIndex(index);
@@ -860,63 +752,10 @@ export function MultiStepPopup({
 
   const handleCancel = () => {
     setCurrentStep(1);
-    setErrors({});
-    setScheduleGeneratedFrom(null);
-    setFormData({
-      unitName: "",
-      propertyType: "",
-      tenantName: "",
-      tenantEmail: "",
-      contactNumber: "",
-      pax: 0,
-      maxTenants: 0,
-      tenants: [],
-      propertyLocation: "",
-      contractMonths: 0,
-      rentStartDate: "",
-      dueDay: "",
-      rentAmount: 0,
-      billingType: "",
-      formBasis: "",
-      collectionDay: "",
-      collectionDates: [],
-      rentPerCollection: 0,
-      advancePayment: 0,
-      securityDeposit: 0,
-      leaseDate: "",
-      billingSchedule: [],
-    });
+    resetForm();
     onClose();
   };
 
-  // The date maths lives in ./add-property/schedule (pure, unit-tested); this
-  // only surfaces the outcome and commits it to form state.
-  //
-  // Rebuilding wipes every per-period edit made on the review step (other
-  // charges, hand-set rents and dates), so an unchanged schedule is left alone —
-  // otherwise stepping back to Billing and forward again silently discards them.
-  const generateBillingSchedule = () => {
-    const inputsKey = scheduleInputsKey(formData);
-    if (inputsKey === scheduleGeneratedFrom && formData.billingSchedule.length) {
-      return;
-    }
-
-    const result = buildBillingSchedule(formData, new Date());
-
-    if (!result.ok) {
-      toast.error(result.reason);
-      return;
-    }
-
-    setFormData((prev) => ({ ...prev, billingSchedule: result.periods }));
-    setScheduleGeneratedFrom(inputsKey);
-
-    const frequencyLabel =
-      formData.formBasis.charAt(0).toUpperCase() + formData.formBasis.slice(1);
-    toast.success(`${frequencyLabel} billing schedule generated`, {
-      description: `${result.periods.length} billing entries created`,
-    });
-  };
 
   const handleComplete = async () => {
     setIsSubmitting(true);
@@ -933,32 +772,7 @@ export function MultiStepPopup({
         // Close and reset form
         onClose();
         setCurrentStep(1);
-        setErrors({});
-        setScheduleGeneratedFrom(null);
-        setFormData({
-          unitName: "",
-          propertyType: "",
-          tenantName: "",
-          tenantEmail: "",
-          contactNumber: "",
-          pax: 0,
-          maxTenants: 0,
-          tenants: [],
-          propertyLocation: "",
-          billingType: "",
-          contractMonths: 0,
-          rentStartDate: "",
-          dueDay: "",
-          rentAmount: 0,
-          formBasis: "",
-          collectionDay: "",
-          collectionDates: [],
-          rentPerCollection: 0,
-          advancePayment: 0,
-          securityDeposit: 0,
-          leaseDate: "",
-          billingSchedule: [],
-        });
+        resetForm();
       } else {
         toast.error("Failed to Add Property", {
           description: result.error || "An unexpected error occurred.",
@@ -974,13 +788,6 @@ export function MultiStepPopup({
     }
   };
 
-  const updateFormData = (field: keyof PropertyFormData, value: unknown) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-
-    if (errors[field as keyof ValidationErrors]) {
-      setErrors((prev) => ({ ...prev, [field]: undefined }));
-    }
-  };
 
   const getStepInfo = (step: number) => {
     if (!isAddingTenants) {
@@ -2881,13 +2688,10 @@ export function MultiStepPopup({
               )}
             </div>
 
-            {/* Right Side - Live Preview. The whole panel goes, not just the
-                card: an empty w-96 column would still show as a grey gutter. */}
-            {hasPreviewContent(formData) && (
-              <div className="hidden lg:block w-96 overflow-y-auto px-4 py-4 bg-muted/20">
-                <PropertyPreview formData={formData} currentStep={currentStep} />
-              </div>
-            )}
+            {/* Right Side - Live Preview */}
+            <div className="hidden lg:block w-96 overflow-y-auto px-4 py-4 bg-muted/20">
+              <PropertyPreview formData={formData} currentStep={currentStep} />
+            </div>
           </div>
 
           {/* Navigation Bar - More compact and visually appealing */}
