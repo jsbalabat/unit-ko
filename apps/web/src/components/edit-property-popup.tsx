@@ -83,6 +83,9 @@ interface PropertyFormData {
   unitName: string;
   propertyType: string;
   propertyLocation: string;
+  // Read-only. Seeded from detail.occupancyStatus, which the server derives from
+  // an active lease (v_property_occupancy) — the update contract has no such
+  // field, so nothing here can change it. Gates display only; don't add a setter.
   occupancyStatus: "occupied" | "vacant";
   rentAmount: number;
   maxTenants: number;
@@ -601,20 +604,6 @@ export function EditPropertyPopup({
         ...updatedFormData.paxDetails[0],
         phone: value as string,
       };
-    }
-
-    // Initialize pax details when changing from vacant to occupied
-    if (field === "occupancyStatus" && value === "occupied") {
-      // Ensure we have at least Person 1 with empty details
-      if (updatedFormData.paxDetails.length === 0) {
-        updatedFormData.paxDetails = [{ name: "", email: "", phone: "" }];
-        updatedFormData.pax = 1;
-
-        toast.info("Property set to occupied", {
-          description:
-            "Please fill in Person 1 details below (tenant information required)",
-        });
-      }
     }
 
     // Set the updated form data
@@ -1714,9 +1703,9 @@ export function EditPropertyPopup({
             <Alert className="bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-800">
               <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               <AlertDescription>
-                This property is currently vacant. Change the occupancy status
-                to &quot;Occupied&quot; above to add tenant information and
-                person details.
+                This property is currently vacant. Fill in the person details
+                above to house a tenant — occupancy follows the lease and
+                updates on its own.
               </AlertDescription>
             </Alert>
           )}
