@@ -7,6 +7,7 @@ import { api } from "@/lib/api-client";
 import { liveFeedOptions } from "@/lib/swr";
 import { useShowMore } from "@/hooks/useShowMore";
 import { ShowMoreToggle } from "@/components/show-more-toggle";
+import { CollapsibleSection } from "@/components/collapsible-section";
 import { Button } from "@/components/button";
 import { formatDateTime } from "@/lib/format";
 
@@ -27,6 +28,10 @@ export function TenantResponses() {
   } = useShowMore(responses ?? [], 3);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
+
+  // Queued = responses the landlord still has to confirm receipt on. Confirming
+  // one drops the count, so the header doubles as the remaining to-do.
+  const queuedCount = (responses ?? []).filter((r) => !r.confirmedAt).length;
 
   const handleConfirm = async (id: string) => {
     setConfirmingId(id);
@@ -49,11 +54,11 @@ export function TenantResponses() {
   };
 
   return (
-    <section>
-      <h3 className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-        <ClipboardCheck className="h-3.5 w-3.5" />
-        Tenant Responses
-      </h3>
+    <CollapsibleSection
+      title="Tenant Responses"
+      icon={<ClipboardCheck className="h-3.5 w-3.5" />}
+      queuedCount={queuedCount}
+    >
       {responses === undefined && error ? (
         <p className="py-2 text-sm text-destructive">Failed to load responses</p>
       ) : responses === undefined ? (
@@ -117,6 +122,6 @@ export function TenantResponses() {
           />
         </>
       )}
-    </section>
+    </CollapsibleSection>
   );
 }

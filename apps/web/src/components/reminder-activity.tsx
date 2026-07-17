@@ -7,6 +7,7 @@ import { api } from "@/lib/api-client";
 import { liveFeedOptions } from "@/lib/swr";
 import { useShowMore } from "@/hooks/useShowMore";
 import { ShowMoreToggle } from "@/components/show-more-toggle";
+import { CollapsibleSection } from "@/components/collapsible-section";
 import { formatDateTime } from "@/lib/format";
 
 const STATUS_STYLE: Record<
@@ -46,12 +47,18 @@ export function ReminderActivity() {
     toggle,
   } = useShowMore(logs ?? [], 3);
 
+  // Queued = dispatches that haven't settled yet. Sent and failed are both
+  // finished outcomes; neither is still waiting on anything.
+  const queuedCount = (logs ?? []).filter(
+    (log) => log.status === "pending",
+  ).length;
+
   return (
-    <section>
-      <h3 className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
-        <BellRing className="h-3.5 w-3.5" />
-        Reminder Activity
-      </h3>
+    <CollapsibleSection
+      title="Reminder Activity"
+      icon={<BellRing className="h-3.5 w-3.5" />}
+      queuedCount={queuedCount}
+    >
       {logs === undefined && error ? (
         <p className="py-2 text-sm text-destructive">
           Failed to load reminders
@@ -102,6 +109,6 @@ export function ReminderActivity() {
           />
         </>
       )}
-    </section>
+    </CollapsibleSection>
   );
 }
