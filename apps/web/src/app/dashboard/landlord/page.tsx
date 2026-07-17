@@ -36,6 +36,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
 import { PropertyFilterBar } from "@/components/property-filter-bar";
 import { QuickAccessPanel } from "@/components/quick-access-panel";
+import { CollapsibleCard } from "@/components/collapsible-card";
+import { ShowMoreToggle } from "@/components/show-more-toggle";
+import { useShowMore } from "@/hooks/useShowMore";
 import { DashboardActions } from "@/components/dashboard-actions";
 import { cn } from "@/lib/utils";
 import { sendTenantReminder } from "@/services/tenantReminderService";
@@ -414,6 +417,15 @@ function LandlordDashboard() {
     });
   }, [properties]);
 
+  // Sorted by largest balance first, so the truncated view keeps the tenants
+  // worth chasing and hides the tail.
+  const {
+    visible: visibleOverdue,
+    hiddenCount: overdueHiddenCount,
+    expanded: overdueExpanded,
+    toggle: toggleOverdue,
+  } = useShowMore(quickAccessItems, 5);
+
   // Status colors based on property state
   const getStatusStyles = (status: "occupied" | "vacant") => {
     if (status === "occupied") {
@@ -629,25 +641,21 @@ function LandlordDashboard() {
           <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-6">
             {/* Overdue Items Sidebar */}
             <aside className="order-2 lg:order-1">
-              <Card className="lg:sticky lg:top-20">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    Overdue Balances
-                  </CardTitle>
-                  <CardDescription>
-                    {quickAccessItems.length} tenant
-                    {quickAccessItems.length === 1 ? "" : "s"} with unpaid
-                    balances
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {quickAccessItems.length === 0 ? (
-                    <div className="text-sm text-muted-foreground py-3">
-                      No unpaid balances right now.
-                    </div>
-                  ) : (
+              <CollapsibleCard
+                title="Overdue Balances"
+                description={`${quickAccessItems.length} tenant${
+                  quickAccessItems.length === 1 ? "" : "s"
+                } with unpaid balances`}
+                className="lg:sticky lg:top-20"
+              >
+                {quickAccessItems.length === 0 ? (
+                  <div className="text-sm text-muted-foreground py-3">
+                    No unpaid balances right now.
+                  </div>
+                ) : (
+                  <>
                     <ul className="space-y-2 max-h-[58vh] overflow-y-auto pr-1">
-                      {quickAccessItems.map((item) => (
+                      {visibleOverdue.map((item) => (
                         <li
                           key={item.id}
                           className="border rounded-md p-3 bg-muted/20"
@@ -726,9 +734,14 @@ function LandlordDashboard() {
                         </li>
                       ))}
                     </ul>
-                  )}
-                </CardContent>
-              </Card>
+                    <ShowMoreToggle
+                      expanded={overdueExpanded}
+                      hiddenCount={overdueHiddenCount}
+                      onToggle={toggleOverdue}
+                    />
+                  </>
+                )}
+              </CollapsibleCard>
             </aside>
 
             <div className="order-1 lg:order-2">
