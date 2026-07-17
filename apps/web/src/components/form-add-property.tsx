@@ -55,86 +55,20 @@ import { OtherChargesPopup } from "@/components/other-charges-popup";
 import { EditIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// Interface for individual tenant in bed space
-interface TenantInfo {
-  tenantName: string;
-  tenantEmail: string;
-  contactNumber: string;
-}
-
-interface PropertyFormData {
-  // Existing fields
-  unitName: string;
-  propertyType: string;
-
-  // Legacy fields (kept for backward compatibility with single tenant)
-  tenantName: string;
-  tenantEmail: string;
-  contactNumber: string;
-
-  // Bed space fields (pax = maxTenants = number of tenants)
-  pax: number; // Legacy: kept for backward compatibility, same as maxTenants
-  maxTenants: number;
-  tenants: TenantInfo[];
-
-  propertyLocation: string;
-  billingType: "pre-organized" | "blank" | "";
-  contractMonths: number; // Number of billing periods (not necessarily months - depends on formBasis: weekly, monthly, quarterly, etc.)
-  rentStartDate: string;
-  dueDay: string;
-  rentAmount: number;
-
-  // Pre-organized billing fields
-  formBasis:
-    | "weekly"
-    | "bi-weekly"
-    | "monthly"
-    | "quarterly"
-    | "semi-annually"
-    | "annually"
-    | "";
-  collectionDay: string; // For weekly: "monday" - "sunday"
-  collectionDates: number[]; // For bi-weekly: [date1, date2], monthly: [date1]
-  rentPerCollection: number;
-
-  // Accounting & Monitoring fields
-  advancePayment: number;
-  securityDeposit: number;
-  leaseDate: string;
-
-  // Update the billing schedule to include expense items
-  billingSchedule: Array<{
-    dueDate: string;
-    rentDue: number;
-    otherCharges: number;
-    grossDue: number;
-    status: string;
-    expenseItems: Array<{
-      id: string;
-      name: string;
-      amount: number;
-    }>;
-  }>;
-}
-
-interface ValidationErrors {
-  unitName?: string;
-  propertyType?: string;
-  maxTenants?: string;
-  tenantName?: string;
-  tenantEmail?: string;
-  contactNumber?: string;
-  pax?: string;
-  propertyLocation?: string;
-  billingType?: string;
-  contractMonths?: string;
-  rentStartDate?: string;
-  rentAmount?: string;
-  formBasis?: string;
-  collectionDay?: string;
-  collectionDates?: string;
-  [key: string]: string | undefined; // Allow dynamic keys for tenant validation
-}
+import type {
+  PropertyFormData,
+  TenantInfo,
+  ValidationErrors,
+} from "@/components/add-property/form-types";
+import {
+  billableTenantCount,
+  isAddingTenants as deriveIsAddingTenants,
+  isValid,
+  validateBillingSchedule as checkBillingSchedule,
+  validateStep1 as checkStep1,
+  validateStep2 as checkStep2,
+  validateTenants as checkTenants,
+} from "@/components/add-property/validation";
 
 // Deterministic date formatting to prevent hydration mismatches
 const formatDate = (dateString: string): string => {
@@ -200,13 +134,10 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
     formData.tenants?.filter((t) => t.tenantName && t.tenantName.trim() !== "")
       .length || 0;
 
-  // Mirrors the wizard's own derivation: the preview shows Occupied when the
-  // landlord is entering tenants. The saved property's real occupancy comes from
-  // the server (v_property_occupancy) once the lease exists.
-  const isAddingTenants =
-    formData.maxTenants > 1
-      ? filledTenantsCount > 0
-      : Boolean(formData.tenantName?.trim());
+  // The preview shows Occupied when the landlord is entering tenants. The saved
+  // property's real occupancy comes from the server (v_property_occupancy) once
+  // the lease exists.
+  const isAddingTenants = deriveIsAddingTenants(formData);
 
   const paxCount =
     formData.maxTenants > 1
@@ -594,14 +525,7 @@ export function MultiStepPopup({
   const [editingDateIndex, setEditingDateIndex] = useState<number | null>(null);
   const [editingDateValue, setEditingDateValue] = useState<string>("");
 
-  // The property's real occupancy is derived server-side from an active lease
-  // (v_property_occupancy) — the form never owns it. What the wizard actually
-  // branches on is whether the landlord is entering tenants right now, so name
-  // it that and derive it rather than mirroring it into form state.
-  const isAddingTenants =
-    formData.maxTenants > 1
-      ? formData.tenants.some((t) => t.tenantName?.trim())
-      : Boolean(formData.tenantName?.trim());
+  const isAddingTenants = deriveIsAddingTenants(formData);
 
   // Tenant steps (lease terms, billing) only exist when tenants are being added.
   const totalSteps = isAddingTenants ? 4 : 2;
@@ -765,18 +689,8 @@ export function MultiStepPopup({
       formData.billingType === "pre-organized" &&
       formData.rentPerCollection > 0
     ) {
-      const filledTenantsCount =
-        formData.tenants?.filter(
-          (t) => t.tenantName && t.tenantName.trim() !== "",
-        ).length || 0;
-      const numberOfTenants =
-        formData.maxTenants > 1
-          ? filledTenantsCount > 0
-            ? filledTenantsCount
-            : formData.maxTenants
-          : 1;
-
-      const totalPropertyRent = formData.rentPerCollection * numberOfTenants;
+      const totalPropertyRent =
+        formData.rentPerCollection * billableTenantCount(formData);
 
       if (totalPropertyRent !== formData.rentAmount) {
         setFormData((prev) => ({ ...prev, rentAmount: totalPropertyRent }));
@@ -785,218 +699,24 @@ export function MultiStepPopup({
   }
 
   // Validation functions
+  // The rules live in ./add-property/validation (pure, unit-tested); these
+  // wrappers only bridge them to component state.
   const validateStep1 = (): boolean => {
-    const newErrors: ValidationErrors = {};
-
-    // Unit Name validation
-    if (!formData.unitName.trim()) {
-      newErrors.unitName = "Unit name is required";
-    } else if (formData.unitName.trim().length < 2) {
-      newErrors.unitName = "Unit name must be at least 2 characters";
-    }
-
-    // Property Type validation
-    if (!formData.propertyType) {
-      newErrors.propertyType = "Property type is required";
-    }
-
-    // Property Location validation
-    if (!formData.propertyLocation.trim()) {
-      newErrors.propertyLocation = "Property location is required";
-    } else if (formData.propertyLocation.trim().length < 10) {
-      newErrors.propertyLocation =
-        "Please provide a complete address (minimum 10 characters)";
-    }
-
-    // Capacity is required for record-keeping regardless of occupancy.
-    if (
-      !formData.maxTenants ||
-      formData.maxTenants === 0 ||
-      formData.maxTenants < 1
-    ) {
-      newErrors.maxTenants = "At least 1 tenant slot is required (1-20)";
-    } else if (formData.maxTenants > 20) {
-      newErrors.maxTenants = "Maximum 20 tenant slots allowed";
-    }
-
-    // Per-tenant validation only fires once the user has started entering
-    // tenant data. Empty tenant section = vacant intent → skip these checks
-    // and instead require rent_amount (since the per-tenant rent path won't run).
-    const userStartedFillingTenants =
-      formData.maxTenants > 1
-        ? formData.tenants.some(
-            (t) =>
-              t.tenantName?.trim() ||
-              t.tenantEmail?.trim() ||
-              t.contactNumber?.trim(),
-          )
-        : Boolean(
-            formData.tenantName?.trim() ||
-              formData.tenantEmail?.trim() ||
-              formData.contactNumber?.trim(),
-          );
-
-    if (!userStartedFillingTenants) {
-      // Vacant intent — require a property-level rent amount up front.
-      if (!formData.rentAmount || formData.rentAmount <= 0) {
-        newErrors.rentAmount = "Rent amount must be greater than 0";
-      } else if (formData.rentAmount < 1000) {
-        newErrors.rentAmount = "Rent amount seems too low (minimum ₱1,000)";
-      } else if (formData.rentAmount > 1000000) {
-        newErrors.rentAmount =
-          "Rent amount seems too high (maximum ₱1,000,000)";
-      }
-    }
-
-    if (userStartedFillingTenants && formData.maxTenants === 1) {
-      if (!formData.tenantName.trim()) {
-        newErrors.tenantName =
-          "Tenant name is required when filling tenant details";
-      } else if (formData.tenantName.trim().length < 2) {
-        newErrors.tenantName = "Tenant name must be at least 2 characters";
-      }
-
-      if (!formData.tenantEmail.trim()) {
-        newErrors.tenantEmail =
-          "Email is required when filling tenant details";
-      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.tenantEmail)) {
-        newErrors.tenantEmail = "Please enter a valid email address";
-      }
-
-      if (!formData.contactNumber.trim()) {
-        newErrors.contactNumber =
-          "Contact number is required when filling tenant details";
-      } else if (
-        !/^(\+63|0)?9\d{9}$/.test(formData.contactNumber.replace(/\s|-/g, ""))
-      ) {
-        newErrors.contactNumber =
-          "Please enter a valid Philippine mobile number (e.g., 09123456789)";
-      }
-    }
-
+    const newErrors = checkStep1(formData);
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return isValid(newErrors);
   };
 
   const validateStep2 = (): boolean => {
-    const newErrors: ValidationErrors = {};
-
-    // Billing Type validation
-    if (!formData.billingType) {
-      newErrors.billingType = "Billing template is required";
-      setErrors(newErrors);
-      return false;
-    }
-
-    // Contract Periods validation (only for pre-organized)
-    if (formData.billingType === "pre-organized") {
-      if (!formData.contractMonths || formData.contractMonths === 0) {
-        newErrors.contractMonths = "Contract duration is required";
-      } else if (formData.contractMonths < 1) {
-        newErrors.contractMonths =
-          "Contract duration must be at least 1 period";
-      } else if (formData.contractMonths > 100) {
-        newErrors.contractMonths =
-          "Contract duration cannot exceed 100 periods";
-      }
-    }
-
-    // Rent Start Date validation - only check if it's provided, not the date range
-    if (!formData.rentStartDate) {
-      newErrors.rentStartDate = "Rent start date is required";
-    }
-
-    // Blank billing only requires start date
-    if (formData.billingType === "blank") {
-      setErrors(newErrors);
-      return Object.keys(newErrors).length === 0;
-    }
-
-    // Pre-organized billing validation
-    if (formData.billingType === "pre-organized") {
-      // Form Basis validation
-      if (!formData.formBasis) {
-        newErrors.formBasis = "Billing frequency is required";
-      }
-
-      // Rent Per Collection validation (per tenant amount)
-      if (!formData.rentPerCollection || formData.rentPerCollection === 0) {
-        newErrors.rentAmount = "Rent per tenant is required";
-      } else if (formData.rentPerCollection < 0) {
-        newErrors.rentAmount = "Rent per tenant must be greater than 0";
-      } else if (formData.rentPerCollection < 500) {
-        newErrors.rentAmount = "Per-tenant rent seems too low (minimum ₱500)";
-      } else if (formData.rentPerCollection > 1000000) {
-        newErrors.rentAmount =
-          "Per-tenant rent seems too high (maximum ₱1,000,000)";
-      }
-
-      // Validate total property rent as well
-      const filledCount =
-        formData.tenants?.filter(
-          (t) => t.tenantName && t.tenantName.trim() !== "",
-        ).length || 0;
-      const tenantCount =
-        formData.maxTenants > 1
-          ? filledCount > 0
-            ? filledCount
-            : formData.maxTenants
-          : 1;
-      const totalRent = formData.rentPerCollection * tenantCount;
-
-      if (totalRent > 1000000) {
-        newErrors.rentAmount = `Total property rent (₱${totalRent.toLocaleString()}) exceeds maximum of ₱1,000,000`;
-      }
-
-      // Collection day validation for weekly
-      if (formData.formBasis === "weekly" && !formData.collectionDay) {
-        newErrors.collectionDay =
-          "Collection day is required for weekly billing";
-      }
-
-      // Collection date validation for bi-weekly
-      if (formData.formBasis === "bi-weekly") {
-        if (
-          !formData.collectionDates ||
-          formData.collectionDates.length === 0
-        ) {
-          newErrors.collectionDates =
-            "Collection dates are required for bi-weekly billing";
-        } else if (
-          !formData.collectionDates[0] ||
-          !formData.collectionDates[1]
-        ) {
-          newErrors.collectionDates =
-            "Both collection dates are required for bi-weekly";
-        }
-      }
-
-      // Collection date validation for monthly
-      if (formData.formBasis === "monthly") {
-        if (
-          !formData.collectionDates ||
-          formData.collectionDates.length === 0
-        ) {
-          newErrors.collectionDates =
-            "Collection date is required for monthly billing";
-        } else if (!formData.collectionDates[0]) {
-          newErrors.collectionDates = "Collection date is required for monthly";
-        }
-      }
-    }
-
+    const newErrors = checkStep2(formData);
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    return isValid(newErrors);
   };
 
   const validateBillingSchedule = (): boolean => {
-    const newErrors: ValidationErrors = {};
-
-    // Allow empty billing schedules for blank billing
-    // No validation needed - user can proceed with or without entries
-
+    const newErrors = checkBillingSchedule();
     setErrors(newErrors);
-    return true;
+    return isValid(newErrors);
   };
 
   // Helper function to generate tenant fields based on maxTenants
@@ -1043,70 +763,9 @@ export function MultiStepPopup({
 
   // Validate all tenants for occupied bed space
   const validateTenants = (): boolean => {
-    const newErrors: ValidationErrors = {};
-    let isValid = true;
-
-    // Check if at least one tenant has any data
-    const hasAnyTenant = formData.tenants.some(
-      (t) => t.tenantName || t.tenantEmail || t.contactNumber,
-    );
-
-    // If no tenant data at all, show errors on first tenant fields
-    if (!hasAnyTenant && formData.tenants.length > 0) {
-      newErrors[`tenant0_name`] = "Tenant 1 name is required";
-      newErrors[`tenant0_email`] = "Tenant 1 email is required";
-      newErrors[`tenant0_contact`] = "Tenant 1 contact is required";
-      setErrors(newErrors);
-      return false;
-    }
-
-    formData.tenants.forEach((tenant, index) => {
-      // Check if at least one tenant field is filled (partial validation)
-      const hasAnyData =
-        tenant.tenantName || tenant.tenantEmail || tenant.contactNumber;
-
-      // If any field is filled, validate all fields for this tenant
-      if (hasAnyData) {
-        if (!tenant.tenantName.trim()) {
-          newErrors[`tenant${index}_name`] = `Tenant ${
-            index + 1
-          } name is required`;
-          isValid = false;
-        } else if (tenant.tenantName.trim().length < 2) {
-          newErrors[`tenant${index}_name`] = `Tenant ${
-            index + 1
-          } name must be at least 2 characters`;
-          isValid = false;
-        }
-
-        if (!tenant.tenantEmail.trim()) {
-          newErrors[`tenant${index}_email`] = `Tenant ${
-            index + 1
-          } email is required`;
-          isValid = false;
-        } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(tenant.tenantEmail)) {
-          newErrors[`tenant${index}_email`] =
-            `Please enter a valid email for tenant ${index + 1}`;
-          isValid = false;
-        }
-
-        if (!tenant.contactNumber.trim()) {
-          newErrors[`tenant${index}_contact`] = `Tenant ${
-            index + 1
-          } contact is required`;
-          isValid = false;
-        } else if (
-          !/^(\+63|0)?9\d{9}$/.test(tenant.contactNumber.replace(/\s|-/g, ""))
-        ) {
-          newErrors[`tenant${index}_contact`] =
-            `Invalid Philippine mobile number for tenant ${index + 1}`;
-          isValid = false;
-        }
-      }
-    });
-
+    const newErrors = checkTenants(formData);
     setErrors(newErrors);
-    return isValid;
+    return isValid(newErrors);
   };
 
   const handleOtherChargesClick = (index: number) => {
@@ -1320,18 +979,7 @@ export function MultiStepPopup({
       return;
     }
 
-    // For pre-organized billing: calculate total property rent from per-tenant amount
-    // Count filled tenants or use maxTenants
-    const filledTenantsCount =
-      formData.tenants?.filter(
-        (t) => t.tenantName && t.tenantName.trim() !== "",
-      ).length || 0;
-    const numberOfTenants =
-      formData.maxTenants > 1
-        ? filledTenantsCount > 0
-          ? filledTenantsCount
-          : formData.maxTenants
-        : 1;
+    const numberOfTenants = billableTenantCount(formData);
 
     // Use rentPerCollection * numberOfTenants for pre-organized, rentAmount for vacant
     const rentAmount =
@@ -2005,10 +1653,13 @@ export function MultiStepPopup({
                           past it.
                         </p>
 
-                        {isAddingTenants && (
-                          <div className="space-y-4 pt-3 border-t border-border">
-                            {/* Display mode indicator */}
-                            {formData.maxTenants > 1 && (
+                        {/* Never gate this on whether tenants exist — it's where
+                            tenants get entered. Occupancy follows what's typed
+                            here; leaving it empty is how a vacant property is
+                            created. */}
+                        <div className="space-y-4 pt-3 border-t border-border">
+                          {/* Display mode indicator */}
+                          {formData.maxTenants > 1 && (
                               <Alert className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
                                 <AlertCircle className="h-4 w-4 text-blue-600" />
                                 <AlertDescription className="text-xs text-blue-800 dark:text-blue-300">
@@ -2236,8 +1887,7 @@ export function MultiStepPopup({
                                 ))}
                               </div>
                             )}
-                          </div>
-                        )}
+                        </div>
 
                         {!isAddingTenants && (
                           <div className="pt-3 border-t border-border">
