@@ -5,6 +5,8 @@ import { ClipboardCheck, Loader2 } from "lucide-react";
 import useSWR from "swr";
 import { api } from "@/lib/api-client";
 import { liveFeedOptions } from "@/lib/swr";
+import { useShowMore } from "@/hooks/useShowMore";
+import { ShowMoreToggle } from "@/components/show-more-toggle";
 import { Button } from "@/components/button";
 import { formatDateTime } from "@/lib/format";
 
@@ -17,6 +19,12 @@ export function TenantResponses() {
     error,
     mutate,
   } = useSWR("landlord-responses", () => api.responses.list(8), liveFeedOptions);
+  const {
+    visible: visibleResponses,
+    hiddenCount,
+    expanded,
+    toggle,
+  } = useShowMore(responses ?? [], 3);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
@@ -63,7 +71,7 @@ export function TenantResponses() {
             <p className="mb-2 text-xs text-destructive">{confirmError}</p>
           ) : null}
           <ul className="space-y-2.5">
-            {responses.map((r) => (
+            {visibleResponses.map((r) => (
               <li
                 key={r.id}
                 className="flex items-start justify-between gap-3 text-sm"
@@ -102,6 +110,11 @@ export function TenantResponses() {
               </li>
             ))}
           </ul>
+          <ShowMoreToggle
+            expanded={expanded}
+            hiddenCount={hiddenCount}
+            onToggle={toggle}
+          />
         </>
       )}
     </section>

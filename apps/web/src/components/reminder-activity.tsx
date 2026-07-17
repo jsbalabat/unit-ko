@@ -5,6 +5,8 @@ import useSWR from "swr";
 import type { ReminderLog } from "@unitko/shared";
 import { api } from "@/lib/api-client";
 import { liveFeedOptions } from "@/lib/swr";
+import { useShowMore } from "@/hooks/useShowMore";
+import { ShowMoreToggle } from "@/components/show-more-toggle";
 import { formatDateTime } from "@/lib/format";
 
 const STATUS_STYLE: Record<
@@ -37,6 +39,12 @@ export function ReminderActivity() {
     () => api.reminders.recent(8),
     liveFeedOptions,
   );
+  const {
+    visible: visibleLogs,
+    hiddenCount,
+    expanded,
+    toggle,
+  } = useShowMore(logs ?? [], 3);
 
   return (
     <section>
@@ -58,33 +66,41 @@ export function ReminderActivity() {
           No reminders sent yet.
         </p>
       ) : (
-        <ul className="space-y-2">
-          {logs.map((log) => {
-            const style = STATUS_STYLE[log.status];
-            return (
-              <li
-                key={log.id}
-                className="flex items-center justify-between gap-3 text-sm"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-medium">
-                    {log.tenantName ?? "Unknown tenant"}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {log.propertyName ?? "—"} · {formatDateTime(log.createdAt)}
-                  </p>
-                </div>
-                <span
-                  className={`flex items-center gap-1.5 whitespace-nowrap text-xs font-medium ${style.text}`}
-                  title={log.error ?? undefined}
+        <>
+          <ul className="space-y-2">
+            {visibleLogs.map((log) => {
+              const style = STATUS_STYLE[log.status];
+              return (
+                <li
+                  key={log.id}
+                  className="flex items-center justify-between gap-3 text-sm"
                 >
-                  <span className={`h-2 w-2 rounded-full ${style.dot}`} />
-                  {style.label}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {log.tenantName ?? "Unknown tenant"}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {log.propertyName ?? "—"} ·{" "}
+                      {formatDateTime(log.createdAt)}
+                    </p>
+                  </div>
+                  <span
+                    className={`flex items-center gap-1.5 whitespace-nowrap text-xs font-medium ${style.text}`}
+                    title={log.error ?? undefined}
+                  >
+                    <span className={`h-2 w-2 rounded-full ${style.dot}`} />
+                    {style.label}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          <ShowMoreToggle
+            expanded={expanded}
+            hiddenCount={hiddenCount}
+            onToggle={toggle}
+          />
+        </>
       )}
     </section>
   );
