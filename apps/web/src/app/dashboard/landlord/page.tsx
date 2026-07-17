@@ -612,7 +612,7 @@ function LandlordDashboard() {
               </div>
             </div>
           </div>
-          {/* Quick Access — one-look panel (subscription due; cycle + tenant responses to follow) */}
+          {/* Quick Access — one-look panel (actions toolbar, subscription due, reminder cycle, tenant responses) */}
           <div className="mb-6">
             <QuickAccessPanel
               actions={
