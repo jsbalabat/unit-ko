@@ -132,6 +132,20 @@ interface PropertyPreviewProps {
   currentStep: number;
 }
 
+// Whether the preview has anything real to show. Until the landlord types
+// something the card would render, it's all placeholders ("Unit Name",
+// "₱0/month") — worse than showing nothing, so the caller drops the panel.
+function hasPreviewContent(formData: PropertyFormData): boolean {
+  return Boolean(
+    formData.unitName.trim() ||
+      formData.propertyType ||
+      formData.propertyLocation.trim() ||
+      formData.rentAmount > 0 ||
+      formData.rentPerCollection > 0 ||
+      deriveIsAddingTenants(formData),
+  );
+}
+
 function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
   // Count only filled-in tenant entries
   const filledTenantsCount =
@@ -2862,10 +2876,13 @@ export function MultiStepPopup({
               )}
             </div>
 
-            {/* Right Side - Live Preview */}
-            <div className="hidden lg:block w-96 overflow-y-auto px-4 py-4 bg-muted/20">
-              <PropertyPreview formData={formData} currentStep={currentStep} />
-            </div>
+            {/* Right Side - Live Preview. The whole panel goes, not just the
+                card: an empty w-96 column would still show as a grey gutter. */}
+            {hasPreviewContent(formData) && (
+              <div className="hidden lg:block w-96 overflow-y-auto px-4 py-4 bg-muted/20">
+                <PropertyPreview formData={formData} currentStep={currentStep} />
+              </div>
+            )}
           </div>
 
           {/* Navigation Bar - More compact and visually appealing */}
