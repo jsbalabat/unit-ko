@@ -69,7 +69,10 @@ import {
   validateStep2 as checkStep2,
   validateTenants as checkTenants,
 } from "@/components/add-property/validation";
-import { buildBillingSchedule } from "@/components/add-property/schedule";
+import {
+  buildBillingSchedule,
+  scheduleInputsKey,
+} from "@/components/add-property/schedule";
 
 // Deterministic date formatting to prevent hydration mismatches
 const formatDate = (dateString: string): string => {
@@ -525,6 +528,10 @@ export function MultiStepPopup({
   const [editingRentValue, setEditingRentValue] = useState<number>(0);
   const [editingDateIndex, setEditingDateIndex] = useState<number | null>(null);
   const [editingDateValue, setEditingDateValue] = useState<string>("");
+  // Which inputs the current billingSchedule was built from; null = never built.
+  const [scheduleGeneratedFrom, setScheduleGeneratedFrom] = useState<
+    string | null
+  >(null);
 
   const isAddingTenants = deriveIsAddingTenants(formData);
 
@@ -835,6 +842,7 @@ export function MultiStepPopup({
   const handleCancel = () => {
     setCurrentStep(1);
     setErrors({});
+    setScheduleGeneratedFrom(null);
     setFormData({
       unitName: "",
       propertyType: "",
@@ -864,7 +872,16 @@ export function MultiStepPopup({
 
   // The date maths lives in ./add-property/schedule (pure, unit-tested); this
   // only surfaces the outcome and commits it to form state.
+  //
+  // Rebuilding wipes every per-period edit made on the review step (other
+  // charges, hand-set rents and dates), so an unchanged schedule is left alone —
+  // otherwise stepping back to Billing and forward again silently discards them.
   const generateBillingSchedule = () => {
+    const inputsKey = scheduleInputsKey(formData);
+    if (inputsKey === scheduleGeneratedFrom && formData.billingSchedule.length) {
+      return;
+    }
+
     const result = buildBillingSchedule(formData, new Date());
 
     if (!result.ok) {
@@ -873,6 +890,7 @@ export function MultiStepPopup({
     }
 
     setFormData((prev) => ({ ...prev, billingSchedule: result.periods }));
+    setScheduleGeneratedFrom(inputsKey);
 
     const frequencyLabel =
       formData.formBasis.charAt(0).toUpperCase() + formData.formBasis.slice(1);
@@ -897,6 +915,7 @@ export function MultiStepPopup({
         onClose();
         setCurrentStep(1);
         setErrors({});
+        setScheduleGeneratedFrom(null);
         setFormData({
           unitName: "",
           propertyType: "",
