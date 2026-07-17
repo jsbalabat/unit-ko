@@ -60,59 +60,11 @@ import type {
   TenantInfo,
 } from "@/components/add-property/form-types";
 import { isAddingTenants as deriveIsAddingTenants } from "@/components/add-property/validation";
+import {
+  formatMonthYear,
+  formatShortDate,
+} from "@/components/add-property/format";
 import { usePropertyForm } from "@/hooks/usePropertyForm";
-
-// Deterministic date formatting to prevent hydration mismatches
-const formatDate = (dateString: string): string => {
-  if (!dateString) return "";
-
-  const monthNames = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-
-  const date = new Date(dateString);
-  const year = date.getFullYear();
-  const month = date.getMonth();
-  const day = date.getDate();
-
-  return `${monthNames[month]} ${day}, ${year}`;
-};
-
-const formatMonthYear = (dateString: string): string => {
-  if (!dateString) return "";
-
-  const monthNames = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-
-  const date = new Date(dateString);
-  const year = date.getFullYear();
-  const month = date.getMonth();
-
-  return `${monthNames[month]} ${year}`;
-};
 
 // Property Preview Component
 interface PropertyPreviewProps {
@@ -349,7 +301,7 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Start Date</span>
                   <span className="font-medium">
-                    {formatDate(formData.rentStartDate)}
+                    {formatShortDate(formData.rentStartDate)}
                   </span>
                 </div>
               )}
@@ -2402,7 +2354,7 @@ export function MultiStepPopup({
                                         <div className="flex items-center gap-2 group">
                                           <span>
                                             {bill.dueDate
-                                              ? formatDate(bill.dueDate)
+                                              ? formatShortDate(bill.dueDate)
                                               : "Not set"}
                                           </span>
                                           <Button
@@ -2422,7 +2374,7 @@ export function MultiStepPopup({
                                         </div>
                                       )
                                     ) : (
-                                      <span>{formatDate(bill.dueDate)}</span>
+                                      <span>{formatShortDate(bill.dueDate)}</span>
                                     )}
                                   </td>
                                   <td className="px-3 py-3 text-sm text-right font-medium">
