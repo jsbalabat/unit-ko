@@ -66,7 +66,6 @@ interface PropertyFormData {
   // Existing fields
   unitName: string;
   propertyType: string;
-  occupancyStatus: "occupied" | "vacant";
 
   // Legacy fields (kept for backward compatibility with single tenant)
   tenantName: string;
@@ -301,7 +300,7 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
           </div>
 
           {/* Occupancy Information */}
-          {formData.occupancyStatus === "occupied" && (
+          {isAddingTenants && (
             <>
               <Separator />
               <div className="space-y-2">
@@ -382,7 +381,7 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
       </Card>
 
       {/* Billing Details Preview */}
-      {currentStep >= 2 && formData.occupancyStatus === "occupied" && (
+      {currentStep >= 2 && isAddingTenants && (
         <Card className="shadow-sm">
           <CardContent className="p-4 space-y-3">
             <h4 className="text-sm font-semibold flex items-center gap-2">
@@ -473,7 +472,7 @@ function PropertyPreview({ formData, currentStep }: PropertyPreviewProps) {
       )}
 
       {/* Accounting Preview */}
-      {currentStep >= 3 && formData.occupancyStatus === "occupied" && (
+      {currentStep >= 3 && isAddingTenants && (
         <Card className="shadow-sm">
           <CardContent className="p-4 space-y-3">
             <h4 className="text-sm font-semibold flex items-center gap-2">
@@ -564,7 +563,6 @@ export function MultiStepPopup({
   const [formData, setFormData] = useState<PropertyFormData>({
     unitName: "",
     propertyType: "",
-    occupancyStatus: "occupied",
     tenantName: "",
     tenantEmail: "",
     contactNumber: "",
@@ -595,8 +593,17 @@ export function MultiStepPopup({
   const [editingDateIndex, setEditingDateIndex] = useState<number | null>(null);
   const [editingDateValue, setEditingDateValue] = useState<string>("");
 
-  // Update total steps based on occupancy status
-  const totalSteps = formData.occupancyStatus === "vacant" ? 2 : 4;
+  // The property's real occupancy is derived server-side from an active lease
+  // (v_property_occupancy) — the form never owns it. What the wizard actually
+  // branches on is whether the landlord is entering tenants right now, so name
+  // it that and derive it rather than mirroring it into form state.
+  const isAddingTenants =
+    formData.maxTenants > 1
+      ? formData.tenants.some((t) => t.tenantName?.trim())
+      : Boolean(formData.tenantName?.trim());
+
+  // Tenant steps (lease terms, billing) only exist when tenants are being added.
+  const totalSteps = isAddingTenants ? 4 : 2;
 
   // Keep collectionDates/collectionDay consistent with the billing basis.
   // Adjusted during render (per React's "adjust state on prop change" guidance)
@@ -631,7 +638,7 @@ export function MultiStepPopup({
   // of an effect that synchronously sets state.
   const [scheduleAnchor, setScheduleAnchor] = useState({
     currentStep,
-    occupancyStatus: formData.occupancyStatus,
+    isAddingTenants,
     billingType: formData.billingType,
     contractMonths: formData.contractMonths,
     rentStartDate: formData.rentStartDate,
@@ -641,7 +648,7 @@ export function MultiStepPopup({
   });
   if (
     scheduleAnchor.currentStep !== currentStep ||
-    scheduleAnchor.occupancyStatus !== formData.occupancyStatus ||
+    scheduleAnchor.isAddingTenants !== isAddingTenants ||
     scheduleAnchor.billingType !== formData.billingType ||
     scheduleAnchor.contractMonths !== formData.contractMonths ||
     scheduleAnchor.rentStartDate !== formData.rentStartDate ||
@@ -651,7 +658,7 @@ export function MultiStepPopup({
   ) {
     setScheduleAnchor({
       currentStep,
-      occupancyStatus: formData.occupancyStatus,
+      isAddingTenants,
       billingType: formData.billingType,
       contractMonths: formData.contractMonths,
       rentStartDate: formData.rentStartDate,
@@ -661,7 +668,7 @@ export function MultiStepPopup({
     });
     if (
       currentStep === 2 &&
-      formData.occupancyStatus === "occupied" &&
+      isAddingTenants &&
       formData.billingType === "pre-organized" &&
       formData.contractMonths > 0 &&
       formData.rentStartDate &&
@@ -730,7 +737,7 @@ export function MultiStepPopup({
   // guidance) instead of an effect that synchronously sets state.
   const [rentSyncAnchor, setRentSyncAnchor] = useState({
     rentPerCollection: formData.rentPerCollection,
-    occupancyStatus: formData.occupancyStatus,
+    isAddingTenants,
     billingType: formData.billingType,
     rentAmount: formData.rentAmount,
     maxTenants: formData.maxTenants,
@@ -738,7 +745,7 @@ export function MultiStepPopup({
   });
   if (
     rentSyncAnchor.rentPerCollection !== formData.rentPerCollection ||
-    rentSyncAnchor.occupancyStatus !== formData.occupancyStatus ||
+    rentSyncAnchor.isAddingTenants !== isAddingTenants ||
     rentSyncAnchor.billingType !== formData.billingType ||
     rentSyncAnchor.rentAmount !== formData.rentAmount ||
     rentSyncAnchor.maxTenants !== formData.maxTenants ||
@@ -746,14 +753,14 @@ export function MultiStepPopup({
   ) {
     setRentSyncAnchor({
       rentPerCollection: formData.rentPerCollection,
-      occupancyStatus: formData.occupancyStatus,
+      isAddingTenants,
       billingType: formData.billingType,
       rentAmount: formData.rentAmount,
       maxTenants: formData.maxTenants,
       tenants: formData.tenants,
     });
     if (
-      formData.occupancyStatus === "occupied" &&
+      isAddingTenants &&
       formData.billingType === "pre-organized" &&
       formData.rentPerCollection > 0
     ) {
@@ -1210,29 +1217,15 @@ export function MultiStepPopup({
   const handleNext = () => {
     let isValid = true;
 
-    // Derive whether the user is adding tenants from the fields they've filled
-    // so far. The Vacant/Occupied toggle was removed; occupancy follows intent.
-    const userIsAddingTenants =
-      formData.maxTenants > 1
-        ? formData.tenants.some((t) => t.tenantName?.trim())
-        : Boolean(formData.tenantName?.trim());
-    const derivedStatus: "occupied" | "vacant" = userIsAddingTenants
-      ? "occupied"
-      : "vacant";
-
-    if (formData.occupancyStatus !== derivedStatus) {
-      setFormData({ ...formData, occupancyStatus: derivedStatus });
-    }
-
     if (currentStep === 1) {
       isValid = validateStep1();
       // Additional validation for bed space mode with multiple tenants
-      if (isValid && derivedStatus === "occupied" && formData.maxTenants > 1) {
+      if (isValid && isAddingTenants && formData.maxTenants > 1) {
         isValid = validateTenants();
       }
-    } else if (currentStep === 2 && derivedStatus === "occupied") {
+    } else if (currentStep === 2 && isAddingTenants) {
       isValid = validateStep2();
-    } else if (currentStep === 3 && derivedStatus === "occupied") {
+    } else if (currentStep === 3 && isAddingTenants) {
       isValid = validateBillingSchedule();
     }
 
@@ -1244,7 +1237,7 @@ export function MultiStepPopup({
       // Normal flow for all steps - no confirmation dialogs during navigation
       if (
         currentStep === 2 &&
-        derivedStatus === "occupied" &&
+        isAddingTenants &&
         formData.billingType === "pre-organized"
       ) {
         generateBillingSchedule();
@@ -1283,7 +1276,6 @@ export function MultiStepPopup({
     setFormData({
       unitName: "",
       propertyType: "",
-      occupancyStatus: "occupied",
       tenantName: "",
       tenantEmail: "",
       contactNumber: "",
@@ -1612,24 +1604,7 @@ export function MultiStepPopup({
   const handleComplete = async () => {
     setIsSubmitting(true);
     try {
-      // Auto-derive occupancy from filled tenant entries. Even though the
-      // create RPC and the UI status compute occupancy independently, sending
-      // a coherent value here keeps the create flow aligned.
-      const filledTenantCount =
-        formData.maxTenants > 1
-          ? formData.tenants.filter((t) => t.tenantName?.trim()).length
-          : formData.tenantName?.trim()
-            ? 1
-            : 0;
-      const derivedOccupancy: "occupied" | "vacant" =
-        filledTenantCount > 0 ? "occupied" : "vacant";
-
-      const submission = {
-        ...formData,
-        occupancyStatus: derivedOccupancy,
-      };
-
-      const result = await submitPropertyData(submission);
+      const result = await submitPropertyData(formData);
 
       if (result.success && result.data) {
         toast.success("Property Added Successfully!", {
@@ -1645,7 +1620,6 @@ export function MultiStepPopup({
         setFormData({
           unitName: "",
           propertyType: "",
-          occupancyStatus: "occupied",
           tenantName: "",
           tenantEmail: "",
           contactNumber: "",
@@ -1691,7 +1665,7 @@ export function MultiStepPopup({
   };
 
   const getStepInfo = (step: number) => {
-    if (formData.occupancyStatus === "vacant") {
+    if (!isAddingTenants) {
       switch (step) {
         case 1:
           return {
@@ -2030,7 +2004,7 @@ export function MultiStepPopup({
                           past it.
                         </p>
 
-                        {formData.occupancyStatus === "occupied" && (
+                        {isAddingTenants && (
                           <div className="space-y-4 pt-3 border-t border-border">
                             {/* Display mode indicator */}
                             {formData.maxTenants > 1 && (
@@ -2264,58 +2238,47 @@ export function MultiStepPopup({
                           </div>
                         )}
 
-                        {(() => {
-                          const userIsAddingTenants =
-                            formData.maxTenants > 1
-                              ? formData.tenants.some((t) =>
-                                  t.tenantName?.trim(),
-                                )
-                              : Boolean(formData.tenantName?.trim());
-                          if (userIsAddingTenants) return null;
-                          return (
-                            <div className="pt-3 border-t border-border">
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <Label
-                                    htmlFor="vacantRentAmount"
-                                    className="text-sm font-medium flex items-center gap-1.5"
-                                  >
-                                    Expected Monthly Rent (₱) *
-                                  </Label>
-                                </div>
-                                <Input
-                                  id="vacantRentAmount"
-                                  type="number"
-                                  value={formData.rentAmount || ""}
-                                  onChange={(e) =>
-                                    updateFormData(
-                                      "rentAmount",
-                                      e.target.value === ""
-                                        ? 0
-                                        : parseInt(e.target.value) || 0,
-                                    )
-                                  }
-                                  placeholder="25000"
-                                  className={`h-9 text-sm ${
-                                    errors.rentAmount
-                                      ? "border-destructive"
-                                      : ""
-                                  }`}
-                                />
-                                {errors.rentAmount && (
-                                  <p className="text-xs text-destructive">
-                                    {errors.rentAmount}
-                                  </p>
-                                )}
-                                <p className="text-xs text-muted-foreground">
-                                  No tenants added — this property will be
-                                  saved as vacant. Enter expected monthly rent
-                                  for the listing.
-                                </p>
+                        {!isAddingTenants && (
+                          <div className="pt-3 border-t border-border">
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <Label
+                                  htmlFor="vacantRentAmount"
+                                  className="text-sm font-medium flex items-center gap-1.5"
+                                >
+                                  Expected Monthly Rent (₱) *
+                                </Label>
                               </div>
+                              <Input
+                                id="vacantRentAmount"
+                                type="number"
+                                value={formData.rentAmount || ""}
+                                onChange={(e) =>
+                                  updateFormData(
+                                    "rentAmount",
+                                    e.target.value === ""
+                                      ? 0
+                                      : parseInt(e.target.value) || 0,
+                                  )
+                                }
+                                placeholder="25000"
+                                className={`h-9 text-sm ${
+                                  errors.rentAmount ? "border-destructive" : ""
+                                }`}
+                              />
+                              {errors.rentAmount && (
+                                <p className="text-xs text-destructive">
+                                  {errors.rentAmount}
+                                </p>
+                              )}
+                              <p className="text-xs text-muted-foreground">
+                                No tenants added — this property will be saved
+                                as vacant. Enter expected monthly rent for the
+                                listing.
+                              </p>
                             </div>
-                          );
-                        })()}
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -2323,7 +2286,7 @@ export function MultiStepPopup({
               )}
 
               {/* Step 2: Billing Setup - More compact */}
-              {currentStep === 2 && formData.occupancyStatus === "occupied" && (
+              {currentStep === 2 && isAddingTenants && (
                 <div className="space-y-4">
                   <div className="bg-purple-50/50 dark:bg-purple-950/20 p-2 rounded-lg border border-purple-100 dark:border-purple-900/50 text-center">
                     <div className="flex items-center justify-center gap-1.5">
@@ -2857,7 +2820,7 @@ export function MultiStepPopup({
               )}
 
               {/* Step 3: Billing Schedule Table - Better compact design */}
-              {currentStep === 3 && formData.occupancyStatus === "occupied" && (
+              {currentStep === 3 && isAddingTenants && (
                 <div className="space-y-4">
                   <div className="bg-orange-50/50 dark:bg-orange-950/20 rounded-lg border border-orange-100 dark:border-orange-900/50 p-2">
                     <div className="flex items-center justify-center gap-1.5">
@@ -3549,7 +3512,7 @@ export function MultiStepPopup({
                             Status
                           </span>
                           <span className="text-sm font-medium capitalize">
-                            {formData.occupancyStatus === "vacant" ? (
+                            {!isAddingTenants ? (
                               <span className="text-orange-600">Available</span>
                             ) : (
                               <span className="text-blue-600">Occupied</span>
@@ -3565,7 +3528,7 @@ export function MultiStepPopup({
                           </span>
                         </div>
 
-                        {formData.occupancyStatus === "occupied" && (
+                        {isAddingTenants && (
                           <>
                             <Separator />
                             <div className="flex justify-between items-center">
@@ -3653,12 +3616,12 @@ export function MultiStepPopup({
                 disabled={isSubmitting}
                 className="text-xs px-3"
               >
-                {currentStep === 2 && formData.occupancyStatus === "occupied"
+                {currentStep === 2 && isAddingTenants
                   ? "Generate →"
                   : (currentStep === 1 &&
-                        formData.occupancyStatus === "vacant") ||
+                        !isAddingTenants) ||
                       (currentStep === 3 &&
-                        formData.occupancyStatus === "occupied")
+                        isAddingTenants)
                     ? "Review →"
                     : "Next →"}
               </Button>
@@ -3702,14 +3665,6 @@ export function MultiStepPopup({
                         Type
                       </span>
                       <span>{formData.propertyType}</span>
-                    </div>
-                    <div>
-                      <span className="text-xs text-muted-foreground block">
-                        Status
-                      </span>
-                      <span className="capitalize font-medium block">
-                        {formData.occupancyStatus}
-                      </span>
                     </div>
                     <div>
                       <span className="text-xs text-muted-foreground block">
