@@ -47,17 +47,20 @@ export function ReminderActivity() {
     toggle,
   } = useShowMore(logs ?? [], 3);
 
-  // Queued = dispatches that haven't settled yet. Sent and failed are both
-  // finished outcomes; neither is still waiting on anything.
-  const queuedCount = (logs ?? []).filter(
-    (log) => log.status === "pending",
+  // Failures, not pending: the API claims a 'pending' row and settles it to
+  // sent/failed within the same request, so a pending row is never observable
+  // here and counting it always showed 0. A failed reminder is the one the
+  // landlord actually has to do something about.
+  const failedCount = (logs ?? []).filter(
+    (log) => log.status === "failed",
   ).length;
 
   return (
     <CollapsibleSection
       title="Reminder Activity"
       icon={<BellRing className="h-3.5 w-3.5" />}
-      queuedCount={queuedCount}
+      badgeCount={failedCount}
+      tone="alert"
     >
       {logs === undefined && error ? (
         <p className="py-2 text-sm text-destructive">
