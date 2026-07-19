@@ -15,6 +15,7 @@ import {
   Building,
   CreditCard,
   CheckCircle,
+  ChevronDown,
   X,
   AlertCircle,
 } from "lucide-react";
@@ -55,6 +56,7 @@ export function MultiStepPopup({
   const [currentStep, setCurrentStep] = useState(1);
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [showMobilePreview, setShowMobilePreview] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // The wizard's data, derivations and syncs live here; this component keeps
@@ -196,84 +198,53 @@ export function MultiStepPopup({
   };
 
 
+  // One accent for the whole wizard. The per-step palette this replaced
+  // (blue → purple → orange → green) implied the steps were different kinds of
+  // thing; they're four parts of one task, and the icon already distinguishes
+  // them. The final step keeps its own treatment because "done" is genuinely a
+  // different state, not just the next screen.
   const getStepInfo = (step: number) => {
-    if (!isAddingTenants) {
-      switch (step) {
-        case 1:
-          return {
-            icon: <Building className="h-5 w-5 md:h-7 md:w-7" />,
-            title: "Property Details",
-            description: "Basic property information and rental price",
-            color: "text-blue-600 dark:text-blue-400",
-            bgColor: "bg-blue-50 dark:bg-blue-950/30",
-            borderColor: "border-blue-200 dark:border-blue-800",
-          };
-        case 2:
-          return {
-            icon: <CheckCircle className="h-5 w-5 md:h-7 md:w-7" />,
-            title: "Complete",
-            description: "Vacant property successfully added to portfolio",
-            color: "text-green-600 dark:text-green-400",
-            bgColor: "bg-green-50 dark:bg-green-950/30",
-            borderColor: "border-green-200 dark:border-green-800",
-          };
-      }
-    } else {
-      // Original logic for occupied properties
-      switch (step) {
-        case 1:
-          return {
-            icon: <Building className="h-5 w-5 md:h-7 md:w-7" />,
-            title: "Unit Details",
-            description: "Basic property information and tenant details",
-            color: "text-blue-600 dark:text-blue-400",
-            bgColor: "bg-blue-50 dark:bg-blue-950/30",
-            borderColor: "border-blue-200 dark:border-blue-800",
-          };
-        case 2:
-          return {
-            icon: <Calendar className="h-5 w-5 md:h-7 md:w-7" />,
-            title: "Billing Setup",
-            description: "Configure rental terms and payment schedule",
-            color: "text-purple-600 dark:text-purple-400",
-            bgColor: "bg-purple-50 dark:bg-purple-950/30",
-            borderColor: "border-purple-200 dark:border-purple-800",
-          };
-        case 3:
-          return {
-            icon: <CreditCard className="h-5 w-5 md:h-7 md:w-7" />,
-            title: "Billing Schedule",
-            description:
-              formData.billingType === "blank"
-                ? "Create custom billing entries and set accounting details"
-                : "Review and confirm generated billing table",
-            color: "text-orange-600 dark:text-orange-400",
-            bgColor: "bg-orange-50 dark:bg-orange-950/30",
-            borderColor: "border-orange-200 dark:border-orange-800",
-          };
-        case 4:
-          return {
-            icon: <CheckCircle className="h-5 w-5 md:h-7 md:w-7" />,
-            title: "Ready to Add",
-            description: "Review details and add property to your portfolio",
-            color: "text-green-600 dark:text-green-400",
-            bgColor: "bg-green-50 dark:bg-green-950/30",
-            borderColor: "border-green-200 dark:border-green-800",
-          };
-      }
+    const isFinalStep = step === totalSteps;
+
+    if (isFinalStep) {
+      return {
+        icon: <CheckCircle className="h-5 w-5 md:h-7 md:w-7" />,
+        title: isAddingTenants ? "Ready to Add" : "Complete",
+        description: "Review the details and add this property to your portfolio",
+      };
     }
 
-    return {
-      icon: null,
-      title: "",
-      description: "",
-      color: "",
-      bgColor: "",
-      borderColor: "",
-    };
+    switch (step) {
+      case 1:
+        return {
+          icon: <Building className="h-5 w-5 md:h-7 md:w-7" />,
+          title: "Property Details",
+          description: isAddingTenants
+            ? "Basic property information and tenant details"
+            : "Basic property information and rental price",
+        };
+      case 2:
+        return {
+          icon: <Calendar className="h-5 w-5 md:h-7 md:w-7" />,
+          title: "Billing Setup",
+          description: "Configure rental terms and payment schedule",
+        };
+      case 3:
+        return {
+          icon: <CreditCard className="h-5 w-5 md:h-7 md:w-7" />,
+          title: "Billing Schedule",
+          description:
+            formData.billingType === "blank"
+              ? "Create custom billing entries and set accounting details"
+              : "Review and confirm the generated billing table",
+        };
+      default:
+        return { icon: null, title: "", description: "" };
+    }
   };
 
   const stepInfo = getStepInfo(currentStep);
+  const isFinalStep = currentStep === totalSteps;
 
   return (
     <>
@@ -287,15 +258,17 @@ export function MultiStepPopup({
         }}
       >
         <DialogContent className="w-[95vw] sm:w-[90vw] lg:max-w-7xl !max-w-[1600px] h-[90vh] max-h-[900px] overflow-hidden flex flex-col bg-background p-0 [&>button]:hidden">
-          {/* Enhanced Header - More compact and visually distinct */}
-          <div
-            className={`w-full ${stepInfo.bgColor} px-4 py-3 md:px-6 md:py-4`}
-          >
+          <div className="w-full border-b bg-muted/30 px-4 py-3 md:px-6 md:py-4">
             <DialogHeader className="space-y-2">
               <div className="flex items-center justify-between">
                 <DialogTitle className="flex items-center gap-2 text-lg md:text-2xl">
                   <div
-                    className={`p-1.5 md:p-2 rounded-full bg-background/90 ${stepInfo.color} border ${stepInfo.borderColor}`}
+                    className={cn(
+                      "rounded-md border bg-background p-1.5 md:p-2",
+                      isFinalStep
+                        ? "text-green-600 dark:text-green-500"
+                        : "text-primary",
+                    )}
                   >
                     {stepInfo.icon}
                   </div>
@@ -323,36 +296,20 @@ export function MultiStepPopup({
                   </Button>
                 </div>
               </div>
-              <DialogDescription className="text-xs md:text-sm opacity-90">
-                {stepInfo.description}
+              <DialogDescription className="text-xs text-muted-foreground md:text-sm">
+                {stepInfo.description} · Fields marked * are required.
               </DialogDescription>
-              <p className="text-xs text-muted-foreground italic">
-                *Please fill out required information.
-              </p>
 
-              {/* Progress Bar - preserved colors from original */}
-              <div className="relative mt-1">
-                <div className="w-full bg-background/30 rounded-full h-1.5 md:h-2 shadow-inner">
-                  <div
-                    className={`${getProgressBarColor(
-                      currentStep,
-                    )} h-1.5 md:h-2 rounded-full transition-all duration-700 ease-out shadow`}
-                    style={{ width: `${(currentStep / totalSteps) * 100}%` }}
-                  />
-                </div>
-                {/* Step indicators */}
-                <div className="absolute top-0 w-full flex justify-between px-[1px]">
-                  {Array.from({ length: totalSteps }, (_, i) => (
-                    <div
-                      key={i}
-                      className={`w-2.5 h-2.5 rounded-full border transition-all duration-300 -mt-0.5 ${
-                        i + 1 <= currentStep
-                          ? "bg-background border-background/80 shadow"
-                          : "bg-background/30 border-background/20"
-                      }`}
-                    />
-                  ))}
-                </div>
+              {/* Position is already carried by "N of M" above and the dots in
+                  the nav bar; a third indicator overlaid on the bar was noise. */}
+              <div className="mt-1 h-1.5 w-full rounded-full bg-background md:h-2">
+                <div
+                  className={cn(
+                    "h-1.5 rounded-full transition-all duration-700 ease-out md:h-2",
+                    isFinalStep ? "bg-green-600" : "bg-primary",
+                  )}
+                  style={{ width: `${(currentStep / totalSteps) * 100}%` }}
+                />
               </div>
             </DialogHeader>
           </div>
@@ -361,6 +318,35 @@ export function MultiStepPopup({
           <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
             {/* Left Side - Form Fields */}
             <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 lg:border-r">
+              {/* Below lg the preview column doesn't render at all, which left
+                  phone users with no running summary of what they'd entered.
+                  Collapsed by default so it costs no vertical space until asked
+                  for — screen height is the scarce resource here, not width. */}
+              <div className="lg:hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowMobilePreview((prev) => !prev)}
+                  aria-expanded={showMobilePreview}
+                  className="mb-3 flex w-full items-center gap-1.5 rounded-md border bg-muted/40 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0 transition-transform",
+                      !showMobilePreview && "-rotate-90",
+                    )}
+                  />
+                  {showMobilePreview ? "Hide" : "Show"} summary so far
+                </button>
+                {showMobilePreview && (
+                  <div className="mb-4 rounded-lg border bg-muted/20 p-3">
+                    <PropertyPreview
+                      formData={formData}
+                      currentStep={currentStep}
+                    />
+                  </div>
+                )}
+              </div>
+
               {/* Validation Errors Alert - More compact */}
               {Object.keys(errors).length > 0 && (
                 <Alert className="mb-4 border-destructive bg-destructive/5">
@@ -621,20 +607,4 @@ export function MultiStepPopup({
 
     </>
   );
-}
-
-// Helper function to get appropriate progress bar color based on step
-function getProgressBarColor(step: number) {
-  switch (step) {
-    case 1:
-      return "bg-blue-500 dark:bg-blue-600";
-    case 2:
-      return "bg-purple-500 dark:bg-purple-600";
-    case 3:
-      return "bg-orange-500 dark:bg-orange-600";
-    case 4:
-      return "bg-green-500 dark:bg-green-600";
-    default:
-      return "bg-primary";
-  }
 }
