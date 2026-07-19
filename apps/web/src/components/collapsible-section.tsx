@@ -7,21 +7,25 @@ import { cn } from "@/lib/utils";
 interface CollapsibleSectionProps {
   title: string;
   icon: ReactNode;
-  /** Items still waiting on the landlord. Shown in the header so a collapsed
-   * section still says whether it's worth opening. */
-  queuedCount?: number;
+  /** Items worth surfacing while collapsed, so the header still says whether
+   * the section is worth opening. What it counts is the caller's call. */
+  badgeCount?: number;
+  /** "alert" for counts that mean something went wrong, so a broken count
+   * doesn't read the same as a merely-waiting one. */
+  tone?: "default" | "alert";
   defaultOpen?: boolean;
   children: ReactNode;
 }
 
 // A foldable section inside a panel. Unlike CollapsibleCard, this hides only the
-// body and leaves the caller's data hook mounted — the header's queued count is
+// body and leaves the caller's data hook mounted — the header's badge count is
 // derived from that data, so unmounting on collapse would zero out the very
 // number the collapsed state exists to show.
 export function CollapsibleSection({
   title,
   icon,
-  queuedCount = 0,
+  badgeCount = 0,
+  tone = "default",
   defaultOpen = false,
   children,
 }: CollapsibleSectionProps) {
@@ -44,9 +48,16 @@ export function CollapsibleSection({
           />
           {icon}
           {title}
-          {queuedCount > 0 ? (
-            <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-              {queuedCount}
+          {badgeCount > 0 ? (
+            <span
+              className={cn(
+                "ml-auto rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                tone === "alert"
+                  ? "bg-destructive/10 text-destructive"
+                  : "bg-primary/10 text-primary",
+              )}
+            >
+              {badgeCount}
             </span>
           ) : null}
         </button>

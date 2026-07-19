@@ -57,7 +57,7 @@ export function TenantResponses() {
     <CollapsibleSection
       title="Tenant Responses"
       icon={<ClipboardCheck className="h-3.5 w-3.5" />}
-      queuedCount={queuedCount}
+      badgeCount={queuedCount}
     >
       {responses === undefined && error ? (
         <p className="py-2 text-sm text-destructive">Failed to load responses</p>
