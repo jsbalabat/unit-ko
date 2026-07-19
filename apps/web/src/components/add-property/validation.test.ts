@@ -4,6 +4,7 @@ import {
   billableTenantCount,
   hasStartedFillingTenants,
   isAddingTenants,
+  isPristine,
   isValid,
   validateStep1,
   validateStep2,
@@ -24,6 +25,7 @@ const blank: TenantInfo = { tenantName: "", tenantEmail: "", contactNumber: "" }
 // A form that passes step 1 as a vacant property: no tenant data, real rent.
 function form(overrides: Partial<PropertyFormData> = {}): PropertyFormData {
   return {
+    intent: "vacant",
     unitName: "Unit A",
     propertyType: "apartment",
     tenantName: "",
@@ -51,22 +53,112 @@ function form(overrides: Partial<PropertyFormData> = {}): PropertyFormData {
 }
 
 describe("isAddingTenants", () => {
-  it("is false on an untouched form, so the wizard starts on the vacant path", () => {
-    expect(isAddingTenants(form())).toBe(false);
+  it("is false until an intent is chosen, so the wizard shows no branch yet", () => {
+    expect(isAddingTenants(form({ intent: "" }))).toBe(false);
   });
 
-  it("follows the legacy field in single-tenant mode", () => {
-    expect(isAddingTenants(form({ tenantName: "Juan" }))).toBe(true);
-    expect(isAddingTenants(form({ tenantName: "   " }))).toBe(false);
+  it("follows the explicit intent", () => {
+    expect(isAddingTenants(form({ intent: "tenants" }))).toBe(true);
+    expect(isAddingTenants(form({ intent: "vacant" }))).toBe(false);
   });
 
-  it("follows the array in bed-space mode and ignores the legacy field", () => {
-    expect(
-      isAddingTenants(form({ maxTenants: 3, tenants: [blank], tenantName: "Juan" })),
-    ).toBe(false);
-    expect(isAddingTenants(form({ maxTenants: 3, tenants: [tenant()] }))).toBe(
-      true,
+  // This is the whole point of the intent field: typing a name used to flip the
+  // branch — and with it totalSteps — mid-keystroke.
+  it("ignores typed-in tenant data entirely", () => {
+    expect(isAddingTenants(form({ intent: "vacant", tenantName: "Juan" }))).toBe(
+      false,
     );
+    expect(
+      isAddingTenants(
+        form({ intent: "vacant", maxTenants: 3, tenants: [tenant()] }),
+      ),
+    ).toBe(false);
+    expect(
+      isAddingTenants(form({ intent: "tenants", tenantName: "", tenants: [] })),
+    ).toBe(true);
+  });
+});
+
+describe("isPristine", () => {
+  // form() is deliberately a *filled* form, so build the empty one explicitly
+  // rather than relying on overrides to blank every field.
+  const empty = form({
+    intent: "",
+    unitName: "",
+    propertyType: "",
+    propertyLocation: "",
+    maxTenants: 0,
+    billingType: "",
+    contractMonths: 0,
+    rentStartDate: "",
+    dueDay: "",
+    rentAmount: 0,
+    formBasis: "",
+    collectionDates: [],
+    rentPerCollection: 0,
+  });
+
+  it("is true for an untouched form", () => {
+    expect(isPristine(empty)).toBe(true);
+  });
+
+  it("ignores fields the wizard seeds rather than the landlord typing them", () => {
+    // Picking a frequency auto-fills these; on their own they are not input.
+    expect(
+      isPristine({ ...empty, collectionDates: [1, 16], collectionDay: "monday" }),
+    ).toBe(true);
+    expect(isPristine({ ...empty, pax: 0, dueDay: "15" })).toBe(true);
+  });
+
+  it("is false once any real field carries a value", () => {
+    expect(isPristine({ ...empty, intent: "vacant" })).toBe(false);
+    expect(isPristine({ ...empty, unitName: "Unit A" })).toBe(false);
+    expect(isPristine({ ...empty, propertyLocation: "Cebu" })).toBe(false);
+    expect(isPristine({ ...empty, maxTenants: 2 })).toBe(false);
+    expect(isPristine({ ...empty, rentAmount: 1 })).toBe(false);
+    expect(isPristine({ ...empty, advancePayment: 1 })).toBe(false);
+    expect(isPristine({ ...empty, securityDeposit: 1 })).toBe(false);
+    expect(isPristine({ ...empty, leaseDate: "2026-01-01" })).toBe(false);
+    expect(isPristine({ ...empty, billingType: "blank" })).toBe(false);
+  });
+
+  it("treats whitespace as untouched", () => {
+    expect(isPristine({ ...empty, unitName: "   " })).toBe(true);
+  });
+
+  it("catches a half-filled tenant, so a typo'd email still prompts", () => {
+    expect(isPristine({ ...empty, tenantEmail: "ana@example.com" })).toBe(false);
+  });
+
+  // Capacity resets to 0 clear the fields the landlord can see, but leftover
+  // entries in tenants[] are still input they'd lose. Checked unconditionally
+  // so this doesn't rely on setMaxTenants having pruned the array.
+  it("catches tenant input the current mode has stopped showing", () => {
+    expect(
+      isPristine({
+        ...empty,
+        maxTenants: 0,
+        tenants: [tenant({ tenantName: "", contactNumber: "" })],
+      }),
+    ).toBe(false);
+  });
+
+  it("is false once a schedule has been generated", () => {
+    expect(
+      isPristine({
+        ...empty,
+        billingSchedule: [
+          {
+            dueDate: "2026-01-15",
+            rentDue: 5000,
+            otherCharges: 0,
+            grossDue: 5000,
+            status: "Not Yet Due",
+            expenseItems: [],
+          },
+        ],
+      }),
+    ).toBe(false);
   });
 });
 
@@ -110,6 +202,26 @@ describe("validateStep1", () => {
     expect(validateStep1(form({ maxTenants })).maxTenants).toBeDefined();
   });
 
+  describe("intent", () => {
+    it("blocks until the branch is chosen", () => {
+      expect(validateStep1(form({ intent: "" })).intent).toBe(
+        "Choose whether this property has tenants yet",
+      );
+    });
+
+    // Previously this fell through to the vacant path silently; with the choice
+    // explicit it's a contradiction, so say so instead of quietly reinterpreting.
+    it("rejects the tenants path with nothing filled in", () => {
+      const errors = validateStep1(
+        form({ intent: "tenants", tenantName: "", tenants: [] }),
+      );
+
+      expect(errors.tenantName).toBe(
+        'Add at least one tenant, or switch to "Leave vacant for now"',
+      );
+    });
+  });
+
   describe("vacant intent", () => {
     it("requires a property rent when no tenant data is entered", () => {
       expect(validateStep1(form({ rentAmount: 0 })).rentAmount).toBe(
@@ -117,9 +229,10 @@ describe("validateStep1", () => {
       );
     });
 
-    it("does not ask for a property rent once tenant data exists", () => {
+    it("does not ask for a property rent on the tenants path", () => {
       const errors = validateStep1(
         form({
+          intent: "tenants",
           rentAmount: 0,
           tenantName: "Juan",
           tenantEmail: "juan@example.com",
@@ -132,8 +245,17 @@ describe("validateStep1", () => {
   });
 
   describe("single-tenant details", () => {
+    // Every case here exercises the tenants path, which is now reached by
+    // choosing it — not by having typed something into a tenant field. Without
+    // the explicit intent these checks don't run at all, and the assertions
+    // that expect *no* error would pass for the wrong reason.
+    const tenantForm = (overrides: Partial<PropertyFormData> = {}) =>
+      form({ intent: "tenants", ...overrides });
+
     it("demands the whole set once any field is touched", () => {
-      const errors = validateStep1(form({ tenantEmail: "juan@example.com" }));
+      const errors = validateStep1(
+        tenantForm({ tenantEmail: "juan@example.com" }),
+      );
 
       expect(errors.tenantName).toBe(
         "Tenant name is required when filling tenant details",
@@ -145,7 +267,8 @@ describe("validateStep1", () => {
 
     it("rejects a malformed email", () => {
       expect(
-        validateStep1(form({ tenantName: "Juan", tenantEmail: "juan@" })).tenantEmail,
+        validateStep1(tenantForm({ tenantName: "Juan", tenantEmail: "juan@" }))
+          .tenantEmail,
       ).toBe("Please enter a valid email address");
     });
 
@@ -153,7 +276,7 @@ describe("validateStep1", () => {
       "accepts PH mobile %s",
       (contactNumber) => {
         const errors = validateStep1(
-          form({
+          tenantForm({
             tenantName: "Juan",
             tenantEmail: "juan@example.com",
             contactNumber,
@@ -168,7 +291,7 @@ describe("validateStep1", () => {
       "rejects non-PH mobile %s",
       (contactNumber) => {
         const errors = validateStep1(
-          form({
+          tenantForm({
             tenantName: "Juan",
             tenantEmail: "juan@example.com",
             contactNumber,
@@ -181,7 +304,7 @@ describe("validateStep1", () => {
 
     it("skips single-tenant checks in bed-space mode", () => {
       const errors = validateStep1(
-        form({ maxTenants: 3, tenants: [tenant()], tenantName: "" }),
+        tenantForm({ maxTenants: 3, tenants: [tenant()], tenantName: "" }),
       );
 
       expect(errors.tenantName).toBeUndefined();

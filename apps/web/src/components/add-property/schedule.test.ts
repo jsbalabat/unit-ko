@@ -7,6 +7,7 @@ const TODAY = new Date(2026, 0, 15);
 
 function form(overrides: Partial<PropertyFormData> = {}): PropertyFormData {
   return {
+    intent: "tenants",
     unitName: "Unit A",
     propertyType: "apartment",
     tenantName: "",

@@ -7,16 +7,18 @@ const PH_MOBILE = /^(\+63|0)?9\d{9}$/;
 const digits = (value: string) => value.replace(/\s|-/g, "");
 
 /**
- * Whether the landlord is entering tenants — the wizard's branch condition.
- * Keyed on a *name* specifically: a name is what actually becomes a tenant.
+ * Whether the landlord is entering tenants — the wizard's branch condition,
+ * driving both which steps exist and how many.
+ *
+ * Reads the explicit intent rather than inferring from typed-in names. Inferring
+ * meant the step count flipped 2↔4 while someone was mid-word in the tenant
+ * name field, and it made the fields that *set* the condition depend on it.
  *
  * Not the same as the property's occupancy, which the server derives from an
  * active lease (v_property_occupancy) and which no form field can set.
  */
 export function isAddingTenants(formData: PropertyFormData): boolean {
-  return formData.maxTenants > 1
-    ? formData.tenants.some((t) => t.tenantName?.trim())
-    : Boolean(formData.tenantName?.trim());
+  return formData.intent === "tenants";
 }
 
 /**
@@ -36,6 +38,52 @@ export function hasStartedFillingTenants(formData: PropertyFormData): boolean {
           formData.tenantEmail?.trim() ||
           formData.contactNumber?.trim(),
       );
+}
+
+/**
+ * Whether the form still holds nothing worth keeping, so discarding it can skip
+ * the confirmation prompt.
+ *
+ * Checks entered values rather than comparing against the empty form, because
+ * some fields are seeded rather than typed: collectionDates and collectionDay
+ * are filled in automatically when formBasis is picked, and pax/dueDay mirror
+ * other fields. Those follow what the landlord entered and would make a
+ * genuinely untouched form look dirty.
+ */
+export function isPristine(formData: PropertyFormData): boolean {
+  const blank = (value: string) => !value.trim();
+
+  // Checks both the legacy fields and the array unconditionally, unlike
+  // hasStartedFillingTenants, which picks one based on maxTenants. Whether the
+  // form is empty shouldn't depend on which entry mode is active — otherwise
+  // input that survives a capacity change back to 0 would read as untouched.
+  const noTenantInput =
+    blank(formData.tenantName) &&
+    blank(formData.tenantEmail) &&
+    blank(formData.contactNumber) &&
+    !formData.tenants.some(
+      (t) =>
+        t.tenantName.trim() || t.tenantEmail.trim() || t.contactNumber.trim(),
+    );
+
+  return (
+    blank(formData.intent) &&
+    blank(formData.unitName) &&
+    blank(formData.propertyType) &&
+    blank(formData.propertyLocation) &&
+    formData.maxTenants === 0 &&
+    noTenantInput &&
+    blank(formData.billingType) &&
+    blank(formData.formBasis) &&
+    blank(formData.rentStartDate) &&
+    blank(formData.leaseDate) &&
+    formData.contractMonths === 0 &&
+    formData.rentAmount === 0 &&
+    formData.rentPerCollection === 0 &&
+    formData.advancePayment === 0 &&
+    formData.securityDeposit === 0 &&
+    formData.billingSchedule.length === 0
+  );
 }
 
 export function validateStep1(formData: PropertyFormData): ValidationErrors {
@@ -69,11 +117,13 @@ export function validateStep1(formData: PropertyFormData): ValidationErrors {
     errors.maxTenants = "Maximum 20 tenant slots allowed";
   }
 
-  const startedTenants = hasStartedFillingTenants(formData);
+  if (!formData.intent) {
+    errors.intent = "Choose whether this property has tenants yet";
+  }
 
-  // Vacant intent — the per-tenant rent path won't run, so require a
-  // property-level rent up front.
-  if (!startedTenants) {
+  // Vacant — the per-tenant rent path won't run, so require a property-level
+  // rent up front.
+  if (formData.intent === "vacant") {
     if (!formData.rentAmount || formData.rentAmount <= 0) {
       errors.rentAmount = "Rent amount must be greater than 0";
     } else if (formData.rentAmount < 1000) {
@@ -83,7 +133,19 @@ export function validateStep1(formData: PropertyFormData): ValidationErrors {
     }
   }
 
-  if (startedTenants && formData.maxTenants === 1) {
+  // Now that intent is explicit, "adding tenants" with nothing filled in is a
+  // contradiction to surface rather than a silent fall-through to the vacant
+  // path — which is what previously happened, and why the step count moved.
+  if (formData.intent === "tenants" && !hasStartedFillingTenants(formData)) {
+    errors.tenantName =
+      'Add at least one tenant, or switch to "Leave vacant for now"';
+  }
+
+  if (
+    formData.intent === "tenants" &&
+    hasStartedFillingTenants(formData) &&
+    formData.maxTenants === 1
+  ) {
     if (!formData.tenantName.trim()) {
       errors.tenantName = "Tenant name is required when filling tenant details";
     } else if (formData.tenantName.trim().length < 2) {

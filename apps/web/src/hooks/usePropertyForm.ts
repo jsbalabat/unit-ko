@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import type {
+  BillingPeriodDraft,
   PropertyFormData,
   TenantInfo,
   ValidationErrors,
@@ -10,6 +11,7 @@ import type {
 import {
   billableTenantCount,
   isAddingTenants as deriveIsAddingTenants,
+  isPristine as derivePristine,
   isValid,
   validateBillingSchedule as checkBillingSchedule,
   validateStep1 as checkStep1,
@@ -22,6 +24,7 @@ import {
 } from "@/components/add-property/schedule";
 
 export const EMPTY_PROPERTY_FORM: PropertyFormData = {
+  intent: "",
   unitName: "",
   propertyType: "",
   tenantName: "",
@@ -178,6 +181,19 @@ export function usePropertyForm() {
     }));
   };
 
+  // Takes an updater rather than a value so callers derive from current state
+  // instead of a captured render's copy. Period objects must be replaced, never
+  // mutated in place — a spread of the array still shares its entries, so
+  // assigning through it writes straight into the state React is holding.
+  const setBillingSchedule = (
+    update: (schedule: BillingPeriodDraft[]) => BillingPeriodDraft[],
+  ) => {
+    setFormData((prev) => ({
+      ...prev,
+      billingSchedule: update(prev.billingSchedule),
+    }));
+  };
+
   const reset = () => {
     setFormData(EMPTY_PROPERTY_FORM);
     setErrors({});
@@ -218,15 +234,19 @@ export function usePropertyForm() {
     return isValid(newErrors);
   };
 
+  // setFormData is deliberately not returned: every write goes through a named
+  // mutator so no caller can put the form into a shape the derivations above
+  // don't expect.
   return {
     formData,
-    setFormData,
     errors,
     setErrors,
     isAddingTenants,
+    isPristine: derivePristine(formData),
     updateFormData,
     setMaxTenants,
     updateTenant,
+    setBillingSchedule,
     reset,
     generateBillingSchedule,
     validateStep1: () => runValidation(checkStep1),

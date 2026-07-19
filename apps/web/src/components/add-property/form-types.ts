@@ -26,7 +26,16 @@ export interface BillingPeriodDraft {
   expenseItems: Array<{ id: string; name: string; amount: number }>;
 }
 
+/**
+ * Whether the landlord is setting up tenants in this flow. Chosen explicitly on
+ * step 1 rather than inferred from whether tenant fields have been typed into —
+ * inference made the wizard's step count change mid-keystroke. "" = not chosen.
+ */
+export type PropertyIntent = "" | "tenants" | "vacant";
+
 export interface PropertyFormData {
+  intent: PropertyIntent;
+
   unitName: string;
   propertyType: string;
 
