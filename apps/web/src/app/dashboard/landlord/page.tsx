@@ -780,16 +780,25 @@ function LandlordDashboard() {
                     const totalSlots =
                       property.max_tenants ?? activeTenants.length;
 
-                    const occupancyCount =
-                      property.occupancy_status === "occupied"
-                        ? activeTenants.length
-                        : 0;
+                    // Headcount is who is assigned to the unit, so it counts
+                    // tenants directly. Deliberately not gated on
+                    // occupancy_status, which the server derives from active
+                    // *leases* — a tenant added before their lease exists is
+                    // still a person in the unit, and gating on the lease
+                    // rendered "0/4" directly beside that tenant's own name.
+                    const occupancyCount = activeTenants.length;
 
                     // Get the status for this property
                     const propertyStatus = (() => {
                       if (property.occupancy_status !== "occupied") {
+                        // Tenants assigned but no active lease is a real state
+                        // with an action attached (write the lease), not the
+                        // same thing as an empty unit. Labelling both "Vacant"
+                        // read as a bug next to a populated tenant list.
                         return {
-                          text: "Vacant",
+                          text: activeTenants.length > 0
+                            ? "No Active Lease"
+                            : "Vacant",
                           color: getStatusColor("Neutral / Administrative"),
                         };
                       }
