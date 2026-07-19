@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { CollectionSchedulePicker } from "@/components/add-property/collection-schedule-picker";
+import { StepBanner } from "@/components/add-property/step-banner";
 import type {
   PropertyFormData,
   ValidationErrors,
@@ -39,17 +40,12 @@ export function StepBillingSetup({
 
   return (
     <div className="space-y-4">
-      <div className="bg-purple-50/50 dark:bg-purple-950/20 p-2 rounded-lg border border-purple-100 dark:border-purple-900/50 text-center">
-        <div className="flex items-center justify-center gap-1.5">
-          <div className="p-1 rounded-full bg-purple-100 dark:bg-purple-900/50">
-            <Calendar className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400" />
-          </div>
-          <p className="text-sm font-medium text-purple-800 dark:text-purple-300">
-            Setting up billing for{" "}
-            <span className="font-semibold">{formData.unitName}</span>
-          </p>
-        </div>
-      </div>
+      <StepBanner>
+        Setting up billing for{" "}
+        <span className="font-semibold text-foreground">
+          {formData.unitName}
+        </span>
+      </StepBanner>
 
       <Card className="shadow-sm border">
         <CardContent className="p-3 md:p-5">
@@ -94,7 +90,7 @@ export function StepBillingSetup({
                     htmlFor="contractMonths"
                     className="text-sm font-medium flex items-center gap-1.5"
                   >
-                    <Clock className="h-3.5 w-3.5 text-purple-600" />
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" />
                     Contract Duration (Period) *
                   </Label>
                   <Input
@@ -132,7 +128,7 @@ export function StepBillingSetup({
                     htmlFor="rentStartDate"
                     className="text-sm font-medium flex items-center gap-1.5"
                   >
-                    <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
                     Start Rent Date *
                   </Label>
                   <Input
@@ -159,7 +155,7 @@ export function StepBillingSetup({
 
                 <div className="space-y-2 md:col-span-2">
                   <Label className="text-sm font-medium flex items-center gap-1.5">
-                    <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
                     Frequency Basis *
                   </Label>
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
@@ -194,7 +190,7 @@ export function StepBillingSetup({
                     htmlFor="rentPerCollection"
                     className="text-sm font-medium flex items-center gap-1.5"
                   >
-                    <DollarSign className="h-3.5 w-3.5 text-green-600" />
+                    <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
                     Rent per Individual Tenant (₱) *
                   </Label>
                   <Input
@@ -228,7 +224,7 @@ export function StepBillingSetup({
                   htmlFor="rentStartDate"
                   className="text-sm font-medium flex items-center gap-1.5"
                 >
-                  <Calendar className="h-3.5 w-3.5 text-purple-600" />
+                  <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
                   Start Rent Date *
                 </Label>
                 <Input

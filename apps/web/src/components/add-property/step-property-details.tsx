@@ -14,6 +14,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { TenantFields } from "@/components/add-property/tenant-fields";
 import { IntentToggle } from "@/components/add-property/intent-toggle";
+import { SectionHeader } from "@/components/add-property/section-header";
 import type {
   PropertyFormData,
   TenantInfo,
@@ -60,19 +61,11 @@ export function StepPropertyDetails({
       <>
       <Card className="shadow-sm border">
         <CardContent className="p-3 md:p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-1.5 rounded-full bg-blue-100 dark:bg-blue-950/50">
-              <Home className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-            </div>
-            <div>
-              <h3 className="text-base md:text-lg font-semibold text-foreground">
-                Property Information
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                Basic property details
-              </p>
-            </div>
-          </div>
+          <SectionHeader
+            icon={Home}
+            title="Property Information"
+            description="Basic property details"
+          />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="space-y-2">
@@ -163,21 +156,15 @@ export function StepPropertyDetails({
 
       <Card className="shadow-sm border">
         <CardContent className="p-3 md:p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-1.5 rounded-full bg-green-100 dark:bg-green-950/50">
-              <User className="h-4 w-4 text-green-600 dark:text-green-400" />
-            </div>
-            <div>
-              <h3 className="text-base md:text-lg font-semibold text-foreground">
-                {isAddingTenants ? "Tenants" : "Capacity"}
-              </h3>
-              <p className="text-xs text-muted-foreground">
-                {isAddingTenants
-                  ? "How many the unit holds, and who is moving in"
-                  : "How many the unit holds, and the asking rent"}
-              </p>
-            </div>
-          </div>
+          <SectionHeader
+            icon={User}
+            title={isAddingTenants ? "Tenants" : "Capacity"}
+            description={
+              isAddingTenants
+                ? "How many the unit holds, and who is moving in"
+                : "How many the unit holds, and the asking rent"
+            }
+          />
 
           <div className="space-y-4">
             <TenantFields
