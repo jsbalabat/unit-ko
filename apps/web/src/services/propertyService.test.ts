@@ -5,8 +5,11 @@ import { toCreatePropertyInput } from "@/services/propertyService";
 // under test so the fixture can't drift from the real contract.
 type FormData = Parameters<typeof toCreatePropertyInput>[0];
 
+// Defaults to the tenants path so the occupant-mapping cases below read
+// straightforwardly; the vacant-intent gate is covered explicitly.
 function form(overrides: Partial<FormData> = {}): FormData {
   return {
+    intent: "tenants",
     unitName: "Unit A",
     propertyType: "apartment",
     propertyLocation: "Cebu City",
@@ -34,6 +37,29 @@ describe("toCreatePropertyInput", () => {
   describe("occupants", () => {
     // The regression this pins: bed-space mode with unfilled slots used to drop a
     // tenant typed into the legacy single-tenant fields.
+    // The form keeps typed-in names when the landlord switches to "leave
+    // vacant", so intent — not leftover text — has to decide what is submitted.
+    it("submits no tenants when the intent is vacant, however much was typed", () => {
+      const input = toCreatePropertyInput(
+        form({
+          intent: "vacant",
+          maxTenants: 3,
+          tenants: [
+            {
+              tenantName: "Ana Cruz",
+              tenantEmail: "ana@example.com",
+              contactNumber: "09171234567",
+            },
+          ],
+          tenantName: "Juan Dela Cruz",
+          tenantEmail: "juan@example.com",
+          contactNumber: "09171234567",
+        }),
+      );
+
+      expect(input.tenants).toEqual([]);
+    });
+
     it("keeps the legacy tenant when every bed-space slot is blank", () => {
       const input = toCreatePropertyInput(
         form({

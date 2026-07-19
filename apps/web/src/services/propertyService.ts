@@ -18,6 +18,7 @@ interface TenantInfo {
 // The slice of the add-property form's state this service consumes. Kept here as
 // the service's input contract; the form's full state is a structural superset.
 interface PropertyFormData {
+  intent: "" | "tenants" | "vacant";
   unitName: string;
   propertyType: string;
   propertyLocation: string;
@@ -65,6 +66,10 @@ export function toCreatePropertyInput(
   // single-tenant fields. Prefer named array entries; otherwise fall back to the
   // legacy fields — so a single tenant entered there isn't dropped when empty
   // bed-space slots exist. Only non-empty names become tenants.
+  //
+  // Gated on intent because the form keeps what was typed when the landlord
+  // switches to "leave vacant" — the fields hide but the values survive, so
+  // toggling back doesn't lose them. Intent is what decides, not leftover text.
   const namedFromArray = formData.tenants.filter((t) => t.tenantName?.trim());
   const legacyOccupant = formData.tenantName?.trim()
     ? [
@@ -75,7 +80,12 @@ export function toCreatePropertyInput(
         },
       ]
     : [];
-  const occupants = namedFromArray.length > 0 ? namedFromArray : legacyOccupant;
+  const occupants =
+    formData.intent === "vacant"
+      ? []
+      : namedFromArray.length > 0
+        ? namedFromArray
+        : legacyOccupant;
 
   const tenants = occupants.map((t) => ({
     tenantName: t.tenantName.trim(),
