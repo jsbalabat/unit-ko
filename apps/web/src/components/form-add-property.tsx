@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogDescription,
@@ -53,6 +54,7 @@ export function MultiStepPopup({
 }: MultiStepPopupProps) {
   const [currentStep, setCurrentStep] = useState(1);
   const [showConfirmation, setShowConfirmation] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // The wizard's data, derivations and syncs live here; this component keeps
@@ -62,6 +64,7 @@ export function MultiStepPopup({
     errors,
     setErrors,
     isAddingTenants,
+    isPristine,
     updateFormData,
     setMaxTenants,
     updateTenant,
@@ -133,9 +136,30 @@ export function MultiStepPopup({
     }
   };
 
-  const handleCancel = () => {
+  // Dismissing the dialog (Escape, clicking outside) deliberately keeps the
+  // draft and the step, so a mis-click doesn't cost a half-filled form.
+  // Discarding is the explicit path, and it's the only one that resets.
+  const handleDiscardClick = () => {
+    if (isPristine) {
+      discardAndClose();
+      return;
+    }
+    setShowDiscardConfirm(true);
+  };
+
+  const discardAndClose = () => {
+    setShowDiscardConfirm(false);
     setCurrentStep(1);
     resetForm();
+    onClose();
+  };
+
+  // Keeps formData and currentStep so reopening resumes where the landlord
+  // stopped. The draft only survives because this component stays mounted —
+  // if the dialog is ever changed to unmount on close, this silently becomes a
+  // discard, so move the draft above the dialog before doing that.
+  const keepDraftAndClose = () => {
+    setShowDiscardConfirm(false);
     onClose();
   };
 
@@ -253,7 +277,15 @@ export function MultiStepPopup({
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={onClose}>
+      {/* Every way out goes through the discard prompt — dismissing the dialog
+          by clicking away or pressing Escape is treated the same as pressing
+          Discard, so a stray click can't quietly abandon a filled form. */}
+      <Dialog
+        open={isOpen}
+        onOpenChange={(open) => {
+          if (!open) handleDiscardClick();
+        }}
+      >
         <DialogContent className="w-[95vw] sm:w-[90vw] lg:max-w-7xl !max-w-[1600px] h-[90vh] max-h-[900px] overflow-hidden flex flex-col bg-background p-0 [&>button]:hidden">
           {/* Enhanced Header - More compact and visually distinct */}
           <div
@@ -269,13 +301,26 @@ export function MultiStepPopup({
                   </div>
                   <span>{stepInfo.title}</span>
                 </DialogTitle>
-                <div className="text-right">
-                  <div className="text-xs md:text-sm font-medium opacity-80">
-                    Progress
+                <div className="flex items-center gap-3">
+                  <div className="text-right">
+                    <div className="text-xs md:text-sm font-medium opacity-80">
+                      Progress
+                    </div>
+                    <div className="text-sm md:text-base font-semibold">
+                      {currentStep} of {totalSteps}
+                    </div>
                   </div>
-                  <div className="text-sm md:text-base font-semibold">
-                    {currentStep} of {totalSteps}
-                  </div>
+                  {/* The radix close button is hidden, so this stands in for
+                      it — and goes through the same discard prompt. */}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleDiscardClick}
+                    aria-label="Discard and close"
+                    className="h-8 w-8 p-0 shrink-0"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
               <DialogDescription className="text-xs md:text-sm opacity-90">
@@ -376,27 +421,29 @@ export function MultiStepPopup({
 
           {/* Navigation Bar - More compact and visually appealing */}
           <div className="border-t bg-muted/10 p-3 flex items-center justify-between">
-            {/* Left Button */}
-            {currentStep === 1 ? (
+            {/* Discard sits on every step: abandoning a form is just as likely
+                on step 3 as on step 1, and Back alone left no way out. */}
+            <div className="flex items-center gap-1">
+              {currentStep > 1 && (
+                <Button
+                  variant="ghost"
+                  onClick={handlePrevious}
+                  size="sm"
+                  className="text-xs"
+                >
+                  ← Back
+                </Button>
+              )}
               <Button
                 variant="ghost"
-                onClick={handleCancel}
+                onClick={handleDiscardClick}
                 size="sm"
-                className="text-xs"
+                className="text-xs text-muted-foreground hover:text-destructive"
               >
                 <X className="h-3.5 w-3.5 mr-1" />
-                Cancel
+                Discard
               </Button>
-            ) : (
-              <Button
-                variant="ghost"
-                onClick={handlePrevious}
-                size="sm"
-                className="text-xs"
-              >
-                ← Back
-              </Button>
-            )}
+            </div>
 
             {/* Center Dots */}
             <div className="flex gap-1.5">
@@ -444,6 +491,51 @@ export function MultiStepPopup({
               </Button>
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* A Dialog rather than an AlertDialog on purpose: AlertDialog forces an
+          explicit choice and blocks outside clicks, but here dismissing means
+          "keep editing" — the safe answer — so letting a click away close it is
+          the friendlier default. */}
+      <Dialog open={showDiscardConfirm} onOpenChange={setShowDiscardConfirm}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5 text-muted-foreground" />
+              Leave without adding this property?
+            </DialogTitle>
+            <DialogDescription>
+              You can close this and pick up where you left off, or discard it
+              and start over. Discarding can&apos;t be undone.
+            </DialogDescription>
+          </DialogHeader>
+          {/* sm:justify-between separates the destructive action from the two
+              safe ones, so Discard isn't adjacent to the button most people
+              want. */}
+          <DialogFooter className="sm:justify-between">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={discardAndClose}
+              className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+            >
+              Discard
+            </Button>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row">
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-xs"
+                onClick={() => setShowDiscardConfirm(false)}
+              >
+                Keep editing
+              </Button>
+              <Button size="sm" className="text-xs" onClick={keepDraftAndClose}>
+                Save draft &amp; close
+              </Button>
+            </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
