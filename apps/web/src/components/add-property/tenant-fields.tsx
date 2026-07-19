@@ -72,12 +72,12 @@ export function TenantFields({
       {formData.intent !== "tenants" ? null : (
       <div className="space-y-4 pt-3 border-t border-border">
         {formData.maxTenants > 1 && (
-          <Alert className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
-            <AlertCircle className="h-4 w-4 text-blue-600" />
-            <AlertDescription className="text-xs text-blue-800 dark:text-blue-300">
-              <strong>Bed Space Mode:</strong> You can add up to{" "}
-              {formData.maxTenants} tenants. Fill in details for occupied slots
-              (optional for vacant slots).
+          <Alert className="bg-muted/40">
+            <AlertCircle className="h-4 w-4 text-muted-foreground" />
+            <AlertDescription className="text-xs text-muted-foreground">
+              <strong className="text-foreground">Bed space mode:</strong> up to{" "}
+              {formData.maxTenants} tenants. Leave a slot blank if it&apos;s
+              still vacant.
             </AlertDescription>
           </Alert>
         )}

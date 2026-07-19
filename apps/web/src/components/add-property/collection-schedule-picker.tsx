@@ -20,6 +20,12 @@ const DAYS_OF_WEEK = [
   "sunday",
 ];
 
+// Bi-weekly always writes both dates at once, so picking one slot needs a value
+// for the other. These match what usePropertyForm seeds on switching to
+// bi-weekly; they only apply if that seed is ever bypassed.
+const DEFAULT_FIRST_DATE = 1;
+const DEFAULT_SECOND_DATE = 16;
+
 const DATE_GRID = "grid grid-cols-10 sm:grid-cols-15 lg:grid-cols-16 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24";
 const DATE_BUTTON =
   "h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all";
@@ -38,7 +44,7 @@ export function CollectionSchedulePicker({
     return (
       <div className="space-y-2 md:col-span-2">
         <Label className="text-sm font-medium flex items-center gap-1.5">
-          <Calendar className="h-3.5 w-3.5 text-purple-600" />
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
           Collection Day *
         </Label>
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
@@ -69,7 +75,7 @@ export function CollectionSchedulePicker({
     return (
       <div className="space-y-4 md:col-span-2">
         <Label className="text-sm font-medium flex items-center gap-1.5">
-          <Calendar className="h-3.5 w-3.5 text-purple-600" />
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
           Collection Dates (Select 2 dates per month) *
         </Label>
 
@@ -85,14 +91,12 @@ export function CollectionSchedulePicker({
               <button
                 key={date}
                 type="button"
-                onClick={() => {
-                  const newDates = [...formData.collectionDates];
-                  newDates[0] = date;
-                  if (newDates.length === 1) {
-                    newDates.push(16);
-                  }
-                  updateFormData("collectionDates", newDates);
-                }}
+                onClick={() =>
+                  updateFormData("collectionDates", [
+                    date,
+                    formData.collectionDates[1] ?? DEFAULT_SECOND_DATE,
+                  ])
+                }
                 className={cn(
                   DATE_BUTTON,
                   formData.collectionDates[0] === date
@@ -118,14 +122,12 @@ export function CollectionSchedulePicker({
               <button
                 key={date}
                 type="button"
-                onClick={() => {
-                  const newDates = [...formData.collectionDates];
-                  newDates[1] = date;
-                  if (newDates.length < 2) {
-                    newDates[0] = newDates[0] || 1;
-                  }
-                  updateFormData("collectionDates", newDates);
-                }}
+                onClick={() =>
+                  updateFormData("collectionDates", [
+                    formData.collectionDates[0] ?? DEFAULT_FIRST_DATE,
+                    date,
+                  ])
+                }
                 className={cn(
                   DATE_BUTTON,
                   formData.collectionDates[1] === date
@@ -152,7 +154,7 @@ export function CollectionSchedulePicker({
     return (
       <div className="space-y-2 md:col-span-2">
         <Label className="text-sm font-medium flex items-center gap-1.5">
-          <Calendar className="h-3.5 w-3.5 text-purple-600" />
+          <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
           Collection Date (Day of Month) *
         </Label>
         <div className={DATE_GRID}>
@@ -185,17 +187,17 @@ export function CollectionSchedulePicker({
   ) {
     return (
       <div className="space-y-2 md:col-span-2">
-        <div className="bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg border border-blue-100 dark:border-blue-900/50">
-          <p className="text-sm text-blue-800 dark:text-blue-300">
-            <strong>Collection Date:</strong> Based on Start Rent Date
+        <div className="rounded-lg border bg-muted/40 p-3">
+          <p className="text-sm text-foreground">
+            Collection date follows the start rent date
           </p>
-          <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+          <p className="mt-1 text-xs text-muted-foreground">
             {formData.formBasis === "quarterly" &&
-              "Every 3 months from start date"}
+              "Every 3 months from the start date"}
             {formData.formBasis === "semi-annually" &&
-              "Every 6 months from start date"}
+              "Every 6 months from the start date"}
             {formData.formBasis === "annually" &&
-              "Every 12 months from start date"}
+              "Every 12 months from the start date"}
           </p>
         </div>
       </div>
