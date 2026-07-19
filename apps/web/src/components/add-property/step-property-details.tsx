@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { TenantFields } from "@/components/add-property/tenant-fields";
+import { IntentToggle } from "@/components/add-property/intent-toggle";
 import type {
   PropertyFormData,
   TenantInfo,
@@ -42,6 +43,21 @@ export function StepPropertyDetails({
 }: StepPropertyDetailsProps) {
   return (
     <div className="space-y-4">
+      <Card className="shadow-sm border">
+        <CardContent className="p-3 md:p-5">
+          <IntentToggle
+            value={formData.intent}
+            error={errors.intent}
+            onChange={(intent) => updateFormData("intent", intent)}
+          />
+        </CardContent>
+      </Card>
+
+      {/* The rest of the form stays hidden until the branch is chosen: the
+          fields below differ by path, and showing them first invites filling in
+          answers the other path would throw away. */}
+      {!formData.intent ? null : (
+      <>
       <Card className="shadow-sm border">
         <CardContent className="p-3 md:p-5">
           <div className="flex items-center gap-2 mb-3">
@@ -153,10 +169,12 @@ export function StepPropertyDetails({
             </div>
             <div>
               <h3 className="text-base md:text-lg font-semibold text-foreground">
-                Occupancy Details
+                {isAddingTenants ? "Tenants" : "Capacity"}
               </h3>
               <p className="text-xs text-muted-foreground">
-                Current status and tenant information
+                {isAddingTenants
+                  ? "How many the unit holds, and who is moving in"
+                  : "How many the unit holds, and the asking rent"}
               </p>
             </div>
           </div>
@@ -204,8 +222,7 @@ export function StepPropertyDetails({
                     </p>
                   )}
                   <p className="text-xs text-muted-foreground">
-                    No tenants added — this property will be saved as vacant.
-                    Enter expected monthly rent for the listing.
+                    Saved as vacant — this is the asking rent for the listing.
                   </p>
                 </div>
               </div>
@@ -213,6 +230,8 @@ export function StepPropertyDetails({
           </div>
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

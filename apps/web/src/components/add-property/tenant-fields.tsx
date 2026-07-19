@@ -24,9 +24,9 @@ interface TenantFieldsProps {
 }
 
 /**
- * Capacity and tenant identity entry for step 1. Whether the property counts as
- * occupied is derived from what's typed here, so this block is never gated on
- * occupancy — leaving it empty is how a vacant property gets created.
+ * Capacity and tenant identity entry for step 1. Capacity applies to both paths
+ * (a vacant unit still has a size); the identity fields only render when the
+ * landlord chose to add tenants now.
  */
 export function TenantFields({
   formData,
@@ -64,18 +64,12 @@ export function TenantFields({
           <p className="text-xs text-destructive">{errors.maxTenants}</p>
         )}
         <p className="text-xs text-muted-foreground">
-          Number of tenant slots/bed spaces in this property (minimum 1, maximum
-          20)
+          How many tenant slots or bed spaces the unit holds (1–20). This is
+          record-keeping only — you can add tenants past it later.
         </p>
       </div>
 
-      <p className="text-xs text-muted-foreground -mt-2">
-        Occupancy is auto-derived from tenant entries: leave this section empty
-        to create a vacant property, or fill in tenant details to mark it
-        occupied. Capacity above is record-keeping only — you can add tenants
-        past it.
-      </p>
-
+      {formData.intent !== "tenants" ? null : (
       <div className="space-y-4 pt-3 border-t border-border">
         {formData.maxTenants > 1 && (
           <Alert className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
@@ -251,6 +245,7 @@ export function TenantFields({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
