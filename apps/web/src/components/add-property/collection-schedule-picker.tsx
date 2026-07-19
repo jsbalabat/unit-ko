@@ -1,0 +1,206 @@
+"use client";
+
+import { Calendar } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
+import type { PropertyFormData } from "@/components/add-property/form-types";
+
+interface CollectionSchedulePickerProps {
+  formData: PropertyFormData;
+  updateFormData: (field: keyof PropertyFormData, value: unknown) => void;
+}
+
+const DAYS_OF_WEEK = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+];
+
+const DATE_GRID = "grid grid-cols-10 sm:grid-cols-15 lg:grid-cols-16 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24";
+const DATE_BUTTON =
+  "h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all";
+
+/**
+ * Picks *when* rent is collected, which differs in shape per frequency: a
+ * weekday for weekly, two month days for bi-weekly, one for monthly. Quarterly
+ * and longer derive their dates from the start date, so they only explain
+ * themselves rather than offering a control.
+ */
+export function CollectionSchedulePicker({
+  formData,
+  updateFormData,
+}: CollectionSchedulePickerProps) {
+  if (formData.formBasis === "weekly") {
+    return (
+      <div className="space-y-2 md:col-span-2">
+        <Label className="text-sm font-medium flex items-center gap-1.5">
+          <Calendar className="h-3.5 w-3.5 text-purple-600" />
+          Collection Day *
+        </Label>
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+          {DAYS_OF_WEEK.map((day) => (
+            <button
+              key={day}
+              type="button"
+              onClick={() => updateFormData("collectionDay", day)}
+              className={cn(
+                "h-9 px-2 text-xs font-medium rounded-md border transition-all",
+                formData.collectionDay === day
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                  : "bg-background border-input hover:bg-muted",
+              )}
+            >
+              {day.charAt(0).toUpperCase() + day.slice(1, 3)}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Which day of the week to collect rent
+        </p>
+      </div>
+    );
+  }
+
+  if (formData.formBasis === "bi-weekly") {
+    return (
+      <div className="space-y-4 md:col-span-2">
+        <Label className="text-sm font-medium flex items-center gap-1.5">
+          <Calendar className="h-3.5 w-3.5 text-purple-600" />
+          Collection Dates (Select 2 dates per month) *
+        </Label>
+
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground">
+            Day 1 (1-15){" "}
+            {formData.collectionDates[0]
+              ? `[${formData.collectionDates[0]}]`
+              : "[None]"}
+          </div>
+          <div className={DATE_GRID}>
+            {Array.from({ length: 15 }, (_, i) => i + 1).map((date) => (
+              <button
+                key={date}
+                type="button"
+                onClick={() => {
+                  const newDates = [...formData.collectionDates];
+                  newDates[0] = date;
+                  if (newDates.length === 1) {
+                    newDates.push(16);
+                  }
+                  updateFormData("collectionDates", newDates);
+                }}
+                className={cn(
+                  DATE_BUTTON,
+                  formData.collectionDates[0] === date
+                    ? "bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-300"
+                    : "bg-background border-input hover:bg-muted",
+                )}
+              >
+                {date}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <div className="text-xs font-medium text-muted-foreground">
+            Day 2 (16-31){" "}
+            {formData.collectionDates[1]
+              ? `[${formData.collectionDates[1]}]`
+              : "[None]"}
+          </div>
+          <div className={DATE_GRID}>
+            {Array.from({ length: 16 }, (_, i) => i + 16).map((date) => (
+              <button
+                key={date}
+                type="button"
+                onClick={() => {
+                  const newDates = [...formData.collectionDates];
+                  newDates[1] = date;
+                  if (newDates.length < 2) {
+                    newDates[0] = newDates[0] || 1;
+                  }
+                  updateFormData("collectionDates", newDates);
+                }}
+                className={cn(
+                  DATE_BUTTON,
+                  formData.collectionDates[1] === date
+                    ? "bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-300"
+                    : "bg-background border-input hover:bg-muted",
+                )}
+              >
+                {date}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Selected: Day 1 = {formData.collectionDates[0] || "None"}, Day 2 ={" "}
+          {formData.collectionDates[1] || "None"} • Dates adjust to last day for
+          shorter months
+        </p>
+      </div>
+    );
+  }
+
+  if (formData.formBasis === "monthly") {
+    return (
+      <div className="space-y-2 md:col-span-2">
+        <Label className="text-sm font-medium flex items-center gap-1.5">
+          <Calendar className="h-3.5 w-3.5 text-purple-600" />
+          Collection Date (Day of Month) *
+        </Label>
+        <div className={DATE_GRID}>
+          {Array.from({ length: 31 }, (_, i) => i + 1).map((date) => (
+            <button
+              key={date}
+              type="button"
+              onClick={() => updateFormData("collectionDates", [date])}
+              className={cn(
+                DATE_BUTTON,
+                formData.collectionDates[0] === date
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                  : "bg-background border-input hover:bg-muted",
+              )}
+            >
+              {date}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Selected: Day {formData.collectionDates[0] || "None"} • Date adjusts to
+          last day for shorter months
+        </p>
+      </div>
+    );
+  }
+
+  if (
+    ["quarterly", "semi-annually", "annually"].includes(formData.formBasis)
+  ) {
+    return (
+      <div className="space-y-2 md:col-span-2">
+        <div className="bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg border border-blue-100 dark:border-blue-900/50">
+          <p className="text-sm text-blue-800 dark:text-blue-300">
+            <strong>Collection Date:</strong> Based on Start Rent Date
+          </p>
+          <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+            {formData.formBasis === "quarterly" &&
+              "Every 3 months from start date"}
+            {formData.formBasis === "semi-annually" &&
+              "Every 6 months from start date"}
+            {formData.formBasis === "annually" &&
+              "Every 12 months from start date"}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
