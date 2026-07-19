@@ -55,10 +55,7 @@ import { OtherChargesPopup } from "@/components/other-charges-popup";
 import { EditIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-import type {
-  PropertyFormData,
-  TenantInfo,
-} from "@/components/add-property/form-types";
+import type { PropertyFormData } from "@/components/add-property/form-types";
 import { formatShortDate } from "@/components/add-property/format";
 import { PropertyPreview } from "@/components/add-property/property-preview";
 import { usePropertyForm } from "@/hooks/usePropertyForm";
@@ -95,6 +92,8 @@ export function MultiStepPopup({
     setErrors,
     isAddingTenants,
     updateFormData,
+    setMaxTenants,
+    updateTenant,
     reset: resetForm,
     generateBillingSchedule,
     validateStep1,
@@ -106,47 +105,6 @@ export function MultiStepPopup({
   // Tenant steps (lease terms, billing) only exist when tenants are being added.
   const totalSteps = isAddingTenants ? 4 : 2;
 
-  // Helper function to generate tenant fields based on maxTenants
-  const handleMaxTenantsChange = (value: number) => {
-    const newMaxTenants = Math.max(0, Math.min(20, value)); // Allow 0, limit max at 20
-
-    // Generate tenant array based on new max
-    const newTenants: TenantInfo[] = [];
-    for (let i = 0; i < newMaxTenants; i++) {
-      // Keep existing tenant data if it exists, otherwise create empty
-      newTenants.push(
-        formData.tenants[i] || {
-          tenantName: "",
-          tenantEmail: "",
-          contactNumber: "",
-        },
-      );
-    }
-
-    setFormData({
-      ...formData,
-      pax: newMaxTenants, // Keep pax in sync with maxTenants
-      maxTenants: newMaxTenants,
-      tenants: newTenants,
-    });
-  };
-
-  // Helper function to update individual tenant data
-  const updateTenantData = (
-    index: number,
-    field: keyof TenantInfo,
-    value: string | number,
-  ) => {
-    const newTenants = [...formData.tenants];
-    newTenants[index] = {
-      ...newTenants[index],
-      [field]: value,
-    };
-    setFormData({
-      ...formData,
-      tenants: newTenants,
-    });
-  };
 
 
   const handleOtherChargesClick = (index: number) => {
@@ -660,7 +618,7 @@ export function MultiStepPopup({
                             max="20"
                             value={formData.maxTenants || ""}
                             onChange={(e) =>
-                              handleMaxTenantsChange(
+                              setMaxTenants(
                                 e.target.value === ""
                                   ? 0
                                   : parseInt(e.target.value) || 0,
@@ -836,7 +794,7 @@ export function MultiStepPopup({
                                             id={`tenant${index}_name`}
                                             value={tenant.tenantName}
                                             onChange={(e) =>
-                                              updateTenantData(
+                                              updateTenant(
                                                 index,
                                                 "tenantName",
                                                 e.target.value,
@@ -868,7 +826,7 @@ export function MultiStepPopup({
                                             type="email"
                                             value={tenant.tenantEmail}
                                             onChange={(e) =>
-                                              updateTenantData(
+                                              updateTenant(
                                                 index,
                                                 "tenantEmail",
                                                 e.target.value,
@@ -899,7 +857,7 @@ export function MultiStepPopup({
                                             id={`tenant${index}_contact`}
                                             value={tenant.contactNumber}
                                             onChange={(e) =>
-                                              updateTenantData(
+                                              updateTenant(
                                                 index,
                                                 "contactNumber",
                                                 e.target.value,

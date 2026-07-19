@@ -4,6 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import type {
   PropertyFormData,
+  TenantInfo,
   ValidationErrors,
 } from "@/components/add-property/form-types";
 import {
@@ -142,6 +143,41 @@ export function usePropertyForm() {
     }
   };
 
+  // Capacity drives the length of the tenants array, so changing it resizes the
+  // array in place: existing entries survive, and shrinking drops the trailing
+  // slots along with whatever was typed into them. pax mirrors maxTenants.
+  const setMaxTenants = (value: number) => {
+    const maxTenants = Math.max(0, Math.min(20, value));
+
+    setFormData((prev) => ({
+      ...prev,
+      pax: maxTenants,
+      maxTenants,
+      tenants: Array.from(
+        { length: maxTenants },
+        (_, i) =>
+          prev.tenants[i] ?? {
+            tenantName: "",
+            tenantEmail: "",
+            contactNumber: "",
+          },
+      ),
+    }));
+  };
+
+  const updateTenant = (
+    index: number,
+    field: keyof TenantInfo,
+    value: string | number,
+  ) => {
+    setFormData((prev) => ({
+      ...prev,
+      tenants: prev.tenants.map((tenant, i) =>
+        i === index ? { ...tenant, [field]: value } : tenant,
+      ),
+    }));
+  };
+
   const reset = () => {
     setFormData(EMPTY_PROPERTY_FORM);
     setErrors({});
@@ -189,6 +225,8 @@ export function usePropertyForm() {
     setErrors,
     isAddingTenants,
     updateFormData,
+    setMaxTenants,
+    updateTenant,
     reset,
     generateBillingSchedule,
     validateStep1: () => runValidation(checkStep1),
