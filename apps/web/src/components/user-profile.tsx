@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { fetchProfile, saveProfile } from "@/services/profileService";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,7 +54,6 @@ interface UserProfile {
   email: string;
   created_at: string;
   full_name?: string;
-  avatar_url?: string;
   phone?: string;
   role?: string;
   // Payment details
@@ -224,7 +223,6 @@ export function UserProfile() {
         <CardContent className="pt-6">
           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
             <Avatar className="h-24 w-24">
-              <AvatarImage src={userProfile?.avatar_url} />
               <AvatarFallback className="text-2xl">
                 {getInitials(userProfile?.full_name, userProfile?.email)}
               </AvatarFallback>
