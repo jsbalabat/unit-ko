@@ -22,6 +22,32 @@ import {
   Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+// Read-only payout values previously reused the edit-mode chrome (border +
+// muted fill), so view mode looked editable and an unset field looked like an
+// empty input. Padding is kept so toggling edit doesn't shift the layout.
+function ReadOnlyValue({
+  value,
+  className,
+}: {
+  value?: string;
+  className?: string;
+}) {
+  const isSet = Boolean(value?.trim());
+
+  return (
+    <p
+      className={cn(
+        "px-3 py-2 text-sm",
+        isSet ? "text-foreground" : "italic text-muted-foreground",
+        isSet && className,
+      )}
+    >
+      {isSet ? value : "Not set"}
+    </p>
+  );
+}
 
 interface UserProfile {
   id: string;
@@ -46,6 +72,15 @@ export function UserProfile() {
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  // The bank channel is persisted and tenant-visible as soon as any of its
+  // fields is set, so gating this card on the bank *name* alone showed
+  // "Not configured" for a landlord who had entered account name and number.
+  const hasBankChannel = Boolean(
+    userProfile?.payment_bank_name?.trim() ||
+      userProfile?.payment_account_name?.trim() ||
+      userProfile?.payment_account_number?.trim(),
+  );
+
   const [formData, setFormData] = useState({
     full_name: "",
     phone: "",
@@ -443,15 +478,18 @@ export function UserProfile() {
                       </p>
                     </div>
                   </div>
-                  {userProfile?.payment_bank_name && (
+                  {hasBankChannel && (
                     <div
                       className="h-2 w-2 rounded-full bg-green-500"
                       title="Active"
                     />
                   )}
                 </div>
-                {userProfile?.payment_bank_name ? (
-                  <p className="text-xs">{userProfile.payment_bank_name}</p>
+                {hasBankChannel ? (
+                  <p className="text-xs">
+                    {userProfile?.payment_bank_name ||
+                      userProfile?.payment_account_name}
+                  </p>
                 ) : (
                   <p className="text-xs text-muted-foreground">
                     Not configured
@@ -516,9 +554,7 @@ export function UserProfile() {
                       placeholder="e.g., BDO, BPI, Metrobank"
                     />
                   ) : (
-                    <div className="px-3 py-2 border rounded-md bg-muted/50">
-                      {userProfile?.payment_bank_name || "Not set"}
-                    </div>
+                    <ReadOnlyValue value={userProfile?.payment_bank_name} />
                   )}
                 </div>
 
@@ -537,9 +573,7 @@ export function UserProfile() {
                       placeholder="Full name on account"
                     />
                   ) : (
-                    <div className="px-3 py-2 border rounded-md bg-muted/50">
-                      {userProfile?.payment_account_name || "Not set"}
-                    </div>
+                    <ReadOnlyValue value={userProfile?.payment_account_name} />
                   )}
                 </div>
 
@@ -558,9 +592,10 @@ export function UserProfile() {
                       placeholder="Bank account number"
                     />
                   ) : (
-                    <div className="px-3 py-2 border rounded-md bg-muted/50 font-mono">
-                      {userProfile?.payment_account_number || "Not set"}
-                    </div>
+                    <ReadOnlyValue
+                      value={userProfile?.payment_account_number}
+                      className="font-mono"
+                    />
                   )}
                 </div>
               </div>
@@ -589,9 +624,10 @@ export function UserProfile() {
                       placeholder="09XXXXXXXXX"
                     />
                   ) : (
-                    <div className="px-3 py-2 border rounded-md bg-muted/50">
-                      {userProfile?.payment_gcash_number || "Not set"}
-                    </div>
+                    <ReadOnlyValue
+                      value={userProfile?.payment_gcash_number}
+                      className="font-mono"
+                    />
                   )}
                 </div>
 
@@ -610,9 +646,10 @@ export function UserProfile() {
                       placeholder="09XXXXXXXXX"
                     />
                   ) : (
-                    <div className="px-3 py-2 border rounded-md bg-muted/50">
-                      {userProfile?.payment_paymaya_number || "Not set"}
-                    </div>
+                    <ReadOnlyValue
+                      value={userProfile?.payment_paymaya_number}
+                      className="font-mono"
+                    />
                   )}
                 </div>
               </div>
@@ -638,9 +675,10 @@ export function UserProfile() {
                     className="w-full h-24 px-3 py-2 text-sm border rounded-md focus:ring-1 resize-none"
                   />
                 ) : (
-                  <div className="px-3 py-2 border rounded-md bg-muted/50 min-h-[60px] whitespace-pre-wrap">
-                    {userProfile?.payment_other_details || "Not set"}
-                  </div>
+                  <ReadOnlyValue
+                    value={userProfile?.payment_other_details}
+                    className="whitespace-pre-wrap"
+                  />
                 )}
                 <p className="text-xs text-muted-foreground">
                   Include any special instructions for tenants (e.g., reference
