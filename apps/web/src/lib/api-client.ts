@@ -16,7 +16,7 @@ import type {
   PropertySummary,
   RecordPaymentInput,
   RecordPaymentResult,
-  RecordReminderInput,
+  RecordReminderRequest,
   ReminderLog,
   ReminderResult,
   Subscription,
@@ -193,7 +193,7 @@ export const api = {
   },
 
   reminders: {
-    record: (input: RecordReminderInput) =>
+    record: (input: RecordReminderRequest) =>
       request<ReminderResult>("/reminders", { method: "POST", body: input }),
     recent: (limit?: number) =>
       request<ReminderLog[]>("/reminders", {
