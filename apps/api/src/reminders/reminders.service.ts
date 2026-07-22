@@ -19,6 +19,7 @@ import { ActivityService } from "../activity/activity.service";
 import { ReminderDispatcher } from "./reminder-dispatcher.service";
 import {
   RemindersRepository,
+  type ReminderContext,
   type ReminderLogView,
 } from "./reminders.repository";
 
@@ -39,19 +40,26 @@ export class RemindersService {
       throw new NotFoundException("Billing entry not found");
     }
 
-    // Validate the recipient BEFORE claiming, so a missing email doesn't burn the
-    // once-per-day slot.
-    const recipient = normalizeEmail(ctx.email);
+    const { channel } = input;
+    // Validate the recipient BEFORE claiming, so an unusable address doesn't burn
+    // the once-per-day slot for this channel.
+    const recipient = resolveRecipient(channel, ctx);
     if (!recipient) {
       throw new UnprocessableEntityException(
-        "Tenant email is required to send an email reminder.",
+        channel === "sms"
+          ? "A valid mobile number (e.g. 09171234567) is required to send an SMS reminder."
+          : "Tenant email is required to send an email reminder.",
       );
     }
 
-    const logId = await this.repo.claim(landlordId, input.billingEntryId);
+    const logId = await this.repo.claim(
+      landlordId,
+      input.billingEntryId,
+      channel,
+    );
     if (!logId) {
       throw new HttpException(
-        "A reminder was already sent today for this invoice.",
+        `A ${channel === "sms" ? "text" : "email"} reminder was already sent today for this invoice.`,
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
@@ -60,6 +68,7 @@ export class RemindersService {
     // outcome (never optimistically 'sent'). A failed send is a 200 with
     // status 'failed', not an exception — the landlord sees it and can retry.
     const message = buildReminderMessage(
+      channel,
       ctx.tenantName,
       ctx.propertyName,
       ctx.dueDate,
@@ -70,7 +79,7 @@ export class RemindersService {
       event: "rent_due_today",
       sentAt,
       reminderLogId: logId,
-      channel: "email",
+      channel,
       recipient,
       tenantName: ctx.tenantName,
       propertyName: ctx.propertyName,
@@ -90,13 +99,13 @@ export class RemindersService {
     await this.activity.log({
       actionType: "tenant_reminder_sent",
       description: outcome.ok
-        ? `Reminder emailed to ${ctx.tenantName}`
+        ? `Reminder ${channel === "sms" ? "texted" : "emailed"} to ${ctx.tenantName}`
         : `Reminder to ${ctx.tenantName} failed to send`,
       userId: landlordId,
       metadata: {
         billingEntryId: input.billingEntryId,
         recipient,
-        channel: "email",
+        channel,
         status,
         error: outcome.error,
       },
@@ -104,7 +113,7 @@ export class RemindersService {
 
     return {
       status,
-      channel: "email",
+      channel,
       tenantName: ctx.tenantName,
       propertyName: ctx.propertyName,
       recipient,
@@ -136,6 +145,17 @@ export class RemindersService {
   }
 }
 
+// The address the chosen channel actually needs, taken from trusted DB data.
+// null means "this tenant is unreachable on this channel" — a 422, not a send.
+function resolveRecipient(
+  channel: ReminderChannel,
+  ctx: ReminderContext,
+): string | null {
+  return channel === "sms"
+    ? normalizePhoneToE164(ctx.contactNumber)
+    : normalizeEmail(ctx.email);
+}
+
 // Trim + validate the tenant's email; null if absent or malformed.
 function normalizeEmail(email: string | null): string | null {
   const trimmed = email?.trim();
@@ -143,12 +163,47 @@ function normalizeEmail(email: string | null): string | null {
   return z.string().email().safeParse(trimmed).success ? trimmed : null;
 }
 
+// contact_number is free-form (09xx…, +639xx…, spaces, dashes) but SMS gateways
+// need E.164. PH mobiles are +63 followed by 9 and nine more digits; anything
+// that doesn't reduce to that is rejected rather than guessed at, so the landlord
+// gets a 422 they can fix instead of a message that silently goes nowhere.
+function normalizePhoneToE164(contactNumber: string | null): string | null {
+  const digits = contactNumber?.replace(/\D/g, "");
+  if (!digits) return null;
+  const subscriber = digits.startsWith("63")
+    ? digits.slice(2)
+    : digits.startsWith("0")
+      ? digits.slice(1)
+      : digits;
+  return /^9\d{9}$/.test(subscriber) ? `+63${subscriber}` : null;
+}
+
 function buildReminderMessage(
+  channel: ReminderChannel,
   tenantName: string,
   propertyName: string,
   dueDate: string | null,
   amount: number,
 ): string {
+  const amountStr = amount.toLocaleString("en-PH", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+  if (channel === "sms") {
+    // "PHP" rather than "₱": U+20B1 is outside GSM-7, so one peso sign would push
+    // the whole message to UCS-2 and cut the per-segment budget from 160 to 70
+    // characters — a one-segment reminder would start billing as two.
+    const shortDate = dueDate
+      ? new Date(dueDate).toLocaleDateString("en-PH", {
+          month: "short",
+          day: "numeric",
+        })
+      : null;
+    const due = shortDate ? `is due ${shortDate}` : "is due soon";
+    return `Hi ${tenantName}, rent for ${propertyName} (PHP ${amountStr}) ${due}. Please settle. Thank you!`;
+  }
+
   const formattedDate = dueDate
     ? new Date(dueDate).toLocaleDateString("en-PH", {
         year: "numeric",
@@ -156,10 +211,6 @@ function buildReminderMessage(
         day: "numeric",
       })
     : "the due date";
-  const amountStr = amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
   return `Hi ${tenantName}, your rent for ${propertyName} is due on ${formattedDate} with a total amount of ₱${amountStr}. Please settle your account. Thank you!`;
 }
 

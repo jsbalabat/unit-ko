@@ -6,7 +6,10 @@ import type { Env } from "../config/env";
 
 // The JSON contract the API POSTs to the Zapier catch-hook (an api↔Zapier
 // concern, not the FE/BE contract): the Zap maps these fields into the outgoing
-// email. Kept as a schema so the payload is validated before it leaves the API.
+// message. Identical for every channel — `recipient` is an email address or an
+// E.164 number depending on `channel` — so swapping the downstream SMS provider
+// is a Zap edit, never a code change. Kept as a schema so the payload is
+// validated before it leaves the API.
 const webhookPayloadSchema = z.object({
   event: z.literal("rent_due_today"),
   sentAt: z.string(),
@@ -36,11 +39,15 @@ export class ReminderDispatcher {
   constructor(private readonly config: ConfigService<Env, true>) {}
 
   async send(payload: ReminderWebhookPayload): Promise<DispatchOutcome> {
-    const url = this.config.get("ZAPIER_RENT_DUE_WEBHOOK", { infer: true });
+    const envKey =
+      payload.channel === "sms"
+        ? "ZAPIER_RENT_DUE_SMS_WEBHOOK"
+        : "ZAPIER_RENT_DUE_WEBHOOK";
+    const url = this.config.get(envKey, { infer: true });
     if (!url) {
       return {
         ok: false,
-        error: "Reminder webhook is not configured (ZAPIER_RENT_DUE_WEBHOOK).",
+        error: `Reminder webhook is not configured (${envKey}).`,
       };
     }
 

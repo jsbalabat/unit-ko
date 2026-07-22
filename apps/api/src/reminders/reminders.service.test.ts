@@ -15,13 +15,18 @@ const stub = <T extends object>(impl: Partial<T>): T => impl as T;
 const ctx = (over: Partial<ReminderContext> = {}): ReminderContext => ({
   tenantName: "Ana Cruz",
   email: "ana@example.com",
+  contactNumber: "0917 123 4567",
   propertyName: "Unit 1",
   dueDate: "2026-07-01",
   amount: 1000,
   ...over,
 });
 
-const input: RecordReminderInput = { billingEntryId: "entry1" };
+const input: RecordReminderInput = {
+  billingEntryId: "entry1",
+  channel: "email",
+};
+const smsInput: RecordReminderInput = { ...input, channel: "sms" };
 
 describe("RemindersService.record", () => {
   it("dispatches and marks the reminder sent on a successful webhook", async () => {
@@ -49,7 +54,7 @@ describe("RemindersService.record", () => {
 
     const result = await service.record("landlord1", input);
 
-    expect(claim).toHaveBeenCalledWith("landlord1", "entry1");
+    expect(claim).toHaveBeenCalledWith("landlord1", "entry1", "email");
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         reminderLogId: "log1",
@@ -124,6 +129,122 @@ describe("RemindersService.record", () => {
       UnprocessableEntityException,
     );
     expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("claims the sms slot and dispatches to the E.164 number", async () => {
+    const claim = vi
+      .fn<RemindersRepository["claim"]>()
+      .mockResolvedValue("log2");
+    const send = vi
+      .fn<ReminderDispatcher["send"]>()
+      .mockResolvedValue({ ok: true, error: null });
+    const service = new RemindersService(
+      stub<RemindersRepository>({
+        resolveContext: vi
+          .fn<RemindersRepository["resolveContext"]>()
+          .mockResolvedValue(ctx()),
+        claim,
+        markResult: vi
+          .fn<RemindersRepository["markResult"]>()
+          .mockResolvedValue(undefined),
+      }),
+      stub<ReminderDispatcher>({ send }),
+      stub<ActivityService>({
+        log: vi.fn<ActivityService["log"]>().mockResolvedValue(undefined),
+      }),
+    );
+
+    const result = await service.record("landlord1", smsInput);
+
+    expect(claim).toHaveBeenCalledWith("landlord1", "entry1", "sms");
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "sms",
+        recipient: "+639171234567",
+      }),
+    );
+    expect(result.channel).toBe("sms");
+    // The peso sign would force the message to UCS-2 and halve the SMS segment.
+    expect(result.message).not.toContain("₱");
+    expect(result.message).toContain("PHP 1,000.00");
+  });
+
+  it.each([
+    ["+63 917 123 4567", "+639171234567"],
+    ["639171234567", "+639171234567"],
+    ["9171234567", "+639171234567"],
+  ])("normalizes %s to %s", async (contactNumber, expected) => {
+    const send = vi
+      .fn<ReminderDispatcher["send"]>()
+      .mockResolvedValue({ ok: true, error: null });
+    const service = new RemindersService(
+      stub<RemindersRepository>({
+        resolveContext: vi
+          .fn<RemindersRepository["resolveContext"]>()
+          .mockResolvedValue(ctx({ contactNumber })),
+        claim: vi.fn<RemindersRepository["claim"]>().mockResolvedValue("log2"),
+        markResult: vi
+          .fn<RemindersRepository["markResult"]>()
+          .mockResolvedValue(undefined),
+      }),
+      stub<ReminderDispatcher>({ send }),
+      stub<ActivityService>({
+        log: vi.fn<ActivityService["log"]>().mockResolvedValue(undefined),
+      }),
+    );
+
+    await service.record("landlord1", smsInput);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient: expected }),
+    );
+  });
+
+  it.each([[null], [""], ["12345"], ["0817 123 4567"]])(
+    "rejects sms with 422 for the unusable number %s, without claiming",
+    async (contactNumber) => {
+      const claim = vi.fn<RemindersRepository["claim"]>();
+      const service = new RemindersService(
+        stub<RemindersRepository>({
+          resolveContext: vi
+            .fn<RemindersRepository["resolveContext"]>()
+            .mockResolvedValue(ctx({ contactNumber })),
+          claim,
+        }),
+        stub<ReminderDispatcher>({}),
+        stub<ActivityService>({}),
+      );
+
+      await expect(
+        service.record("landlord1", smsInput),
+      ).rejects.toBeInstanceOf(UnprocessableEntityException);
+      expect(claim).not.toHaveBeenCalled();
+    },
+  );
+
+  it("sends sms even when the tenant has no email", async () => {
+    const send = vi
+      .fn<ReminderDispatcher["send"]>()
+      .mockResolvedValue({ ok: true, error: null });
+    const service = new RemindersService(
+      stub<RemindersRepository>({
+        resolveContext: vi
+          .fn<RemindersRepository["resolveContext"]>()
+          .mockResolvedValue(ctx({ email: null })),
+        claim: vi.fn<RemindersRepository["claim"]>().mockResolvedValue("log2"),
+        markResult: vi
+          .fn<RemindersRepository["markResult"]>()
+          .mockResolvedValue(undefined),
+      }),
+      stub<ReminderDispatcher>({ send }),
+      stub<ActivityService>({
+        log: vi.fn<ActivityService["log"]>().mockResolvedValue(undefined),
+      }),
+    );
+
+    const result = await service.record("landlord1", smsInput);
+
+    expect(result.status).toBe("sent");
   });
 
   it("rejects with 429 when the daily slot is already claimed", async () => {

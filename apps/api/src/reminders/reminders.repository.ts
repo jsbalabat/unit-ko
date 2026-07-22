@@ -1,10 +1,11 @@
 import { Injectable } from "@nestjs/common";
-import type { ReminderStatus } from "@unitko/shared";
+import type { ReminderChannel, ReminderStatus } from "@unitko/shared";
 import { SupabaseService } from "../supabase/supabase.service";
 
 export interface ReminderContext {
   tenantName: string;
   email: string | null;
+  contactNumber: string | null;
   propertyName: string;
   dueDate: string | null;
   amount: number;
@@ -45,7 +46,9 @@ export class RemindersRepository {
 
     const { data: lease, error: lErr } = await this.supabase.db
       .from("leases")
-      .select("tenants(tenant_name, email), properties(unit_name, landlord_id)")
+      .select(
+        "tenants(tenant_name, email, contact_number), properties(unit_name, landlord_id)",
+      )
       .eq("id", entry.lease_id)
       .maybeSingle();
     if (lErr) throw lErr;
@@ -64,22 +67,25 @@ export class RemindersRepository {
     return {
       tenantName: tenant.tenant_name,
       email: tenant.email,
+      contactNumber: tenant.contact_number,
       propertyName: property.unit_name,
       dueDate: entry.due_date,
       amount: amountRow?.gross_due ?? 0,
     };
   }
 
-  // Atomic once-per-day claim: inserts a 'pending' reminder_logs row and returns
-  // its id, or null when today's slot is already held by an active attempt.
+  // Atomic once-per-day claim for one channel: inserts a 'pending' reminder_logs
+  // row and returns its id, or null when that channel's slot for today is already
+  // held by an active attempt. Email and SMS hold independent slots.
   async claim(
     landlordId: string,
     billingEntryId: string,
+    channel: ReminderChannel,
   ): Promise<string | null> {
     const { data, error } = await this.supabase.db.rpc("claim_tenant_reminder", {
       p_landlord_id: landlordId,
       p_billing_entry_id: billingEntryId,
-      p_channel: "email",
+      p_channel: channel,
     });
     if (error) throw error;
     return typeof data === "string" ? data : null;

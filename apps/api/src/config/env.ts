@@ -23,10 +23,16 @@ export const envSchema = z.object({
     z.string().min(1).optional(),
   ),
 
-  // The Zapier catch-hook the reminder dispatcher POSTs to (email-first). Optional
-  // so the API boots without it; when unset, a reminder is recorded as 'failed'
-  // rather than sent. A present-but-blank value is treated as unset.
+  // The Zapier catch-hooks the reminder dispatcher POSTs to — one per channel,
+  // because the email Zap and the SMS Zap are different actions with different
+  // downstream providers. Both optional so the API boots without them; when the
+  // hook for a channel is unset, a reminder on that channel is recorded as
+  // 'failed' rather than sent. A present-but-blank value is treated as unset.
   ZAPIER_RENT_DUE_WEBHOOK: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().url().optional(),
+  ),
+  ZAPIER_RENT_DUE_SMS_WEBHOOK: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     z.string().url().optional(),
   ),
