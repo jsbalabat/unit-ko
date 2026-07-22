@@ -2,12 +2,19 @@ import { z } from "zod";
 import { REMINDER_CHANNELS, REMINDER_STATUSES } from "../enums";
 
 // POST /reminders — send a once-per-day rent reminder for an invoice. The API
-// resolves the recipient from trusted DB data, claims the daily slot, dispatches
-// via the Zapier webhook (email-first), and records the true outcome.
+// resolves the recipient for the chosen channel from trusted DB data (never from
+// the request), claims that channel's daily slot, dispatches via the matching
+// Zapier webhook, and records the true outcome.
 export const recordReminderSchema = z.object({
   billingEntryId: z.string().uuid(),
+  channel: z.enum(REMINDER_CHANNELS).default("email"),
 });
+
+/** The parsed body: `channel` is always resolved by the time a handler sees it. */
 export type RecordReminderInput = z.infer<typeof recordReminderSchema>;
+
+/** The wire body a client sends — `channel` may be omitted and defaults to email. */
+export type RecordReminderRequest = z.input<typeof recordReminderSchema>;
 
 // The settled dispatch outcome (never 'pending' by the time the request returns).
 // error carries the failure reason when status is 'failed'.
