@@ -565,11 +565,13 @@ $$;
 revoke execute on function public.record_payment_atomic(uuid, jsonb) from public;
 grant execute on function public.record_payment_atomic(uuid, jsonb) to service_role;
 
--- Atomic once-per-day reminder claim. Locks the entry so concurrent claims
--- serialize, then inserts a 'pending' reminder_logs row and returns its id — or
--- null if today's slot is already held by an active (pending/sent) attempt. A
--- prior 'failed' attempt frees the slot for a same-day retry. The dispatcher
--- fills in the real outcome afterward. Locked to service_role.
+-- Atomic once-per-day reminder claim, scoped to the channel. Locks the entry so
+-- concurrent claims serialize, then inserts a 'pending' reminder_logs row and
+-- returns its id — or null if today's slot for that channel is already held by an
+-- active (pending/sent) attempt. A prior 'failed' attempt frees the slot for a
+-- same-day retry, and email and SMS hold independent slots so one channel never
+-- blocks the other. The dispatcher fills in the real outcome afterward. Locked to
+-- service_role.
 create or replace function public.claim_tenant_reminder(
   p_landlord_id uuid,
   p_billing_entry_id uuid,
@@ -600,6 +602,7 @@ begin
   if exists (
     select 1 from public.reminder_logs
     where billing_entry_id = p_billing_entry_id
+      and channel_code = p_channel
       and created_at >= date_trunc('day', now())
       and status_code in ('pending', 'sent')
   ) then
