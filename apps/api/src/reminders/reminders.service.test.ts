@@ -13,9 +13,11 @@ import { RemindersService } from "./reminders.service";
 const stub = <T extends object>(impl: Partial<T>): T => impl as T;
 
 const ctx = (over: Partial<ReminderContext> = {}): ReminderContext => ({
+  tenantId: "tenant1",
   tenantName: "Ana Cruz",
   email: "ana@example.com",
   contactNumber: "0917 123 4567",
+  propertyId: "prop1",
   propertyName: "Unit 1",
   dueDate: "2026-07-01",
   amount: 1000,
@@ -73,6 +75,8 @@ describe("RemindersService.record", () => {
     expect(log).toHaveBeenCalledWith(
       expect.objectContaining({
         actionType: "tenant_reminder_sent",
+        propertyId: "prop1",
+        tenantId: "tenant1",
         metadata: expect.objectContaining({ status: "sent" }),
       }),
     );

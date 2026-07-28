@@ -102,6 +102,8 @@ export class RemindersService {
         ? `Reminder ${channel === "sms" ? "texted" : "emailed"} to ${ctx.tenantName}`
         : `Reminder to ${ctx.tenantName} failed to send`,
       userId: landlordId,
+      propertyId: ctx.propertyId,
+      tenantId: ctx.tenantId,
       metadata: {
         billingEntryId: input.billingEntryId,
         recipient,

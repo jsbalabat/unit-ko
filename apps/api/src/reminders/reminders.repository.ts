@@ -3,9 +3,11 @@ import type { ReminderChannel, ReminderStatus } from "@unitko/shared";
 import { SupabaseService } from "../supabase/supabase.service";
 
 export interface ReminderContext {
+  tenantId: string;
   tenantName: string;
   email: string | null;
   contactNumber: string | null;
+  propertyId: string;
   propertyName: string;
   dueDate: string | null;
   amount: number;
@@ -47,7 +49,7 @@ export class RemindersRepository {
     const { data: lease, error: lErr } = await this.supabase.db
       .from("leases")
       .select(
-        "tenants(tenant_name, email, contact_number), properties(unit_name, landlord_id)",
+        "tenants(id, tenant_name, email, contact_number), properties(id, unit_name, landlord_id)",
       )
       .eq("id", entry.lease_id)
       .maybeSingle();
@@ -65,9 +67,11 @@ export class RemindersRepository {
     if (aErr) throw aErr;
 
     return {
+      tenantId: tenant.id,
       tenantName: tenant.tenant_name,
       email: tenant.email,
       contactNumber: tenant.contact_number,
+      propertyId: property.id,
       propertyName: property.unit_name,
       dueDate: entry.due_date,
       amount: amountRow?.gross_due ?? 0,
