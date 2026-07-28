@@ -5,6 +5,7 @@ import {
   type Role,
   type UpdateProfileInput,
 } from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
 import { toPayoutChannel } from "../common/payout";
 import { ProfileRepository } from "./profile.repository";
 
@@ -26,7 +27,10 @@ interface ProfileRow {
 
 @Injectable()
 export class ProfileService {
-  constructor(private readonly repo: ProfileRepository) {}
+  constructor(
+    private readonly repo: ProfileRepository,
+    private readonly activity: ActivityService,
+  ) {}
 
   async getProfile(landlordId: string): Promise<Profile> {
     const row = await this.repo.findProfile(landlordId);
@@ -41,13 +45,33 @@ export class ProfileService {
     const identity: { full_name?: string | null; phone?: string | null } = {};
     if (input.fullName !== undefined) identity.full_name = input.fullName;
     if (input.phone !== undefined) identity.phone = input.phone;
-    if (Object.keys(identity).length > 0) {
+    const identityChanged = Object.keys(identity).length > 0;
+    if (identityChanged) {
       await this.repo.updateIdentity(landlordId, identity);
     }
 
     // A present (even empty) payoutMethods array replaces the full set.
+    let payoutChanged = false;
     if (input.payoutMethods !== undefined) {
       await this.repo.replacePayoutMethods(landlordId, input.payoutMethods);
+      payoutChanged = true;
+    }
+
+    if (identityChanged || payoutChanged) {
+      const changed = [
+        ...(identityChanged ? ["identity"] : []),
+        ...(payoutChanged ? ["payoutMethods"] : []),
+      ];
+      await this.activity.log({
+        actionType: "profile_updated",
+        // Call out payout changes explicitly — a change of financial destination
+        // is the most security-relevant edit this endpoint accepts.
+        description: payoutChanged
+          ? "Payout methods updated"
+          : "Profile details updated",
+        userId: landlordId,
+        metadata: { changed },
+      });
     }
 
     return this.getProfile(landlordId);

@@ -8,11 +8,15 @@ import {
   type SubscriptionStatus,
   type UpdateSubscriptionInput,
 } from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
 import { SubscriptionsRepository } from "./subscriptions.repository";
 
 @Injectable()
 export class SubscriptionsService {
-  constructor(private readonly repo: SubscriptionsRepository) {}
+  constructor(
+    private readonly repo: SubscriptionsRepository,
+    private readonly activity: ActivityService,
+  ) {}
 
   async listPlans(): Promise<SubscriptionPlanInfo[]> {
     const rows = await this.repo.findPlans();
@@ -52,6 +56,12 @@ export class SubscriptionsService {
     const nextBilling = new Date();
     nextBilling.setMonth(nextBilling.getMonth() + 1);
     await this.repo.upsertPlan(landlordId, input.plan, nextBilling.toISOString());
+    await this.activity.log({
+      actionType: "subscription_updated",
+      description: `Subscription plan changed to ${input.plan}`,
+      userId: landlordId,
+      metadata: { plan: input.plan },
+    });
     return this.getForLandlord(landlordId);
   }
 }
