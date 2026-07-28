@@ -12,3 +12,5 @@ create table public.activity_logs (
 
 create index idx_activity_logs_property on public.activity_logs (property_id);
 create index idx_activity_logs_created on public.activity_logs (created_at desc);
+-- Serves the landlord feed's `where user_id = … order by created_at desc`.
+create index idx_activity_logs_user on public.activity_logs (user_id, created_at desc);
