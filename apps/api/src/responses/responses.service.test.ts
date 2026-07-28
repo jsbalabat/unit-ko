@@ -1,6 +1,7 @@
 import { NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { CreateTenantResponseInput } from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
 import {
   ResponsesRepository,
   type TenantResponseView,
@@ -8,6 +9,17 @@ import {
 import { ResponsesService } from "./responses.service";
 
 const stub = <T extends object>(impl: Partial<T>): T => impl as T;
+
+const activityStub = (log = vi.fn().mockResolvedValue(undefined)) => ({
+  service: stub<ActivityService>({ log }),
+  log,
+});
+
+const entryContext = {
+  tenantId: "tenant1",
+  propertyId: "prop1",
+  landlordId: "landlord1",
+};
 
 const view = (over: Partial<TenantResponseView> = {}): TenantResponseView => ({
   id: "resp1",
@@ -31,21 +43,23 @@ describe("ResponsesService.createForTenant", () => {
     note: "noted",
   };
 
-  it("creates a response and returns it when the tenant owns the bill", async () => {
+  it("creates a response, logs it, and returns it when the tenant owns the bill", async () => {
     const create = vi
       .fn<ResponsesRepository["create"]>()
       .mockResolvedValue("resp1");
     const findById = vi
       .fn<ResponsesRepository["findById"]>()
       .mockResolvedValue(view());
+    const { service: activity, log } = activityStub();
     const service = new ResponsesService(
       stub<ResponsesRepository>({
-        findEntryTenant: vi
-          .fn<ResponsesRepository["findEntryTenant"]>()
-          .mockResolvedValue("tenant1"),
+        findEntryContext: vi
+          .fn<ResponsesRepository["findEntryContext"]>()
+          .mockResolvedValue(entryContext),
         create,
         findById,
       }),
+      activity,
     );
 
     const result = await service.createForTenant("tenant1", input);
@@ -63,17 +77,26 @@ describe("ResponsesService.createForTenant", () => {
       responseType: "acknowledged",
       responseTypeLabel: "Acknowledged",
     });
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "tenant_responded",
+        userId: "landlord1",
+        propertyId: "prop1",
+        tenantId: "tenant1",
+      }),
+    );
   });
 
   it("rejects with 404 when the bill belongs to another tenant, without creating", async () => {
     const create = vi.fn<ResponsesRepository["create"]>();
     const service = new ResponsesService(
       stub<ResponsesRepository>({
-        findEntryTenant: vi
-          .fn<ResponsesRepository["findEntryTenant"]>()
-          .mockResolvedValue("otherTenant"),
+        findEntryContext: vi
+          .fn<ResponsesRepository["findEntryContext"]>()
+          .mockResolvedValue({ ...entryContext, tenantId: "otherTenant" }),
         create,
       }),
+      activityStub().service,
     );
 
     await expect(
@@ -85,10 +108,11 @@ describe("ResponsesService.createForTenant", () => {
   it("rejects with 404 when the bill doesn't exist", async () => {
     const service = new ResponsesService(
       stub<ResponsesRepository>({
-        findEntryTenant: vi
-          .fn<ResponsesRepository["findEntryTenant"]>()
+        findEntryContext: vi
+          .fn<ResponsesRepository["findEntryContext"]>()
           .mockResolvedValue(null),
       }),
+      activityStub().service,
     );
 
     await expect(
@@ -104,6 +128,7 @@ describe("ResponsesService.listForTenant", () => {
       .mockResolvedValue([view({ id: "resp1" }), view({ id: null })]);
     const service = new ResponsesService(
       stub<ResponsesRepository>({ findByTenant }),
+      activityStub().service,
     );
 
     const result = await service.listForTenant("tenant1", 100);
@@ -119,6 +144,7 @@ describe("ResponsesService.listForTenant", () => {
       .mockResolvedValue([]);
     const service = new ResponsesService(
       stub<ResponsesRepository>({ findByTenant }),
+      activityStub().service,
     );
 
     await service.listForTenant("tenant1");
@@ -137,6 +163,7 @@ describe("ResponsesService.listForLandlord", () => {
             view({ response_type_code: "bogus", response_type_label: null }),
           ]),
       }),
+      activityStub().service,
     );
 
     const result = await service.listForLandlord("landlord1");
@@ -147,7 +174,7 @@ describe("ResponsesService.listForLandlord", () => {
 });
 
 describe("ResponsesService.confirmForLandlord", () => {
-  it("confirms and returns the updated response when the landlord owns it", async () => {
+  it("confirms, logs, and returns the updated response when the landlord owns it", async () => {
     const confirm = vi
       .fn<ResponsesRepository["confirm"]>()
       .mockResolvedValue(undefined);
@@ -155,8 +182,16 @@ describe("ResponsesService.confirmForLandlord", () => {
       .fn<ResponsesRepository["findById"]>()
       .mockResolvedValueOnce(view({ confirmed_at: null }))
       .mockResolvedValueOnce(view({ confirmed_at: "2026-07-15T10:00:00.000Z" }));
+    const { service: activity, log } = activityStub();
     const service = new ResponsesService(
-      stub<ResponsesRepository>({ confirm, findById }),
+      stub<ResponsesRepository>({
+        confirm,
+        findById,
+        findEntryContext: vi
+          .fn<ResponsesRepository["findEntryContext"]>()
+          .mockResolvedValue(entryContext),
+      }),
+      activity,
     );
 
     const result = await service.confirmForLandlord("landlord1", "resp1");
@@ -167,6 +202,44 @@ describe("ResponsesService.confirmForLandlord", () => {
       expect.any(String),
     );
     expect(result.confirmedAt).toBe("2026-07-15T10:00:00.000Z");
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "response_confirmed",
+        userId: "landlord1",
+        propertyId: "prop1",
+      }),
+    );
+  });
+
+  it("still confirms when the log's id lookup fails (best-effort logging)", async () => {
+    const findById = vi
+      .fn<ResponsesRepository["findById"]>()
+      .mockResolvedValueOnce(view({ confirmed_at: null }))
+      .mockResolvedValueOnce(view({ confirmed_at: "2026-07-15T10:00:00.000Z" }));
+    const { service: activity, log } = activityStub();
+    const service = new ResponsesService(
+      stub<ResponsesRepository>({
+        confirm: vi
+          .fn<ResponsesRepository["confirm"]>()
+          .mockResolvedValue(undefined),
+        findById,
+        findEntryContext: vi
+          .fn<ResponsesRepository["findEntryContext"]>()
+          .mockRejectedValue(new Error("boom")),
+      }),
+      activity,
+    );
+
+    const result = await service.confirmForLandlord("landlord1", "resp1");
+
+    expect(result.confirmedAt).toBe("2026-07-15T10:00:00.000Z");
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "response_confirmed",
+        propertyId: null,
+        tenantId: null,
+      }),
+    );
   });
 
   it("rejects with 404 when the response isn't the landlord's, without confirming", async () => {
@@ -178,6 +251,7 @@ describe("ResponsesService.confirmForLandlord", () => {
           .mockResolvedValue(view({ landlord_id: "otherLandlord" })),
         confirm,
       }),
+      activityStub().service,
     );
 
     await expect(
@@ -193,6 +267,7 @@ describe("ResponsesService.confirmForLandlord", () => {
           .fn<ResponsesRepository["findById"]>()
           .mockResolvedValue(null),
       }),
+      activityStub().service,
     );
 
     await expect(

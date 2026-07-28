@@ -20,6 +20,14 @@ export interface TenantResponseView {
   landlord_id: string | null;
 }
 
+// The tenant/property/landlord a billing entry resolves to, for ownership checks
+// and activity-log linkage.
+export interface EntryContext {
+  tenantId: string;
+  propertyId: string;
+  landlordId: string;
+}
+
 const VIEW_COLUMNS =
   "id, billing_entry_id, response_type_code, response_type_label, note, created_at, confirmed_at, due_date, tenant_name, property_name, landlord_id";
 
@@ -27,10 +35,13 @@ const VIEW_COLUMNS =
 export class ResponsesRepository {
   constructor(private readonly supabase: SupabaseService) {}
 
-  // The tenant that owns the bill (via its lease); null when the bill doesn't
-  // exist. The caller compares against the session tenant before allowing a
-  // response, so a tenant can't respond to someone else's invoice.
-  async findEntryTenant(billingEntryId: string): Promise<string | null> {
+  // The tenant / property / landlord a bill belongs to, via its lease; null when
+  // the bill (or its lease chain) doesn't exist. Backs two things: the ownership
+  // check (caller compares tenantId against the session tenant, so a tenant can't
+  // respond to someone else's invoice) and the activity-log ids for the exchange.
+  async findEntryContext(
+    billingEntryId: string,
+  ): Promise<EntryContext | null> {
     const { data: entry, error } = await this.supabase.db
       .from("billing_entries")
       .select("lease_id")
@@ -41,11 +52,18 @@ export class ResponsesRepository {
 
     const { data: lease, error: lErr } = await this.supabase.db
       .from("leases")
-      .select("tenant_id")
+      .select("tenant_id, property_id, properties(landlord_id)")
       .eq("id", entry.lease_id)
       .maybeSingle();
     if (lErr) throw lErr;
-    return lease?.tenant_id ?? null;
+
+    const landlordId = lease?.properties?.landlord_id ?? null;
+    if (!lease?.tenant_id || !lease.property_id || !landlordId) return null;
+    return {
+      tenantId: lease.tenant_id,
+      propertyId: lease.property_id,
+      landlordId,
+    };
   }
 
   async create(input: {

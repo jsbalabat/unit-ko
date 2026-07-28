@@ -5,6 +5,7 @@ import {
   type TenantResponse,
   type TenantResponseType,
 } from "@unitko/shared";
+import { ActivityService } from "../activity/activity.service";
 import {
   ResponsesRepository,
   type TenantResponseView,
@@ -12,7 +13,10 @@ import {
 
 @Injectable()
 export class ResponsesService {
-  constructor(private readonly repo: ResponsesRepository) {}
+  constructor(
+    private readonly repo: ResponsesRepository,
+    private readonly activity: ActivityService,
+  ) {}
 
   async createForTenant(
     tenantId: string,
@@ -20,8 +24,8 @@ export class ResponsesService {
   ): Promise<TenantResponse> {
     // 404 (not 403) when the bill is missing OR belongs to another tenant — the
     // response must not reveal which of the two it was.
-    const ownerTenantId = await this.repo.findEntryTenant(input.billingEntryId);
-    if (ownerTenantId !== tenantId) {
+    const ctx = await this.repo.findEntryContext(input.billingEntryId);
+    if (!ctx || ctx.tenantId !== tenantId) {
       throw new NotFoundException("Billing entry not found");
     }
 
@@ -36,7 +40,24 @@ export class ResponsesService {
     if (!row) {
       throw new NotFoundException("Response not found");
     }
-    return toDto(row);
+    const dto = toDto(row);
+
+    // Logged under the owning landlord's id (the tenant isn't a profile), so the
+    // tenant's half of the exchange reaches the landlord's feed the way the
+    // landlord's confirmation already does.
+    await this.activity.log({
+      actionType: "tenant_responded",
+      description: `${dto.tenantName ?? "Tenant"} responded: ${dto.responseTypeLabel}`,
+      userId: ctx.landlordId,
+      propertyId: ctx.propertyId,
+      tenantId: ctx.tenantId,
+      metadata: {
+        billingEntryId: input.billingEntryId,
+        responseType: dto.responseType,
+        note: dto.note,
+      },
+    });
+    return dto;
   }
 
   async listForTenant(
@@ -70,7 +91,28 @@ export class ResponsesService {
     if (!updated) {
       throw new NotFoundException("Response not found");
     }
-    return toDto(updated);
+    const dto = toDto(updated);
+
+    // Property/tenant ids aren't on the response view; resolve them for feed
+    // linkage, but best-effort — a failed lookup must not break the confirmation.
+    const ctx = updated.billing_entry_id
+      ? await this.repo
+          .findEntryContext(updated.billing_entry_id)
+          .catch(() => null)
+      : null;
+    await this.activity.log({
+      actionType: "response_confirmed",
+      description: `Confirmed ${dto.tenantName ?? "a tenant"}'s ${dto.responseTypeLabel} response`,
+      userId: landlordId,
+      propertyId: ctx?.propertyId ?? null,
+      tenantId: ctx?.tenantId ?? null,
+      metadata: {
+        responseId,
+        billingEntryId: dto.billingEntryId,
+        responseType: dto.responseType,
+      },
+    });
+    return dto;
   }
 }
 
