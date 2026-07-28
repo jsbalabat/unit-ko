@@ -59,6 +59,7 @@ insert into public.activity_action_types (code, label) values
   ('property_note_updated', 'Note updated'),
   ('property_note_deleted', 'Note deleted'),
   ('tenant_reminder_sent', 'Reminder sent'),
+  ('tenant_removed', 'Tenant removed'),
   ('profile_updated', 'Profile updated'),
   ('subscription_updated', 'Subscription updated'),
   ('tenant_responded', 'Tenant responded'),
