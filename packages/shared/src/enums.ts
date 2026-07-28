@@ -72,6 +72,7 @@ export const ACTIVITY_ACTION_TYPES = [
   "property_note_updated",
   "property_note_deleted",
   "tenant_reminder_sent",
+  "tenant_removed",
   "profile_updated",
   "subscription_updated",
   "tenant_responded",
