@@ -217,6 +217,13 @@ declare
   v_deposit numeric := coalesce((v_lease->>'securityDeposit')::numeric, 0);
   v_rent_end date;
   v_lease_rent numeric;
+  -- Change tracking for the audit trail: one entry per real change so the caller
+  -- can log distinct tenant_removed / tenant_added / property_updated events.
+  v_removed_tenants jsonb := '[]'::jsonb;
+  v_added_tenants jsonb := '[]'::jsonb;
+  v_changed jsonb := '[]'::jsonb;
+  v_rt_name text;
+  v_rt_lease_id uuid;
 begin
   if p_landlord_id is null then
     raise exception 'landlord id is required';
@@ -257,10 +264,23 @@ begin
     for v_removed in select jsonb_array_elements_text(p_payload->'removedTenantIds') loop
       if coalesce(v_removed, '') <> '' then
         update public.tenants set is_active = false, updated_at = now()
-        where id = v_removed::uuid and property_id = p_property_id and landlord_id = p_landlord_id;
-        update public.leases set status = 'ended', ended_at = now(),
-          end_reason = v_end_reason, updated_at = now()
-        where tenant_id = v_removed::uuid and status = 'active';
+        where id = v_removed::uuid and property_id = p_property_id and landlord_id = p_landlord_id
+        returning tenant_name into v_rt_name;
+        -- Only report a removal that actually matched an owned tenant; the ended
+        -- lease id and reason ride along so the event is self-contained.
+        if found then
+          v_rt_lease_id := null;
+          update public.leases set status = 'ended', ended_at = now(),
+            end_reason = v_end_reason, updated_at = now()
+          where tenant_id = v_removed::uuid and status = 'active'
+          returning id into v_rt_lease_id;
+          v_removed_tenants := v_removed_tenants || jsonb_build_object(
+            'tenantId', v_removed,
+            'tenantName', v_rt_name,
+            'leaseId', v_rt_lease_id,
+            'endReason', v_end_reason
+          );
+        end if;
       end if;
     end loop;
   end if;
@@ -307,6 +327,11 @@ begin
           p_property_id, v_tenant.id, v_billing_frequency, v_contract_periods,
           v_lease_rent, v_rent_start, v_rent_end, v_due_day, v_advance, v_deposit, 'active'
         );
+
+        v_added_tenants := v_added_tenants || jsonb_build_object(
+          'tenantId', v_tenant.id,
+          'tenantName', v_tenant.tenant_name
+        );
       end if;
     end loop;
   end if;
@@ -331,7 +356,20 @@ begin
     where property_id = p_property_id and status = 'active';
   end if;
 
-  return jsonb_build_object('propertyId', p_property_id);
+  -- Which non-tenant sections the landlord actually submitted, so the residual
+  -- 'property_updated' event is specific instead of a blanket "something changed".
+  if v_meta <> '{}'::jsonb then v_changed := v_changed || to_jsonb('details'::text); end if;
+  if p_payload ? 'amenities' and jsonb_typeof(p_payload->'amenities') = 'array' then
+    v_changed := v_changed || to_jsonb('amenities'::text);
+  end if;
+  if v_lease <> '{}'::jsonb then v_changed := v_changed || to_jsonb('lease'::text); end if;
+
+  return jsonb_build_object(
+    'propertyId', p_property_id,
+    'changed', v_changed,
+    'removedTenants', v_removed_tenants,
+    'addedTenants', v_added_tenants
+  );
 end;
 $$;
 
