@@ -72,6 +72,10 @@ export const ACTIVITY_ACTION_TYPES = [
   "property_note_updated",
   "property_note_deleted",
   "tenant_reminder_sent",
+  "profile_updated",
+  "subscription_updated",
+  "tenant_responded",
+  "response_confirmed",
   "legacy_event",
 ] as const;
 export type ActivityActionType = (typeof ACTIVITY_ACTION_TYPES)[number];
