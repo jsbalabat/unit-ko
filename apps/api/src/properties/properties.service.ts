@@ -12,7 +12,10 @@ import type {
   WritePropertyNoteInput,
 } from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
-import { PropertiesRepository } from "./properties.repository";
+import {
+  PropertiesRepository,
+  type PropertyUpdateResult,
+} from "./properties.repository";
 
 interface NoteRow {
   id: string;
@@ -144,14 +147,57 @@ export class PropertiesService {
     if (!existing) {
       throw new NotFoundException("Property not found");
     }
-    await this.repo.updateViaAtomicRpc(landlordId, propertyId, input);
-    await this.activity.log({
-      actionType: "property_updated",
-      description: `Property updated: ${existing.property.unit_name}`,
-      userId: landlordId,
+    const result = await this.repo.updateViaAtomicRpc(
+      landlordId,
       propertyId,
-    });
+      input,
+    );
+    await this.logPropertyChanges(
+      landlordId,
+      propertyId,
+      existing.property.unit_name,
+      result,
+    );
     return this.getDetailForLandlord(landlordId, propertyId);
+  }
+
+  // One audit event per real change, so a tenant moving out reads as its own row
+  // rather than hiding inside a blanket "property updated".
+  private async logPropertyChanges(
+    landlordId: string,
+    propertyId: string,
+    unitName: string,
+    result: PropertyUpdateResult,
+  ): Promise<void> {
+    for (const t of result.removedTenants) {
+      await this.activity.log({
+        actionType: "tenant_removed",
+        description: `Tenant removed: ${t.tenantName ?? "unknown"}`,
+        userId: landlordId,
+        propertyId,
+        tenantId: t.tenantId,
+        leaseId: t.leaseId,
+        metadata: { endReason: t.endReason },
+      });
+    }
+    for (const t of result.addedTenants) {
+      await this.activity.log({
+        actionType: "tenant_added",
+        description: `Tenant added: ${t.tenantName ?? "unknown"}`,
+        userId: landlordId,
+        propertyId,
+        tenantId: t.tenantId,
+      });
+    }
+    if (result.changed.length > 0) {
+      await this.activity.log({
+        actionType: "property_updated",
+        description: `Property updated: ${unitName}`,
+        userId: landlordId,
+        propertyId,
+        metadata: { changed: result.changed },
+      });
+    }
   }
 
   async getDetailForLandlord(

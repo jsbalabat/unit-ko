@@ -1,9 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
+import type { PropertyDetail } from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
 import { PropertiesRepository } from "./properties.repository";
 import { PropertiesService, toLeaseTerms } from "./properties.service";
 
 const stub = <T extends object>(impl: Partial<T>): T => impl as T;
+
+type PropertyDetailRow = NonNullable<
+  Awaited<ReturnType<PropertiesRepository["findDetailByIdForLandlord"]>>
+>;
+
+// update() only reads existing.property.unit_name before delegating the reread to
+// getDetailForLandlord (spied in the tests below), so a name-only stub suffices.
+const existingDetail = stub<PropertyDetailRow>({
+  property: stub<PropertyDetailRow["property"]>({ unit_name: "Sunrise 2F" }),
+});
 
 describe("toLeaseTerms", () => {
   it("maps a lease row to DTO terms, narrowing the billing frequency", () => {
@@ -91,5 +102,85 @@ describe("PropertiesService.addNote", () => {
         metadata: { noteId: "note1" },
       }),
     );
+  });
+});
+
+describe("PropertiesService.update", () => {
+  it("emits a distinct event per reported change instead of one opaque row", async () => {
+    const log = vi.fn<ActivityService["log"]>().mockResolvedValue(undefined);
+    const repo = stub<PropertiesRepository>({
+      findDetailByIdForLandlord: vi
+        .fn<PropertiesRepository["findDetailByIdForLandlord"]>()
+        .mockResolvedValue(existingDetail),
+      updateViaAtomicRpc: vi
+        .fn<PropertiesRepository["updateViaAtomicRpc"]>()
+        .mockResolvedValue({
+          propertyId: "prop1",
+          changed: ["details", "lease"],
+          removedTenants: [
+            {
+              tenantId: "t-old",
+              tenantName: "Ana Cruz",
+              leaseId: "lease-old",
+              endReason: "Moved out",
+            },
+          ],
+          addedTenants: [{ tenantId: "t-new", tenantName: "Ben Tan" }],
+        }),
+    });
+    const service = new PropertiesService(repo, stub<ActivityService>({ log }));
+    vi.spyOn(service, "getDetailForLandlord").mockResolvedValue(
+      stub<PropertyDetail>({ id: "prop1" }),
+    );
+
+    await service.update("landlord1", "prop1", {
+      property: { unitName: "Sunrise 2F" },
+    });
+
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "tenant_removed",
+        tenantId: "t-old",
+        leaseId: "lease-old",
+        metadata: { endReason: "Moved out" },
+      }),
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "tenant_added",
+        tenantId: "t-new",
+      }),
+    );
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "property_updated",
+        metadata: { changed: ["details", "lease"] },
+      }),
+    );
+  });
+
+  it("logs nothing when the update reports no changes", async () => {
+    const log = vi.fn<ActivityService["log"]>().mockResolvedValue(undefined);
+    const repo = stub<PropertiesRepository>({
+      findDetailByIdForLandlord: vi
+        .fn<PropertiesRepository["findDetailByIdForLandlord"]>()
+        .mockResolvedValue(existingDetail),
+      updateViaAtomicRpc: vi
+        .fn<PropertiesRepository["updateViaAtomicRpc"]>()
+        .mockResolvedValue({
+          propertyId: "prop1",
+          changed: [],
+          removedTenants: [],
+          addedTenants: [],
+        }),
+    });
+    const service = new PropertiesService(repo, stub<ActivityService>({ log }));
+    vi.spyOn(service, "getDetailForLandlord").mockResolvedValue(
+      stub<PropertyDetail>({ id: "prop1" }),
+    );
+
+    await service.update("landlord1", "prop1", {});
+
+    expect(log).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,30 @@
 import { Injectable } from "@nestjs/common";
+import { z } from "zod";
 import type { CreatePropertyInput, UpdatePropertyInput } from "@unitko/shared";
 import { SupabaseService } from "../supabase/supabase.service";
+
+// What update_property_atomic reports back so the service can emit one audit
+// event per real change. Parsed at this boundary rather than trusting the RPC's
+// loose jsonb return type.
+const propertyUpdateResultSchema = z.object({
+  propertyId: z.string(),
+  changed: z.array(z.string()),
+  removedTenants: z.array(
+    z.object({
+      tenantId: z.string(),
+      tenantName: z.string().nullable(),
+      leaseId: z.string().nullable(),
+      endReason: z.string().nullable(),
+    }),
+  ),
+  addedTenants: z.array(
+    z.object({
+      tenantId: z.string(),
+      tenantName: z.string().nullable(),
+    }),
+  ),
+});
+export type PropertyUpdateResult = z.infer<typeof propertyUpdateResultSchema>;
 
 // Scalar columns selected for a property row, plus the embedded type label and
 // a derived occupant count (tenants attached to the property).
@@ -41,13 +65,14 @@ export class PropertiesRepository {
     landlordId: string,
     propertyId: string,
     input: UpdatePropertyInput,
-  ): Promise<void> {
-    const { error } = await this.supabase.db.rpc("update_property_atomic", {
+  ): Promise<PropertyUpdateResult> {
+    const { data, error } = await this.supabase.db.rpc("update_property_atomic", {
       p_landlord_id: landlordId,
       p_property_id: propertyId,
       p_payload: input,
     });
     if (error) throw error;
+    return propertyUpdateResultSchema.parse(data);
   }
 
   // All properties owned by one landlord, newest first. Occupancy comes from the
