@@ -200,13 +200,15 @@ export class PropertiesService {
   ): Promise<PropertyNote> {
     await this.assertOwned(landlordId, propertyId);
     const row = await this.repo.insertNote(propertyId, landlordId, input.body);
+    const note = toNote(row);
     await this.activity.log({
       actionType: "property_note_added",
       description: "Note added",
       userId: landlordId,
       propertyId,
+      metadata: { noteId: note.id },
     });
-    return toNote(row);
+    return note;
   }
 
   async updateNote(
