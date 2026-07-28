@@ -121,6 +121,9 @@ describe("BillingService.updateEntry", () => {
       findEntryDetailById: vi
         .fn<BillingRepository["findEntryDetailById"]>()
         .mockResolvedValue(enriched({ entry: view({ id: "entry1", lease_id: "lease9" }) })),
+      findEntryProperty: vi
+        .fn<BillingRepository["findEntryProperty"]>()
+        .mockResolvedValue("prop1"),
     });
     const service = new BillingService(repo, stub<ActivityService>({ log }));
 
@@ -132,6 +135,8 @@ describe("BillingService.updateEntry", () => {
       expect.objectContaining({
         actionType: "billing_updated",
         userId: "landlord1",
+        propertyId: "prop1",
+        tenantId: "tenant1",
         leaseId: "lease9",
         metadata: { billingEntryId: "entry1" },
       }),

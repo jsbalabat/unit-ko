@@ -178,6 +178,18 @@ export class BillingRepository {
     return { entry, tenantId, tenantName, charges: chargesByEntry.get(entryId) ?? [] };
   }
 
+  // The property the entry's lease belongs to — for activity-log linkage so an
+  // invoice edit shows in the property-scoped feed. null when the chain is broken.
+  async findEntryProperty(entryId: string): Promise<string | null> {
+    const { data, error } = await this.supabase.db
+      .from("billing_entries")
+      .select("leases(property_id)")
+      .eq("id", entryId)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.leases?.property_id ?? null;
+  }
+
   // Landlord that owns the property the entry's lease belongs to — for read-path
   // ownership checks (writes verify inside the RPC).
   async findEntryLandlord(entryId: string): Promise<string | null> {

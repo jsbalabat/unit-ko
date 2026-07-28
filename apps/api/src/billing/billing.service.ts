@@ -56,10 +56,17 @@ export class BillingService {
     if (!entry) {
       throw new NotFoundException("Billing entry not found after update");
     }
+    // Best-effort id resolution for feed linkage — a failed lookup must not undo
+    // a successful edit.
+    const propertyId = await this.repo
+      .findEntryProperty(entryId)
+      .catch(() => null);
     await this.activity.log({
       actionType: "billing_updated",
       description: "Invoice updated",
       userId: landlordId,
+      propertyId,
+      tenantId: entry.tenantId,
       leaseId: entry.leaseId,
       metadata: { billingEntryId: entryId },
     });
