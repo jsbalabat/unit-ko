@@ -273,10 +273,12 @@ describe("BillingService.listPayments", () => {
         .mockResolvedValue([
           {
             id: "pay1",
+            batch_id: "batch1",
             billing_entry_id: "entry1",
             payment_type_code: "rent",
             amount: 200,
             is_overflow: true,
+            voided_at: null,
             paid_at: "2026-06-29T10:00:00.000Z",
             notes: null,
             created_at: "2026-06-29T10:00:00.000Z",
@@ -289,10 +291,12 @@ describe("BillingService.listPayments", () => {
 
     expect(payment).toEqual({
       id: "pay1",
+      batchId: "batch1",
       billingEntryId: "entry1",
       amount: 200,
       paymentType: "rent",
       isOverflow: true,
+      voidedAt: null,
       paidAt: "2026-06-29T10:00:00.000Z",
       notes: null,
       createdAt: "2026-06-29T10:00:00.000Z",

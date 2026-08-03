@@ -67,13 +67,16 @@ export type BillingRevision = z.infer<typeof billingRevisionSchema>;
 // One payment ledger row applied to an invoice, for the invoice history drawer
 // (a payment shown alongside the edit revisions). isOverflow marks money that
 // cascaded in from an overpayment on another period (the waterfall), so the UI
-// can flag it. billingEntryId is non-null for this per-invoice view.
+// can flag it. batchId groups the allocations of one recorded payment (the unit a
+// reversal targets); voidedAt is set once that payment has been reversed.
 export const paymentAllocationSchema = z.object({
   id: z.string().uuid(),
+  batchId: z.string().uuid(),
   billingEntryId: z.string().uuid().nullable(),
   amount: z.number(),
   paymentType: z.string(),
   isOverflow: z.boolean(),
+  voidedAt: z.string().nullable(),
   paidAt: z.string(),
   notes: z.string().nullable(),
   createdAt: z.string(),

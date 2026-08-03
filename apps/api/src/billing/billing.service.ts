@@ -163,10 +163,12 @@ function toRevision(row: BillingRevisionRow): BillingRevision {
 function toPaymentAllocation(row: PaymentAllocationRow): PaymentAllocation {
   return {
     id: row.id,
+    batchId: row.batch_id,
     billingEntryId: row.billing_entry_id,
     amount: row.amount,
     paymentType: row.payment_type_code,
     isOverflow: row.is_overflow,
+    voidedAt: row.voided_at,
     paidAt: row.paid_at,
     notes: row.notes,
     createdAt: row.created_at,

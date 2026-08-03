@@ -44,13 +44,16 @@ export interface BillingRevisionRow {
 }
 
 // A payments-ledger row applied to one invoice, for the invoice history drawer.
-// is_overflow flags allocations that cascaded in from the waterfall.
+// is_overflow flags allocations that cascaded in from the waterfall; batch_id is
+// the reversal unit; voided_at is set once the payment has been reversed.
 export interface PaymentAllocationRow {
   id: string;
+  batch_id: string;
   billing_entry_id: string | null;
   payment_type_code: string;
   amount: number;
   is_overflow: boolean;
+  voided_at: string | null;
   paid_at: string;
   notes: string | null;
   created_at: string;
@@ -218,7 +221,7 @@ export class BillingRepository {
     const { data, error } = await this.supabase.db
       .from("payments")
       .select(
-        "id, billing_entry_id, payment_type_code, amount, is_overflow, paid_at, notes, created_at",
+        "id, batch_id, billing_entry_id, payment_type_code, amount, is_overflow, voided_at, paid_at, notes, created_at",
       )
       .eq("billing_entry_id", entryId)
       .order("paid_at", { ascending: false });
