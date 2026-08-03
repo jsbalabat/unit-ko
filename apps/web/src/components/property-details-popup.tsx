@@ -101,6 +101,10 @@ interface BillingEntry {
   status: string;
   billing_period: number;
   paid_amount?: number;
+  // Lease credit auto-applied to this invoice, and the credit-net balance
+  // (gross − cash − applied credit). Both server-derived.
+  applied_credit: number;
+  balance: number;
   created_at: string;
   updated_at: string;
   expense_items?: string; // Add this field for the JSON string of expense items
@@ -114,6 +118,8 @@ interface BillingDisplayRow {
   otherCharges: number;
   grossDue: number;
   paidAmount: number;
+  appliedCredit: number;
+  balance: number;
   status: string;
   expenseItems: ExpenseItem[];
   sourceEntryCount: number;
@@ -193,6 +199,8 @@ function toLegacyEntry(inv: ApiBillingEntry, propertyId: string): BillingEntry {
     status: inv.status,
     billing_period: inv.sequence ?? 0,
     paid_amount: inv.paidAmount,
+    applied_credit: inv.appliedCredit,
+    balance: inv.balance,
     created_at: "",
     updated_at: "",
     expense_items: JSON.stringify(
@@ -930,6 +938,8 @@ export function PropertyDetailsPopup({
             otherCharges: entry.other_charges,
             grossDue: entry.gross_due,
             paidAmount: entry.paid_amount || 0,
+            appliedCredit: entry.applied_credit,
+            balance: entry.balance,
             status: entry.status,
             expenseItems: [...expenseItems],
             sourceEntryCount: 1,
@@ -941,6 +951,8 @@ export function PropertyDetailsPopup({
         existingRow.otherCharges += entry.other_charges;
         existingRow.grossDue += entry.gross_due;
         existingRow.paidAmount += entry.paid_amount || 0;
+        existingRow.appliedCredit += entry.applied_credit;
+        existingRow.balance += entry.balance;
         existingRow.sourceEntryCount += 1;
         existingRow.expenseItems = Array.from(
           new Map(
@@ -960,7 +972,7 @@ export function PropertyDetailsPopup({
     .filter((entry) => {
       const effectiveStatus = getEffectiveBillingStatus(
         entry,
-        entry.paid_amount || 0,
+        (entry.paid_amount || 0) + entry.applied_credit,
         entry.gross_due,
       );
       return effectiveStatus === "Paid" || effectiveStatus === "Partial";
@@ -975,7 +987,7 @@ export function PropertyDetailsPopup({
     .filter((entry) => {
       const effectiveStatus = getEffectiveBillingStatus(
         entry,
-        entry.paid_amount || 0,
+        (entry.paid_amount || 0) + entry.applied_credit,
         entry.gross_due,
       );
       const isNotYetSet = effectiveStatus === "Not Yet Set";
@@ -994,26 +1006,23 @@ export function PropertyDetailsPopup({
   );
 
   const pendingPayments = billingDisplayRows.reduce((sum, entry) => {
-    const totalDue = entry.grossDue;
-    const paidAmount = entry.paidAmount;
     const effectiveStatus = getEffectiveBillingStatus(
       entry,
-      paidAmount,
-      totalDue,
+      entry.paidAmount + entry.appliedCredit,
+      entry.grossDue,
     );
-    const balance = Math.max(0, totalDue - paidAmount);
+    // Server-derived balance is already net of applied lease credit.
+    const balance = Math.max(0, entry.balance);
     return effectiveStatus === "Not Yet Due" ? sum + balance : sum;
   }, 0);
 
   const unpaidBalance = billingDisplayRows.reduce((sum, entry) => {
-    const totalDue = entry.grossDue;
-    const paidAmount = entry.paidAmount;
     const effectiveStatus = getEffectiveBillingStatus(
       entry,
-      paidAmount,
-      totalDue,
+      entry.paidAmount + entry.appliedCredit,
+      entry.grossDue,
     );
-    const balance = Math.max(0, totalDue - paidAmount);
+    const balance = Math.max(0, entry.balance);
     return effectiveStatus === "Partial" || effectiveStatus === "Overdue"
       ? sum + balance
       : sum;
@@ -1433,7 +1442,7 @@ export function PropertyDetailsPopup({
                             const displayStatus = formatStatusForDisplay(
                               getEffectiveBillingStatus(
                                 payment,
-                                payment.paid_amount || 0,
+                                (payment.paid_amount || 0) + payment.applied_credit,
                                 payment.gross_due,
                               ),
                             );
@@ -1588,7 +1597,7 @@ export function PropertyDetailsPopup({
                             const displayStatus = formatStatusForDisplay(
                               getEffectiveBillingStatus(
                                 payment,
-                                payment.paid_amount || 0,
+                                (payment.paid_amount || 0) + payment.applied_credit,
                                 payment.gross_due,
                               ),
                             );
@@ -2274,13 +2283,18 @@ export function PropertyDetailsPopup({
                                       </tr>
                                     ) : billingDisplayRows.length > 0 ? (
                                       billingDisplayRows.map((row) => {
+                                        // Effective paid = cash + applied lease
+                                        // credit, so the status and the Paid column
+                                        // reflect credit-covered invoices.
+                                        const effectivePaid =
+                                          row.paidAmount + row.appliedCredit;
                                         const rowStatus =
                                           getEffectiveBillingStatus(
                                             {
                                               status: row.status,
                                               dueDate: row.dueDate,
                                             },
-                                            row.paidAmount,
+                                            effectivePaid,
                                             row.grossDue,
                                           );
 
@@ -2371,7 +2385,7 @@ export function PropertyDetailsPopup({
                                               {formatCurrency(row.grossDue)}
                                             </td>
                                             <td className="px-3 py-2 text-xs font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">
-                                              {formatCurrency(row.paidAmount)}
+                                              {formatCurrency(effectivePaid)}
                                             </td>
                                             <td className="px-3 py-2 text-xs whitespace-nowrap">
                                               <Badge

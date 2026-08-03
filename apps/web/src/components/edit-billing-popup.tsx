@@ -135,6 +135,9 @@ export function EditBillingPopup({
   const [error, setError] = useState<string | null>(null);
   const [invoices, setInvoices] = useState<BillingEntry[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Available lease credit (unallocated overpayment surplus) — otherwise invisible
+  // until it draws onto an invoice.
+  const [availableCredit, setAvailableCredit] = useState(0);
 
   // Record-payment dialog.
   const [payFor, setPayFor] = useState<BillingEntry | null>(null);
@@ -220,6 +223,28 @@ export function EditBillingPopup({
       ignore = true;
     };
   }, [isOpen, fetchInvoices, applyInvoices]);
+
+  // Available lease credit, refetched whenever the invoice set changes (on open,
+  // and after any payment/void/edit that could shift the pool). A failure just
+  // hides the banner rather than breaking the list.
+  useEffect(() => {
+    const leaseId = invoices.find((e) => e.leaseId)?.leaseId ?? null;
+    let ignore = false;
+    // Resolve through a promise either way so no setState runs synchronously in
+    // the effect body (which would cascade renders).
+    Promise.resolve(
+      leaseId ? api.billing.leaseCredit(leaseId).then((c) => c.available) : 0,
+    )
+      .then((available) => {
+        if (!ignore) setAvailableCredit(available);
+      })
+      .catch(() => {
+        if (!ignore) setAvailableCredit(0);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [invoices]);
 
   useEffect(() => {
     if (!historyFor) return;
@@ -402,6 +427,17 @@ export function EditBillingPopup({
               </div>
             ) : (
               <div className="space-y-3">
+                {availableCredit > 0 && (
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-300">
+                    <CreditCard className="h-4 w-4" />
+                    <span className="font-semibold">
+                      Lease credit available: {peso(availableCredit)}
+                    </span>
+                    <span className="text-xs text-emerald-600/80 dark:text-emerald-400/80">
+                      auto-applies to new charges, oldest invoice first
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-muted-foreground">
                     {invoices.length} invoice{invoices.length === 1 ? "" : "s"}
@@ -775,7 +811,14 @@ function InvoiceRow({
 
   const draftOtherCharges = sumCharges(draftCharges);
   const draftGross = (rentValid ? rentNum : invoice.rentDue) + draftOtherCharges;
-  const draftBalance = draftGross - invoice.paidAmount;
+  // Auto-applied lease credit, clamped to what's actually owed after cash — the
+  // server caps it the same way, so an unedited invoice matches invoice.balance.
+  // While editing rent/charges it's a live estimate; the server recomputes on save.
+  const draftCredit = Math.min(
+    invoice.appliedCredit,
+    Math.max(0, draftGross - invoice.paidAmount),
+  );
+  const draftBalance = draftGross - invoice.paidAmount - draftCredit;
 
   const reset = () => {
     setDraftRent(String(invoice.rentDue));
@@ -851,8 +894,10 @@ function InvoiceRow({
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Paid / Due</p>
+            {/* Paid is the effective settled amount: cash plus any applied credit,
+                so it stays consistent with the balance below. */}
             <p className="font-medium">
-              {peso(invoice.paidAmount)} / {peso(draftGross)}
+              {peso(invoice.paidAmount + draftCredit)} / {peso(draftGross)}
             </p>
           </div>
           <div>
@@ -868,6 +913,12 @@ function InvoiceRow({
             </p>
           </div>
         </div>
+
+        {draftCredit > 0 && (
+          <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            Lease credit applied: −{peso(draftCredit)}
+          </p>
+        )}
 
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
