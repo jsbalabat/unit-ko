@@ -32,6 +32,7 @@ const entry = (over: Partial<BillingEntry> = {}): BillingEntry => ({
   otherCharges: 0,
   grossDue: 1000,
   paidAmount: 1000,
+  appliedCredit: 0,
   balance: 0,
   status: "Paid",
   sequence: 1,

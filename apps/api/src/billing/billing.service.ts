@@ -125,6 +125,7 @@ export class BillingService {
         otherCharges: e.other_charges ?? 0,
         grossDue: e.gross_due ?? 0,
         paidAmount: e.paid_amount ?? 0,
+        appliedCredit: e.applied_credit ?? 0,
         balance: e.balance ?? 0,
         status: toBillingStatus(e.status_code),
         sequence: e.sequence,

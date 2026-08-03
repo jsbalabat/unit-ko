@@ -9,7 +9,9 @@ export const billingChargeItemSchema = z.object({
 export type BillingChargeItem = z.infer<typeof billingChargeItemSchema>;
 
 // An invoice with its DERIVED figures (from v_billing_entries_full) — never
-// stored: otherCharges, grossDue, paidAmount, balance are computed sums.
+// stored: otherCharges, grossDue, paidAmount, appliedCredit, balance are computed
+// sums. appliedCredit is lease overpayment credit auto-drawn onto this invoice;
+// balance is already net of it (gross − paidAmount − appliedCredit).
 export const billingEntrySchema = z.object({
   id: z.string().uuid(),
   leaseId: z.string().uuid().nullable(),
@@ -21,6 +23,7 @@ export const billingEntrySchema = z.object({
   otherCharges: z.number(),
   grossDue: z.number(),
   paidAmount: z.number(),
+  appliedCredit: z.number(),
   balance: z.number(),
   status: z.enum(BILLING_STATUSES),
   sequence: z.number().int().nullable(),

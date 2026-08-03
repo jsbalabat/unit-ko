@@ -4,7 +4,7 @@ import { SupabaseService } from "../supabase/supabase.service";
 
 // Derived figures come from the view; nothing here is a stored money column.
 const ENTRY_SELECT =
-  "id, lease_id, period_id, due_date, rent_due, status_code, sequence, other_charges, gross_due, paid_amount, balance, created_at, updated_at";
+  "id, lease_id, period_id, due_date, rent_due, status_code, sequence, other_charges, gross_due, paid_amount, applied_credit, balance, created_at, updated_at";
 
 // View rows are all-nullable at the type level (Postgres can't prove a view
 // column non-null); the service narrows when mapping to the DTO.
@@ -19,6 +19,7 @@ export interface BillingEntryView {
   other_charges: number | null;
   gross_due: number | null;
   paid_amount: number | null;
+  applied_credit: number | null;
   balance: number | null;
   created_at: string | null;
   updated_at: string | null;
