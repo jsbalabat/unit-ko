@@ -1215,6 +1215,7 @@ export type Database = {
       }
       v_billing_entries_full: {
         Row: {
+          applied_credit: number | null
           balance: number | null
           created_at: string | null
           due_date: string | null
