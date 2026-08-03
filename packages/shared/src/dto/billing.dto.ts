@@ -141,3 +141,13 @@ export const voidPaymentResultSchema = z.object({
   entryIds: z.array(z.string().uuid()),
 });
 export type VoidPaymentResult = z.infer<typeof voidPaymentResultSchema>;
+
+// GET /billing/leases/:leaseId/credit — a lease's overpayment credit: the total
+// pool, how much has already drawn onto invoices, and what's still available.
+export const leaseCreditSchema = z.object({
+  leaseId: z.string().uuid(),
+  pool: z.number(),
+  applied: z.number(),
+  available: z.number(),
+});
+export type LeaseCredit = z.infer<typeof leaseCreditSchema>;
