@@ -24,7 +24,7 @@ left join (
 left join (
   select billing_entry_id, sum(amount) as paid_amount
   from public.payments
-  where billing_entry_id is not null
+  where billing_entry_id is not null and voided_at is null
   group by billing_entry_id
 ) p on p.billing_entry_id = be.id;
 
@@ -80,6 +80,7 @@ left join (
 left join (
   select lease_id, sum(amount) as total_paid
   from public.payments
+  where voided_at is null
   group by lease_id
 ) pay on pay.lease_id = l.id
 where l.status = 'ended';

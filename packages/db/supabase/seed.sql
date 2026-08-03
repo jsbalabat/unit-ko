@@ -64,6 +64,7 @@ insert into public.activity_action_types (code, label) values
   ('subscription_updated', 'Subscription updated'),
   ('tenant_responded', 'Tenant responded'),
   ('response_confirmed', 'Response confirmed'),
+  ('payment_voided', 'Payment voided'),
   ('legacy_event', 'Legacy event')
 on conflict (code) do nothing;
 

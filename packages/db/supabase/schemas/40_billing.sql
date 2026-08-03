@@ -71,11 +71,22 @@ create table public.payments (
   -- invoice (the waterfall) rather than the invoice the landlord targeted; a
   -- recording-time fact, so the invoice history can flag it.
   is_overflow boolean not null default false,
+  -- Groups the allocations of one recorded payment (the targeted invoice, any
+  -- waterfall overflow, and the surplus credit share a batch), so reversing a
+  -- payment voids the whole thing atomically instead of a single stray row.
+  batch_id uuid not null default gen_random_uuid(),
+  -- Soft void: a reversed payment stays in the ledger for audit but drops out of
+  -- every derived sum (paid_amount, credit), so balances and status recompute on
+  -- their own. null = active.
+  voided_at timestamptz,
+  voided_by uuid references public.profiles(id) on delete set null,
+  void_reason text,
   created_at timestamptz not null default now()
 );
 
 create index idx_payments_entry on public.payments (billing_entry_id);
 create index idx_payments_lease on public.payments (lease_id);
+create index idx_payments_batch on public.payments (batch_id);
 
 -- One row per reminder dispatch attempt (replaces billing_entries.last_reminded_at).
 -- status_code walks pending → sent | failed as the dispatcher fires the webhook and

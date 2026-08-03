@@ -526,6 +526,7 @@ export type Database = {
       payments: {
         Row: {
           amount: number
+          batch_id: string
           billing_entry_id: string | null
           created_at: string
           id: string
@@ -536,9 +537,13 @@ export type Database = {
           payment_type_code: string
           recorded_by: string | null
           tenant_id: string
+          void_reason: string | null
+          voided_at: string | null
+          voided_by: string | null
         }
         Insert: {
           amount: number
+          batch_id?: string
           billing_entry_id?: string | null
           created_at?: string
           id?: string
@@ -549,9 +554,13 @@ export type Database = {
           payment_type_code?: string
           recorded_by?: string | null
           tenant_id: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Update: {
           amount?: number
+          batch_id?: string
           billing_entry_id?: string | null
           created_at?: string
           id?: string
@@ -562,6 +571,9 @@ export type Database = {
           payment_type_code?: string
           recorded_by?: string | null
           tenant_id?: string
+          void_reason?: string | null
+          voided_at?: string | null
+          voided_by?: string | null
         }
         Relationships: [
           {
@@ -611,6 +623,13 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_voided_by_fkey"
+            columns: ["voided_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -1418,6 +1437,10 @@ export type Database = {
       }
       update_property_atomic: {
         Args: { p_landlord_id: string; p_payload: Json; p_property_id: string }
+        Returns: Json
+      }
+      void_payment_atomic: {
+        Args: { p_batch_id: string; p_landlord_id: string; p_reason?: string }
         Returns: Json
       }
     }

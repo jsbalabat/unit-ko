@@ -484,6 +484,9 @@ declare
   v_credit numeric := 0;
   v_is_overflow boolean;
   v_primary_assigned boolean := false;
+  -- One id for every allocation this call books, so a reversal can void the whole
+  -- payment as a unit.
+  v_batch_id uuid := gen_random_uuid();
 begin
   if p_landlord_id is null then raise exception 'landlord id is required'; end if;
   if v_amount is null or v_amount <= 0 then raise exception 'amount must be positive'; end if;
@@ -515,9 +518,9 @@ begin
   -- balance, so record a single unallocated row and return.
   if v_payment_type in ('deposit', 'advance') then
     insert into public.payments (
-      billing_entry_id, lease_id, tenant_id, payment_type_code, amount, paid_at, recorded_by, notes, is_overflow
+      billing_entry_id, lease_id, tenant_id, payment_type_code, amount, paid_at, recorded_by, notes, is_overflow, batch_id
     ) values (
-      null, v_lease_id, v_tenant_id, v_payment_type, v_amount, v_paid_at, p_landlord_id, v_notes, false
+      null, v_lease_id, v_tenant_id, v_payment_type, v_amount, v_paid_at, p_landlord_id, v_notes, false, v_batch_id
     )
     returning id into v_first_payment_id;
     return jsonb_build_object(
@@ -559,9 +562,9 @@ begin
       v_primary_assigned := true;
 
       insert into public.payments (
-        billing_entry_id, lease_id, tenant_id, payment_type_code, amount, paid_at, recorded_by, notes, is_overflow
+        billing_entry_id, lease_id, tenant_id, payment_type_code, amount, paid_at, recorded_by, notes, is_overflow, batch_id
       ) values (
-        v_ids[v_i], v_lease_id, v_tenant_id, v_payment_type, v_apply, v_paid_at, p_landlord_id, v_notes, v_is_overflow
+        v_ids[v_i], v_lease_id, v_tenant_id, v_payment_type, v_apply, v_paid_at, p_landlord_id, v_notes, v_is_overflow, v_batch_id
       )
       returning id into v_pid;
 
@@ -580,9 +583,9 @@ begin
   if v_remaining > 0 then
     v_credit := v_remaining;
     insert into public.payments (
-      billing_entry_id, lease_id, tenant_id, payment_type_code, amount, paid_at, recorded_by, notes, is_overflow
+      billing_entry_id, lease_id, tenant_id, payment_type_code, amount, paid_at, recorded_by, notes, is_overflow, batch_id
     ) values (
-      null, v_lease_id, v_tenant_id, v_payment_type, v_remaining, v_paid_at, p_landlord_id, v_notes, true
+      null, v_lease_id, v_tenant_id, v_payment_type, v_remaining, v_paid_at, p_landlord_id, v_notes, true, v_batch_id
     )
     returning id into v_pid;
     if v_first_payment_id is null then v_first_payment_id := v_pid; end if;
@@ -597,6 +600,76 @@ $$;
 
 revoke execute on function public.record_payment_atomic(uuid, jsonb) from public;
 grant execute on function public.record_payment_atomic(uuid, jsonb) to service_role;
+
+-- Reverse a recorded payment by soft-voiding its whole batch (the targeted
+-- allocation, any waterfall overflow, and the surplus credit). Voided rows stay
+-- in the ledger for audit but drop out of every derived sum, so paid_amount,
+-- balance, credit and status recompute on their own — no figures to unwind by
+-- hand. Verifies the batch belongs to the landlord and refuses a re-void. Returns
+-- the ids the API needs for the activity log. Takes the verified landlord id;
+-- locked to service_role.
+create or replace function public.void_payment_atomic(
+  p_landlord_id uuid,
+  p_batch_id uuid,
+  p_reason text default null
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_landlord_check uuid;
+  v_lease_id uuid;
+  v_tenant_id uuid;
+  v_property_id uuid;
+  v_voided_count integer;
+  v_entry_ids uuid[];
+begin
+  if p_landlord_id is null then raise exception 'landlord id is required'; end if;
+  if p_batch_id is null then raise exception 'batch id is required'; end if;
+
+  -- Resolve + lock the batch's owner from any one of its rows.
+  select p.lease_id, p.tenant_id, pr.id, pr.landlord_id
+  into v_lease_id, v_tenant_id, v_property_id, v_landlord_check
+  from public.payments p
+  join public.leases l on l.id = p.lease_id
+  join public.properties pr on pr.id = l.property_id
+  where p.batch_id = p_batch_id
+  order by p.created_at
+  limit 1
+  for update of p;
+  if not found then raise exception 'payment not found'; end if;
+  if v_landlord_check is distinct from p_landlord_id then
+    raise exception 'not owned by landlord';
+  end if;
+
+  update public.payments set
+    voided_at = now(),
+    voided_by = p_landlord_id,
+    void_reason = nullif(btrim(coalesce(p_reason, '')), '')
+  where batch_id = p_batch_id and voided_at is null;
+  get diagnostics v_voided_count = row_count;
+  if v_voided_count = 0 then raise exception 'payment already voided'; end if;
+
+  select array_agg(distinct billing_entry_id)
+  into v_entry_ids
+  from public.payments
+  where batch_id = p_batch_id and billing_entry_id is not null;
+
+  return jsonb_build_object(
+    'batchId', p_batch_id,
+    'leaseId', v_lease_id,
+    'tenantId', v_tenant_id,
+    'propertyId', v_property_id,
+    'voidedCount', v_voided_count,
+    'entryIds', coalesce(to_jsonb(v_entry_ids), '[]'::jsonb)
+  );
+end;
+$$;
+
+revoke execute on function public.void_payment_atomic(uuid, uuid, text) from public;
+grant execute on function public.void_payment_atomic(uuid, uuid, text) to service_role;
 
 -- Atomic once-per-day reminder claim, scoped to the channel. Locks the entry so
 -- concurrent claims serialize, then inserts a 'pending' reminder_logs row and
