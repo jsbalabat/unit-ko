@@ -99,7 +99,40 @@ describe("PropertiesService.addNote", () => {
       expect.objectContaining({
         actionType: "property_note_added",
         propertyId: "prop1",
-        metadata: { noteId: "note1" },
+        metadata: { noteId: "note1", message: "Leaky faucet in 2F" },
+      }),
+    );
+  });
+
+  it("collapses whitespace and truncates a long body in the log excerpt", async () => {
+    const longBody = `first line\n\n${"word ".repeat(60)}`;
+    const insertNote = vi
+      .fn<PropertiesRepository["insertNote"]>()
+      .mockResolvedValue({
+        id: "note2",
+        body: longBody,
+        author_id: "landlord1",
+        created_at: "2026-07-23T00:00:00.000Z",
+        updated_at: "2026-07-23T00:00:00.000Z",
+      });
+    const log = vi.fn<ActivityService["log"]>().mockResolvedValue(undefined);
+    const repo = stub<PropertiesRepository>({
+      isOwnedBy: vi
+        .fn<PropertiesRepository["isOwnedBy"]>()
+        .mockResolvedValue(true),
+      insertNote,
+    });
+    const service = new PropertiesService(repo, stub<ActivityService>({ log }));
+
+    await service.addNote("landlord1", "prop1", { body: longBody });
+
+    // 139 non-newline chars + the ellipsis: proves the body was single-lined and
+    // capped at the 140-char bound.
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          message: expect.stringMatching(/^[^\n]{139}…$/),
+        }),
       }),
     );
   });

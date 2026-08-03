@@ -17,6 +17,17 @@ import {
   type PropertyUpdateResult,
 } from "./properties.repository";
 
+// A single-line, length-bounded snapshot of a note's body for the activity log.
+// The full note lives in property_notes (referenced by id); this excerpt keeps
+// the audit entry human-readable without duplicating the whole document.
+const NOTE_EXCERPT_MAX = 140;
+function noteExcerpt(body: string): string {
+  const collapsed = body.replace(/\s+/g, " ").trim();
+  return collapsed.length > NOTE_EXCERPT_MAX
+    ? `${collapsed.slice(0, NOTE_EXCERPT_MAX - 1)}…`
+    : collapsed;
+}
+
 interface NoteRow {
   id: string;
   body: string;
@@ -252,7 +263,7 @@ export class PropertiesService {
       description: "Note added",
       userId: landlordId,
       propertyId,
-      metadata: { noteId: note.id },
+      metadata: { message: noteExcerpt(input.body), noteId: note.id },
     });
     return note;
   }
@@ -271,7 +282,7 @@ export class PropertiesService {
       description: "Note updated",
       userId: landlordId,
       propertyId,
-      metadata: { noteId },
+      metadata: { message: noteExcerpt(input.body), noteId },
     });
     return toNote(row);
   }
