@@ -17,6 +17,8 @@ import type {
   RecordPaymentInput,
   RecordPaymentResult,
   RecordReminderRequest,
+  VoidPaymentInput,
+  VoidPaymentResult,
   ReminderLog,
   ReminderResult,
   Subscription,
@@ -190,6 +192,11 @@ export const api = {
   payments: {
     record: (input: RecordPaymentInput) =>
       request<RecordPaymentResult>("/payments", { method: "POST", body: input }),
+    void: (batchId: string, input: VoidPaymentInput = {}) =>
+      request<VoidPaymentResult>(`/payments/${batchId}/void`, {
+        method: "POST",
+        body: input,
+      }),
   },
 
   reminders: {

@@ -39,6 +39,7 @@ import {
   History,
   CreditCard,
   ArrowDownToLine,
+  Ban,
 } from "lucide-react";
 import { OtherChargesPopup } from "@/components/other-charges-popup";
 import {
@@ -48,6 +49,16 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 interface EditBillingPopupProps {
   propertyId: string;
@@ -93,6 +104,14 @@ function paymentTypeLabel(value: string): string {
   return PAYMENT_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
 
+// The two ledgers behind the history drawer, fetched together (shared by the
+// open-effect and the post-void refresh so the drawer reflects the reversal).
+function fetchHistory(
+  id: string,
+): Promise<[BillingRevision[], PaymentAllocation[]]> {
+  return Promise.all([api.billing.revisions(id), api.billing.payments(id)]);
+}
+
 // One row of the invoice history drawer: an edit revision or a payment.
 type HistoryItem =
   | { kind: "revision"; at: string; rev: BillingRevision }
@@ -130,6 +149,11 @@ export function EditBillingPopup({
   const [payments, setPayments] = useState<PaymentAllocation[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+
+  // Reversal confirmation: the payment pending void, an optional reason, and busy.
+  const [voidTarget, setVoidTarget] = useState<PaymentAllocation | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [voidBusy, setVoidBusy] = useState(false);
 
   // Pure fetch: this tenant's invoices, no state writes.
   const fetchInvoices = useCallback(
@@ -200,10 +224,7 @@ export function EditBillingPopup({
   useEffect(() => {
     if (!historyFor) return;
     let ignore = false;
-    Promise.all([
-      api.billing.revisions(historyFor.id),
-      api.billing.payments(historyFor.id),
-    ])
+    fetchHistory(historyFor.id)
       .then(([revs, pays]) => {
         if (ignore) return;
         setRevisions(revs);
@@ -285,6 +306,42 @@ export function EditBillingPopup({
       );
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const refreshHistory = useCallback(async () => {
+    if (!historyFor) return;
+    const [revs, pays] = await fetchHistory(historyFor.id);
+    setRevisions(revs);
+    setPayments(pays);
+  }, [historyFor]);
+
+  // Reverse a payment: voiding restores balances across every invoice its batch
+  // touched, so refresh both the invoice list and the open history drawer.
+  const confirmVoid = async () => {
+    if (!voidTarget) return;
+    setVoidBusy(true);
+    try {
+      const result = await api.payments.void(voidTarget.batchId, {
+        reason: voidReason.trim() || undefined,
+      });
+      toast.success(
+        result.voidedCount > 1
+          ? `Payment voided — ${result.voidedCount} allocations reversed`
+          : "Payment voided",
+      );
+      setVoidTarget(null);
+      setVoidReason("");
+      await Promise.all([load(), refreshHistory()]);
+      onSuccess?.();
+    } catch (err) {
+      toast.error(
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : "Failed to void payment",
+      );
+    } finally {
+      setVoidBusy(false);
     }
   };
 
@@ -538,14 +595,22 @@ export function EditBillingPopup({
                     </CardContent>
                   </Card>
                 ) : (
-                  <Card key={`pay-${item.pay.id}`} className="border">
+                  <Card
+                    key={`pay-${item.pay.id}`}
+                    className={item.pay.voidedAt ? "border opacity-60" : "border"}
+                  >
                     <CardContent className="p-3 space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs text-muted-foreground flex items-center gap-1.5">
                           <CreditCard className="h-3.5 w-3.5 text-green-600" />
                           {formatDateTime(item.pay.paidAt)}
                         </span>
-                        {item.pay.isOverflow ? (
+                        {item.pay.voidedAt ? (
+                          <Badge className="gap-1 bg-muted text-muted-foreground">
+                            <Ban className="h-3 w-3" />
+                            Voided
+                          </Badge>
+                        ) : item.pay.isOverflow ? (
                           <Badge className="gap-1 bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-300">
                             <ArrowDownToLine className="h-3 w-3" />
                             Waterfall
@@ -557,7 +622,13 @@ export function EditBillingPopup({
                         )}
                       </div>
                       <div className="flex items-baseline justify-between gap-2">
-                        <span className="text-sm font-semibold text-green-700 dark:text-green-400">
+                        <span
+                          className={
+                            item.pay.voidedAt
+                              ? "text-sm font-semibold text-muted-foreground line-through"
+                              : "text-sm font-semibold text-green-700 dark:text-green-400"
+                          }
+                        >
                           +{peso(item.pay.amount)}
                         </span>
                         <span className="text-xs text-muted-foreground">
@@ -574,6 +645,19 @@ export function EditBillingPopup({
                           {item.pay.notes}
                         </p>
                       )}
+                      {!item.pay.voidedAt && (
+                        <div className="flex justify-end border-t pt-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 gap-1 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950"
+                            onClick={() => setVoidTarget(item.pay)}
+                          >
+                            <Ban className="h-3 w-3" />
+                            Void
+                          </Button>
+                        </div>
+                      )}
                     </CardContent>
                   </Card>
                 ),
@@ -582,6 +666,53 @@ export function EditBillingPopup({
           </div>
         </SheetContent>
       </Sheet>
+
+      <AlertDialog
+        open={voidTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !voidBusy) {
+            setVoidTarget(null);
+            setVoidReason("");
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Void this payment?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {voidTarget
+                ? `Reverses ${peso(voidTarget.amount)}. If this payment was split across periods (a waterfall), every part is reversed. It stays in the ledger for audit but no longer counts toward any balance.`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2 px-1">
+            <Label htmlFor="void-reason" className="text-xs">
+              Reason (optional)
+            </Label>
+            <Input
+              id="void-reason"
+              value={voidReason}
+              onChange={(e) => setVoidReason(e.target.value)}
+              placeholder="e.g. duplicate entry"
+              maxLength={500}
+              disabled={voidBusy}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={voidBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault();
+                confirmVoid();
+              }}
+              disabled={voidBusy}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {voidBusy ? "Voiding..." : "Void payment"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
