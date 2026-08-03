@@ -1,4 +1,4 @@
-import { NotFoundException } from "@nestjs/common";
+import { ConflictException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import type { BillingEntry, RecordPaymentInput } from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
@@ -193,5 +193,83 @@ describe("PaymentsService.record", () => {
     await expect(service.record("landlord1", input)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+});
+
+describe("PaymentsService.voidPayment", () => {
+  const voidResult = {
+    batchId: "batch1",
+    leaseId: "lease1",
+    tenantId: "tenant1",
+    propertyId: "prop1",
+    voidedCount: 2,
+    entryIds: ["entry1", "entry2"],
+  };
+
+  it("voids via the RPC, logs the reversal, and returns the result", async () => {
+    const voidRpc = vi
+      .fn<PaymentsRepository["voidViaAtomicRpc"]>()
+      .mockResolvedValue(voidResult);
+    const log = vi.fn<ActivityService["log"]>().mockResolvedValue(undefined);
+    const service = new PaymentsService(
+      stub<PaymentsRepository>({ voidViaAtomicRpc: voidRpc }),
+      stub<BillingService>({}),
+      stub<ActivityService>({ log }),
+    );
+
+    const result = await service.voidPayment("landlord1", "batch1", {
+      reason: "duplicate",
+    });
+
+    expect(voidRpc).toHaveBeenCalledWith("landlord1", "batch1", "duplicate");
+    expect(result.voidedCount).toBe(2);
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "payment_voided",
+        userId: "landlord1",
+        propertyId: "prop1",
+        tenantId: "tenant1",
+        leaseId: "lease1",
+        metadata: expect.objectContaining({
+          batchId: "batch1",
+          voidedCount: 2,
+          reason: "duplicate",
+        }),
+      }),
+    );
+  });
+
+  it("maps an already-voided batch to a Conflict", async () => {
+    const service = new PaymentsService(
+      stub<PaymentsRepository>({
+        voidViaAtomicRpc: vi
+          .fn<PaymentsRepository["voidViaAtomicRpc"]>()
+          .mockRejectedValue(new Error("payment already voided")),
+      }),
+      stub<BillingService>({}),
+      stub<ActivityService>({ log: vi.fn<ActivityService["log"]>() }),
+    );
+
+    await expect(
+      service.voidPayment("landlord1", "batch1", {}),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("maps another landlord's batch to NotFound and never logs", async () => {
+    const log = vi.fn<ActivityService["log"]>().mockResolvedValue(undefined);
+    const service = new PaymentsService(
+      stub<PaymentsRepository>({
+        voidViaAtomicRpc: vi
+          .fn<PaymentsRepository["voidViaAtomicRpc"]>()
+          .mockRejectedValue(new Error("not owned by landlord")),
+      }),
+      stub<BillingService>({}),
+      stub<ActivityService>({ log }),
+    );
+
+    await expect(
+      service.voidPayment("landlord1", "batch1", {}),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(log).not.toHaveBeenCalled();
   });
 });

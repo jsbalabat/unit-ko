@@ -1,5 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import type { RecordPaymentInput } from "@unitko/shared";
+import {
+  voidPaymentResultSchema,
+  type RecordPaymentInput,
+  type VoidPaymentResult,
+} from "@unitko/shared";
 import { SupabaseService } from "../supabase/supabase.service";
 
 export interface PaymentRow {
@@ -60,6 +64,22 @@ export class PaymentsRepository {
       };
     }
     throw new Error("record_payment_atomic returned an unexpected result");
+  }
+
+  // Soft-void the whole batch, atomically. The function verifies ownership and
+  // refuses a re-void; its result names the invoices whose balances it restored.
+  async voidViaAtomicRpc(
+    landlordId: string,
+    batchId: string,
+    reason: string | undefined,
+  ): Promise<VoidPaymentResult> {
+    const { data, error } = await this.supabase.db.rpc("void_payment_atomic", {
+      p_landlord_id: landlordId,
+      p_batch_id: batchId,
+      p_reason: reason,
+    });
+    if (error) throw error;
+    return voidPaymentResultSchema.parse(data);
   }
 
   async findById(paymentId: string): Promise<PaymentRow | null> {

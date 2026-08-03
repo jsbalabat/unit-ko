@@ -1,5 +1,15 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import type { PaymentRecord, RecordPaymentInput, RecordPaymentResult } from "@unitko/shared";
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import type {
+  PaymentRecord,
+  RecordPaymentInput,
+  RecordPaymentResult,
+  VoidPaymentInput,
+  VoidPaymentResult,
+} from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
 import { BillingService } from "./billing.service";
 import { PaymentsRepository, type PaymentRow } from "./payments.repository";
@@ -46,6 +56,45 @@ export class PaymentsService {
       : null;
 
     return { payment: this.toPaymentRecord(paymentRow), entry };
+  }
+
+  // Reverse a recorded payment by voiding its whole batch. The RPC enforces
+  // ownership and single-void; map its raised errors to the right HTTP status so
+  // the client sees a 404/409 rather than an opaque 500.
+  async voidPayment(
+    landlordId: string,
+    batchId: string,
+    input: VoidPaymentInput,
+  ): Promise<VoidPaymentResult> {
+    let result: VoidPaymentResult;
+    try {
+      result = await this.repo.voidViaAtomicRpc(landlordId, batchId, input.reason);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/already voided/i.test(message)) {
+        throw new ConflictException("Payment already voided");
+      }
+      if (/not owned by landlord|payment not found/i.test(message)) {
+        throw new NotFoundException("Payment not found");
+      }
+      throw err;
+    }
+
+    await this.activity.log({
+      actionType: "payment_voided",
+      description: "Payment voided",
+      userId: landlordId,
+      propertyId: result.propertyId,
+      tenantId: result.tenantId,
+      leaseId: result.leaseId,
+      metadata: {
+        batchId: result.batchId,
+        voidedCount: result.voidedCount,
+        reason: input.reason ?? null,
+      },
+    });
+
+    return result;
   }
 
   private toPaymentRecord(row: PaymentRow): PaymentRecord {
