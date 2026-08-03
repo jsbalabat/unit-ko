@@ -13,7 +13,9 @@ import {
 //   other_charges = Σ charges
 //   gross_due     = rent_due + other_charges
 //   paid_amount   = Σ payments scoped to this entry (billing_entry_id = id)
-//   balance       = gross_due - paid_amount
+//   balance       = gross_due - paid_amount - applied_credit
+// Auto-applied lease credit has its own suite (rpc/lease_credit.test.ts); these
+// cases keep the pool empty, so applied_credit is 0 throughout.
 // numeric columns arrive from node-pg as strings, so coerce before asserting.
 async function readEntry(tx: Tx, entryId: string) {
   const { rows } = await tx.query<{
