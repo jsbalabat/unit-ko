@@ -106,6 +106,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "activity_logs_lease_id_fkey"
+            columns: ["lease_id"]
+            isOneToOne: false
+            referencedRelation: "v_lease_credit"
+            referencedColumns: ["lease_id"]
+          },
+          {
             foreignKeyName: "activity_logs_property_id_fkey"
             columns: ["property_id"]
             isOneToOne: false
@@ -234,6 +241,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_archived_tenants"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "billing_entries_lease_id_fkey"
+            columns: ["lease_id"]
+            isOneToOne: false
+            referencedRelation: "v_lease_credit"
+            referencedColumns: ["lease_id"]
           },
           {
             foreignKeyName: "billing_entries_period_id_fkey"
@@ -603,6 +617,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_archived_tenants"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payments_lease_id_fkey"
+            columns: ["lease_id"]
+            isOneToOne: false
+            referencedRelation: "v_lease_credit"
+            referencedColumns: ["lease_id"]
           },
           {
             foreignKeyName: "payments_payment_type_code_fkey"
@@ -1246,10 +1267,35 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "billing_entries_lease_id_fkey"
+            columns: ["lease_id"]
+            isOneToOne: false
+            referencedRelation: "v_lease_credit"
+            referencedColumns: ["lease_id"]
+          },
+          {
             foreignKeyName: "billing_entries_period_id_fkey"
             columns: ["period_id"]
             isOneToOne: false
             referencedRelation: "billing_periods"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_lease_credit: {
+        Row: {
+          credit_applied: number | null
+          credit_available: number | null
+          credit_pool: number | null
+          landlord_id: string | null
+          lease_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "properties_landlord_id_fkey"
+            columns: ["landlord_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]

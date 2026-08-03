@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { Tx } from "../helpers/client";
 import { withRollback } from "../helpers/client";
-import { seedEntry, seedLandlord, seedLeaseWithEntry } from "../helpers/fixtures";
+import {
+  addCharge,
+  seedEntry,
+  seedLandlord,
+  seedLeaseWithEntry,
+} from "../helpers/fixtures";
 import { callRpc } from "../helpers/rpc";
 
 // Lease credit (an unallocated overpayment surplus) auto-applies in
@@ -26,6 +31,26 @@ async function entryRow(
     applied_credit: Number(rows[0].applied_credit),
     balance: Number(rows[0].balance),
     status_code: rows[0].status_code,
+  };
+}
+
+async function leaseCredit(
+  tx: Tx,
+  leaseId: string,
+): Promise<{ pool: number; applied: number; available: number }> {
+  const { rows } = await tx.query<{
+    credit_pool: string;
+    credit_applied: string;
+    credit_available: string;
+  }>(
+    `select credit_pool, credit_applied, credit_available
+     from public.v_lease_credit where lease_id = $1`,
+    [leaseId],
+  );
+  return {
+    pool: Number(rows[0].credit_pool),
+    applied: Number(rows[0].credit_applied),
+    available: Number(rows[0].credit_available),
   };
 }
 
@@ -80,6 +105,57 @@ describe("lease credit auto-application (v_billing_entries_full)", () => {
       expect(b.applied_credit).toBe(400);
       expect(b.balance).toBe(0);
       expect(b.status_code).toBe("Paid");
+    });
+  });
+
+  // Mirrors the reported scenario: overpay past the total, then a new payable is
+  // added to a now-settled invoice — the surplus credit must cover it.
+  it("covers a charge added after an overpayment settled everything", async () => {
+    await withRollback(async (tx) => {
+      const landlordId = await seedLandlord(tx);
+      const { entryId } = await seedLeaseWithEntry(tx, landlordId, {
+        entry: { rentDue: 30000, dueDate: "2026-06-01", sequence: 1 },
+      });
+      // Pay 50000 on a 30000 invoice: 30000 settles it, 20000 becomes lease credit.
+      await callRpc(tx, "record_payment_atomic", landlordId, {
+        billingEntryId: entryId,
+        amount: 50000,
+      });
+      // A new payable added after the fact.
+      await addCharge(tx, entryId, 5000, "Late fee");
+
+      const e = await entryRow(tx, entryId);
+      expect(e.applied_credit).toBe(5000);
+      expect(e.balance).toBe(0);
+      expect(e.status_code).toBe("Paid");
+    });
+  });
+
+  it("tracks the lease credit pool, applied, and available (v_lease_credit)", async () => {
+    await withRollback(async (tx) => {
+      const landlordId = await seedLandlord(tx);
+      const { leaseId, entryId } = await seedLeaseWithEntry(tx, landlordId, {
+        entry: { rentDue: 30000, dueDate: "2026-06-01", sequence: 1 },
+      });
+      await callRpc(tx, "record_payment_atomic", landlordId, {
+        billingEntryId: entryId,
+        amount: 50000,
+      });
+
+      // 20000 surplus, nothing drawn down yet.
+      expect(await leaseCredit(tx, leaseId)).toEqual({
+        pool: 20000,
+        applied: 0,
+        available: 20000,
+      });
+
+      // A 5000 charge draws 5000 from the pool.
+      await addCharge(tx, entryId, 5000, "Late fee");
+      expect(await leaseCredit(tx, leaseId)).toEqual({
+        pool: 20000,
+        applied: 5000,
+        available: 15000,
+      });
     });
   });
 

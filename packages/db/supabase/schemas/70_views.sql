@@ -75,6 +75,33 @@ select
   ) as status_code
 from applied;
 
+-- Lease-level credit, so the app can show what's available rather than leaving an
+-- overpayment surplus invisible until it draws down. credit_pool is the unallocated
+-- credit (null-entry, non-voided, non-deposit/advance payments); credit_applied is
+-- how much v_billing_entries_full has already drawn onto invoices; credit_available
+-- is the remainder. landlord_id rides along for ownership filtering.
+create view public.v_lease_credit as
+select
+  l.id as lease_id,
+  pr.landlord_id,
+  coalesce(cr.pool, 0) as credit_pool,
+  coalesce(ap.applied, 0) as credit_applied,
+  coalesce(cr.pool, 0) - coalesce(ap.applied, 0) as credit_available
+from public.leases l
+join public.properties pr on pr.id = l.property_id
+left join (
+  select lease_id, sum(amount) as pool
+  from public.payments
+  where billing_entry_id is null and voided_at is null
+    and payment_type_code not in ('deposit', 'advance')
+  group by lease_id
+) cr on cr.lease_id = l.id
+left join (
+  select lease_id, sum(applied_credit) as applied
+  from public.v_billing_entries_full
+  group by lease_id
+) ap on ap.lease_id = l.id;
+
 -- Occupancy derived from active leases (was a stored properties.occupancy_status
 -- that had to be kept in sync by hand in every write path).
 create view public.v_property_occupancy as
