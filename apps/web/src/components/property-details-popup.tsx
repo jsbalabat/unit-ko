@@ -83,6 +83,7 @@ import {
   AVAILABLE_AMENITIES,
 } from "@/components/amenities-popup";
 import { PropertyResetDialog } from "@/components/property-reset-dialog";
+import { ActionIcon, ActivityMetadata } from "@/components/activity-log";
 import { archiveAndResetProperty } from "@/services/archiveService";
 // import { ScrollArea } from "@/components/ui/scroll-area";
 
@@ -2558,15 +2559,7 @@ export function PropertyDetailsPopup({
                         >
                           <div className="flex-shrink-0 mt-1">
                             <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              {log.actionType.includes("payment") ? (
-                                <CreditCard className="h-4 w-4 text-green-600" />
-                              ) : log.actionType.includes("tenant") ? (
-                                <User className="h-4 w-4 text-blue-600" />
-                              ) : log.actionType.includes("property") ? (
-                                <Building className="h-4 w-4 text-purple-600" />
-                              ) : (
-                                <AlertCircle className="h-4 w-4 text-muted-foreground" />
-                              )}
+                              <ActionIcon actionType={log.actionType} />
                             </div>
                           </div>
                           <div className="flex-1 min-w-0">
@@ -2576,6 +2569,7 @@ export function PropertyDetailsPopup({
                             <p className="text-xs text-muted-foreground mt-1">
                               {formatDateTime(log.createdAt)}
                             </p>
+                            <ActivityMetadata metadata={log.metadata} />
                           </div>
                         </div>
                       ))}

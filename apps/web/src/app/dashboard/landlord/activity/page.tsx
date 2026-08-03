@@ -13,35 +13,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Activity as ActivityIcon,
-  AlertCircle,
-  Bell,
-  Building,
-  CreditCard,
-  FileText,
-  Loader2,
-  User,
-} from "lucide-react";
+import { Activity as ActivityIcon, AlertCircle, Loader2 } from "lucide-react";
 import { api } from "@/lib/api-client";
+import { ActionIcon, ActivityMetadata } from "@/components/activity-log";
 import type { ActivityLog, PropertySummary } from "@unitko/shared";
-
-// Icon by action family. Order is significant: the more specific families
-// (reminder, note) are matched before the broad tenant/property ones, since a
-// code like `tenant_reminder_sent` or `property_note_added` contains both words.
-function actionIcon(actionType: string) {
-  if (actionType.includes("payment"))
-    return <CreditCard className="h-4 w-4 text-green-600" />;
-  if (actionType.includes("reminder"))
-    return <Bell className="h-4 w-4 text-amber-600" />;
-  if (actionType.includes("note"))
-    return <FileText className="h-4 w-4 text-slate-600" />;
-  if (actionType.includes("tenant"))
-    return <User className="h-4 w-4 text-blue-600" />;
-  if (actionType.includes("property") || actionType.includes("billing"))
-    return <Building className="h-4 w-4 text-purple-600" />;
-  return <AlertCircle className="h-4 w-4 text-muted-foreground" />;
-}
 
 function formatDateTime(iso: string): string {
   const date = new Date(iso);
@@ -248,7 +223,7 @@ function ActivityPage() {
                       >
                         <div className="flex-shrink-0 mt-0.5">
                           <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                            {actionIcon(log.actionType)}
+                            <ActionIcon actionType={log.actionType} />
                           </div>
                         </div>
                         <div className="flex-1 min-w-0">
@@ -264,6 +239,7 @@ function ActivityPage() {
                             {formatDateTime(log.createdAt)}
                             {name ? ` · ${name}` : ""}
                           </p>
+                          <ActivityMetadata metadata={log.metadata} />
                         </div>
                       </div>
                     );
