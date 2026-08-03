@@ -9,10 +9,9 @@ import { readStatus } from "../helpers/reads";
 import { callRpc } from "../helpers/rpc";
 
 // record_payment_atomic (schemas/50_functions.sql) waterfalls a rent payment
-// across the lease's unpaid invoices, recomputes status_code from the 5-way
-// ladder, and books surplus as a lease-level credit. A payment always makes
-// paid_amount > 0, so this RPC reaches Paid/Partial/Not-Yet-Set — Overdue is
-// only reachable via update_billing_entry_atomic (no payment involved).
+// across the lease's unpaid invoices and books surplus as a lease-level credit.
+// status_code is not written here — it's derived by v_billing_entries_full — so
+// readStatus reflects the ladder applied to the post-payment figures.
 interface RecordResult {
   paymentId: string;
   billingEntryId: string | null;
@@ -82,7 +81,7 @@ describe("record_payment_atomic", () => {
     await withRollback(async (tx) => {
       const landlordId = await seedLandlord(tx);
       const { entryId } = await seedLeaseWithEntry(tx, landlordId, {
-        entry: { rentDue: 0, statusCode: "Not Yet Set" },
+        entry: { rentDue: 0 },
       });
 
       await callRpc(tx, "record_payment_atomic", landlordId, {
@@ -180,7 +179,9 @@ describe("record_payment_atomic", () => {
       );
 
       expect(res.billingEntryId).toBeNull();
-      expect(await readStatus(tx, entryId)).toBe("Not Yet Due");
+      // The deposit is lease-level, so it never reduces the invoice balance: the
+      // invoice keeps its own derived status (unpaid + past due -> Overdue).
+      expect(await readStatus(tx, entryId)).toBe("Overdue");
     });
   });
 

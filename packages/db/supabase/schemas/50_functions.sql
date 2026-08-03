@@ -8,6 +8,31 @@
 -- is restricted to service_role so an authenticated end-user cannot call the
 -- function directly with an arbitrary landlord id.
 
+-- The single source of truth for an invoice's status code, derived from its
+-- figures. Used by v_billing_entries_full (so status is never stored) and by
+-- update_billing_entry_atomic when it snapshots a revision. STABLE, not IMMUTABLE:
+-- the overdue branch depends on current_date. Pure and data-free, so PUBLIC
+-- execute (the default) is fine — no privileged data is reachable through it.
+create or replace function public.billing_entry_status(
+  p_gross numeric,
+  p_paid numeric,
+  p_balance numeric,
+  p_due date
+)
+returns text
+language sql
+stable
+set search_path = public
+as $$
+  select case
+    when coalesce(p_gross, 0) <= 0 then 'Not Yet Set'
+    when coalesce(p_balance, 0) <= 0 then 'Paid'
+    when coalesce(p_paid, 0) > 0 then 'Partial'
+    when p_due is not null and p_due < current_date then 'Overdue'
+    else 'Not Yet Due'
+  end;
+$$;
+
 -- Create a property and, optionally, its tenants + active leases + billing
 -- schedule in one transaction. Returns the new property id and a few counts;
 -- the API re-reads the full detail through the normal read path.
@@ -32,7 +57,6 @@ declare
   v_lease_ids uuid[] := array[]::uuid[];
   v_lease_id uuid;
   v_period_id uuid;
-  v_status text;
   r_period record;
 
   v_billing_frequency text := coalesce(nullif(p_payload->'lease'->>'billingFrequency', ''), 'monthly');
@@ -138,20 +162,13 @@ begin
       values (v_property.id, r_period.seq, (r_period.elem->>'dueDate')::date)
       returning id into v_period_id;
 
-      v_status := case
-        when coalesce((r_period.elem->>'rentDue')::numeric, 0) <= 0
-             and jsonb_array_length(coalesce(r_period.elem->'charges', '[]'::jsonb)) = 0
-          then 'Not Yet Set'
-        else coalesce(nullif(r_period.elem->>'status', ''), 'Not Yet Due')
-      end;
-
       foreach v_lease_id in array v_lease_ids loop
         insert into billing_entries (
-          lease_id, period_id, due_date, rent_due, status_code, sequence
+          lease_id, period_id, due_date, rent_due, sequence
         ) values (
           v_lease_id, v_period_id, (r_period.elem->>'dueDate')::date,
           coalesce((r_period.elem->>'rentDue')::numeric, 0),
-          v_status, r_period.seq
+          r_period.seq
         )
         returning * into v_entry;
 
@@ -467,11 +484,6 @@ declare
   v_credit numeric := 0;
   v_is_overflow boolean;
   v_primary_assigned boolean := false;
-  v_gross numeric;
-  v_paid numeric;
-  v_balance numeric;
-  v_due date;
-  v_new_status text;
 begin
   if p_landlord_id is null then raise exception 'landlord id is required'; end if;
   if v_amount is null or v_amount <= 0 then raise exception 'amount must be positive'; end if;
@@ -560,23 +572,6 @@ begin
 
       v_applied_count := v_applied_count + 1;
       v_remaining := v_remaining - v_apply;
-
-      select gross_due, paid_amount, balance, due_date
-      into v_gross, v_paid, v_balance, v_due
-      from public.v_billing_entries_full
-      where id = v_ids[v_i];
-
-      v_new_status := case
-        when coalesce(v_gross, 0) <= 0 then 'Not Yet Set'
-        when coalesce(v_balance, 0) <= 0 then 'Paid'
-        when coalesce(v_paid, 0) > 0 then 'Partial'
-        when v_due is not null and v_due < current_date then 'Overdue'
-        else 'Not Yet Due'
-      end;
-
-      update public.billing_entries
-      set status_code = v_new_status, updated_at = now()
-      where id = v_ids[v_i];
     end loop;
   end if;
 
@@ -752,8 +747,9 @@ revoke execute on function public.replace_landlord_payout_methods(uuid, jsonb) f
 grant execute on function public.replace_landlord_payout_methods(uuid, jsonb) to service_role;
 
 -- Edit one invoice: update its stored rent_due/due_date and replace its charge
--- lines (billing_charges), then recompute status_code from the derived figures
--- (other_charges/gross_due/paid_amount/balance stay derived). Verifies the entry
+-- lines (billing_charges). status_code is derived (v_billing_entries_full), so it
+-- is not written back — only snapshotted into the revision via billing_entry_status
+-- (other_charges/gross_due/paid_amount/balance stay derived too). Verifies the entry
 -- belongs to the landlord. Takes the verified landlord id; locked to service_role.
 create or replace function public.update_billing_entry_atomic(
   p_landlord_id uuid,
@@ -806,21 +802,14 @@ begin
     end loop;
   end if;
 
+  -- The edit itself already refreshed updated_at above; status is derived, so the
+  -- only reason to recompute it here is the durable revision snapshot below.
   select gross_due, paid_amount, balance, due_date
   into v_gross, v_paid, v_balance, v_due
   from public.v_billing_entries_full
   where id = p_entry_id;
 
-  v_new_status := case
-    when coalesce(v_gross, 0) <= 0 then 'Not Yet Set'
-    when coalesce(v_balance, 0) <= 0 then 'Paid'
-    when coalesce(v_paid, 0) > 0 then 'Partial'
-    when v_due is not null and v_due < current_date then 'Overdue'
-    else 'Not Yet Due'
-  end;
-
-  update public.billing_entries set status_code = v_new_status, updated_at = now()
-  where id = p_entry_id;
+  v_new_status := public.billing_entry_status(v_gross, v_paid, v_balance, v_due);
 
   -- Durable per-edit history: snapshot the resulting state + the editing landlord.
   insert into public.billing_entry_revisions (billing_entry_id, rent_due, charges, status_code, edited_by)
@@ -830,7 +819,7 @@ begin
       select jsonb_agg(jsonb_build_object('name', bc.name, 'amount', bc.amount) order by bc.created_at)
       from public.billing_charges bc where bc.billing_entry_id = p_entry_id
     ), '[]'::jsonb),
-    be.status_code, p_landlord_id
+    v_new_status, p_landlord_id
   from public.billing_entries be
   where be.id = p_entry_id;
 end;

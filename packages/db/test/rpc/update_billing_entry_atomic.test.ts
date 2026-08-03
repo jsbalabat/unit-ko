@@ -10,10 +10,11 @@ import {
 import { readStatus } from "../helpers/reads";
 import { callRpc } from "../helpers/rpc";
 
-// update_billing_entry_atomic (schemas/50_functions.sql) edits an invoice and
-// recomputes status_code from the same ladder as record_payment_atomic. This is
-// the only path that reaches Overdue, since it recomputes with no payment applied.
-// due_date is set via SQL relative to current_date so the boundary is exact.
+// update_billing_entry_atomic (schemas/50_functions.sql) edits an invoice's
+// rent/charges/due date. status_code is derived by v_billing_entries_full, so
+// readStatus here asserts the ladder against the edited figures (billing_entry_status
+// is the single source). due_date is set via SQL relative to current_date so the
+// Overdue boundary is exact regardless of the run date.
 async function setDueDate(tx: Tx, entryId: string, expr: string): Promise<void> {
   await tx.query(
     `update public.billing_entries set due_date = ${expr} where id = $1`,

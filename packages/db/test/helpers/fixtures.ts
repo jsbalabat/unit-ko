@@ -121,7 +121,6 @@ export async function seedLease(
 export interface EntryOverrides {
   dueDate?: string;
   rentDue?: number;
-  statusCode?: string;
   sequence?: number;
 }
 
@@ -133,13 +132,12 @@ export async function seedEntry(
   return insertReturningId(
     tx,
     `insert into public.billing_entries
-       (lease_id, due_date, rent_due, status_code, sequence)
-     values ($1, $2, $3, $4, $5) returning id`,
+       (lease_id, due_date, rent_due, sequence)
+     values ($1, $2, $3, $4) returning id`,
     [
       leaseId,
       over.dueDate ?? "2026-06-01",
       over.rentDue ?? 0,
-      over.statusCode ?? "Not Yet Due",
       over.sequence ?? 1,
     ],
   );

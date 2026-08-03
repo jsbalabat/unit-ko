@@ -28,14 +28,15 @@ const payload = {
   tenants: [{ tenantName: "Ana Cruz", contactNumber: "0917" }],
   billingSchedule: [
     { dueDate: "2026-01-05", rentDue: 0 }, // nothing due, no charges -> Not Yet Set
-    { dueDate: "2026-02-05", rentDue: 1000 }, // -> Not Yet Due
+    { dueDate: "2026-02-05", rentDue: 1000 }, // unpaid and past due -> Overdue
   ],
 };
 
+// status_code is derived — read it from the view, not the base table.
 async function statusesFor(tx: Tx, propertyId: string): Promise<string[]> {
   const { rows } = await tx.query<{ status_code: string }>(
     `select be.status_code
-     from public.billing_entries be
+     from public.v_billing_entries_full be
      join public.leases l on l.id = be.lease_id
      where l.property_id = $1
      order by be.sequence`,
@@ -69,7 +70,7 @@ describe("create_property_atomic", () => {
     });
   });
 
-  it("seeds invoice status from the schedule (Not Yet Set when nothing is due)", async () => {
+  it("derives invoice status from the schedule (Not Yet Set when nothing is due, Overdue when past)", async () => {
     await withRollback(async (tx) => {
       const landlordId = await seedLandlord(tx);
 
@@ -82,7 +83,7 @@ describe("create_property_atomic", () => {
 
       expect(await statusesFor(tx, res.propertyId)).toEqual([
         "Not Yet Set",
-        "Not Yet Due",
+        "Overdue",
       ]);
     });
   });

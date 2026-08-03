@@ -11,14 +11,14 @@ create table public.billing_periods (
 create index idx_billing_periods_property on public.billing_periods (property_id);
 
 -- One invoice per lease per period. Derived figures (other_charges, gross_due,
--- paid_amount, balance) are NOT stored here — see public.v_billing_entries_full.
+-- paid_amount, balance, status_code) are NOT stored here — see
+-- public.v_billing_entries_full.
 create table public.billing_entries (
   id uuid primary key default gen_random_uuid(),
   lease_id uuid not null references public.leases(id) on delete cascade,
   period_id uuid references public.billing_periods(id) on delete set null,
   due_date date not null,
   rent_due numeric(12, 2) not null default 0,
-  status_code text not null default 'Not Yet Due' references public.billing_statuses(code),
   sequence integer not null default 1,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

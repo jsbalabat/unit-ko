@@ -198,7 +198,6 @@ export type Database = {
           period_id: string | null
           rent_due: number
           sequence: number
-          status_code: string
           updated_at: string
         }
         Insert: {
@@ -209,7 +208,6 @@ export type Database = {
           period_id?: string | null
           rent_due?: number
           sequence?: number
-          status_code?: string
           updated_at?: string
         }
         Update: {
@@ -220,7 +218,6 @@ export type Database = {
           period_id?: string | null
           rent_due?: number
           sequence?: number
-          status_code?: string
           updated_at?: string
         }
         Relationships: [
@@ -244,13 +241,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "billing_periods"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "billing_entries_status_code_fkey"
-            columns: ["status_code"]
-            isOneToOne: false
-            referencedRelation: "billing_statuses"
-            referencedColumns: ["code"]
           },
         ]
       }
@@ -1242,13 +1232,6 @@ export type Database = {
             referencedRelation: "billing_periods"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "billing_entries_status_code_fkey"
-            columns: ["status_code"]
-            isOneToOne: false
-            referencedRelation: "billing_statuses"
-            referencedColumns: ["code"]
-          },
         ]
       }
       v_property_occupancy: {
@@ -1385,6 +1368,15 @@ export type Database = {
       archive_and_reset_property_atomic: {
         Args: { p_landlord_id: string; p_payload: Json }
         Returns: Json
+      }
+      billing_entry_status: {
+        Args: {
+          p_balance: number
+          p_due: string
+          p_gross: number
+          p_paid: number
+        }
+        Returns: string
       }
       claim_tenant_reminder: {
         Args: {

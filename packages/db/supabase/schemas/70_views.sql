@@ -1,12 +1,20 @@
 -- Derived billing figures, computed not stored (prevents update anomalies that
--- come from keeping gross_due / paid_amount as columns).
+-- come from keeping gross_due / paid_amount / status_code as columns). status_code
+-- walks the same ladder the recording RPCs used to hand-maintain, now via
+-- billing_entry_status so a covered balance reflects in status the instant it lands.
 create view public.v_billing_entries_full as
 select
   be.*,
   coalesce(c.other_charges, 0) as other_charges,
   be.rent_due + coalesce(c.other_charges, 0) as gross_due,
   coalesce(p.paid_amount, 0) as paid_amount,
-  (be.rent_due + coalesce(c.other_charges, 0)) - coalesce(p.paid_amount, 0) as balance
+  (be.rent_due + coalesce(c.other_charges, 0)) - coalesce(p.paid_amount, 0) as balance,
+  public.billing_entry_status(
+    be.rent_due + coalesce(c.other_charges, 0),
+    coalesce(p.paid_amount, 0),
+    (be.rent_due + coalesce(c.other_charges, 0)) - coalesce(p.paid_amount, 0),
+    be.due_date
+  ) as status_code
 from public.billing_entries be
 left join (
   select billing_entry_id, sum(amount) as other_charges
