@@ -77,6 +77,7 @@ export const ACTIVITY_ACTION_TYPES = [
   "subscription_updated",
   "tenant_responded",
   "response_confirmed",
+  "payment_voided",
   "legacy_event",
 ] as const;
 export type ActivityActionType = (typeof ACTIVITY_ACTION_TYPES)[number];

@@ -116,3 +116,22 @@ export const recordPaymentResultSchema = z.object({
   entry: billingEntrySchema.nullable(),
 });
 export type RecordPaymentResult = z.infer<typeof recordPaymentResultSchema>;
+
+// POST /payments/:batchId/void — reverse a recorded payment (every allocation of
+// its batch). The batch id is the path param; the body carries an optional reason.
+export const voidPaymentSchema = z.object({
+  reason: z.string().trim().max(500).optional(),
+});
+export type VoidPaymentInput = z.infer<typeof voidPaymentSchema>;
+
+// The reversal outcome: how many allocation rows the batch covered and the
+// invoices whose balances it restored, so the caller can refresh exactly those.
+export const voidPaymentResultSchema = z.object({
+  batchId: z.string().uuid(),
+  leaseId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  propertyId: z.string().uuid(),
+  voidedCount: z.number().int(),
+  entryIds: z.array(z.string().uuid()),
+});
+export type VoidPaymentResult = z.infer<typeof voidPaymentResultSchema>;
