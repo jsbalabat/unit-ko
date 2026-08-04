@@ -656,62 +656,21 @@ export function PropertyDetailsPopup({
     return Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   };
 
-  const getEffectiveBillingStatus = (
-    entry:
-      | BillingEntry
-      | { status: string; due_date?: string; dueDate?: string },
-    paidAmount: number,
-    totalDue: number,
+  // Mirror of the SQL billing_entry_status ladder (packages/db schemas/50_functions.sql).
+  // The server derives each invoice's status directly; only consolidated rows —
+  // several invoices merged for one period — lack a server status, so the same
+  // ladder runs against their summed amounts here. Keep in lockstep with the SQL.
+  const billingStatusOf = (
+    grossDue: number,
+    effectivePaid: number,
+    balance: number,
+    dueDate: string,
   ): string => {
     const epsilon = 0.01;
-
-    if (totalDue < epsilon) return "Not Yet Set";
-    if (paidAmount >= totalDue - epsilon) return "Paid";
-    if (paidAmount > epsilon) return "Partial";
-
-    const lowerStatus = entry.status.toLowerCase();
-    const dueDateValue =
-      "due_date" in entry
-        ? entry.due_date
-        : "dueDate" in entry
-          ? (entry.dueDate ?? "")
-          : "";
-    const daysUntil = calculateDaysUntilDue(dueDateValue ?? "");
-    const isPastDue = daysUntil < 0;
-
-    if (
-      lowerStatus.includes("paid") ||
-      lowerStatus.includes("collected") ||
-      lowerStatus.includes("settled")
-    ) {
-      return "Paid";
-    }
-
-    if (lowerStatus.includes("partial")) {
-      return "Partial";
-    }
-
-    if (lowerStatus.includes("not yet set")) {
-      return "Not Yet Set";
-    }
-
-    if (
-      isPastDue ||
-      lowerStatus.includes("overdue") ||
-      lowerStatus.includes("problem") ||
-      lowerStatus.includes("urgent") ||
-      lowerStatus.includes("delayed")
-    ) {
-      return "Overdue";
-    }
-
-    if (
-      lowerStatus.includes("not yet due") ||
-      lowerStatus.includes("upcoming")
-    ) {
-      return "Not Yet Due";
-    }
-
+    if (grossDue <= epsilon) return "Not Yet Set";
+    if (balance <= epsilon) return "Paid";
+    if (effectivePaid > epsilon) return "Partial";
+    if (dueDate && calculateDaysUntilDue(dueDate) < 0) return "Overdue";
     return "Not Yet Due";
   };
 
@@ -970,12 +929,8 @@ export function PropertyDetailsPopup({
   // Recent Transactions: Entries that have been paid (Paid or Partial) sorted by most recent
   const recentPayments: BillingEntry[] = billingEntries
     .filter((entry) => {
-      const effectiveStatus = getEffectiveBillingStatus(
-        entry,
-        (entry.paid_amount || 0) + entry.applied_credit,
-        entry.gross_due,
-      );
-      return effectiveStatus === "Paid" || effectiveStatus === "Partial";
+      // Single-invoice status is canonical on the server (credit-inclusive + date-aware).
+      return entry.status === "Paid" || entry.status === "Partial";
     })
     .sort(
       (a, b) => new Date(b.due_date).getTime() - new Date(a.due_date).getTime(),
@@ -985,15 +940,8 @@ export function PropertyDetailsPopup({
   // Upcoming Payments: Unpaid/Partial entries (excluding Not Yet Set), sorted by due date
   const upcomingPayments: BillingEntry[] = billingEntries
     .filter((entry) => {
-      const effectiveStatus = getEffectiveBillingStatus(
-        entry,
-        (entry.paid_amount || 0) + entry.applied_credit,
-        entry.gross_due,
-      );
-      const isNotYetSet = effectiveStatus === "Not Yet Set";
-      const isPaid = effectiveStatus === "Paid";
-      // Include entries that are not fully paid and not "Not Yet Set"
-      return !isPaid && !isNotYetSet;
+      // Everything not fully paid and not unset, by the canonical server status.
+      return entry.status !== "Paid" && entry.status !== "Not Yet Set";
     })
     .sort(
       (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
@@ -1006,10 +954,11 @@ export function PropertyDetailsPopup({
   );
 
   const pendingPayments = billingDisplayRows.reduce((sum, entry) => {
-    const effectiveStatus = getEffectiveBillingStatus(
-      entry,
-      entry.paidAmount + entry.appliedCredit,
+    const effectiveStatus = billingStatusOf(
       entry.grossDue,
+      entry.paidAmount + entry.appliedCredit,
+      entry.balance,
+      entry.dueDate,
     );
     // Server-derived balance is already net of applied lease credit.
     const balance = Math.max(0, entry.balance);
@@ -1017,10 +966,11 @@ export function PropertyDetailsPopup({
   }, 0);
 
   const unpaidBalance = billingDisplayRows.reduce((sum, entry) => {
-    const effectiveStatus = getEffectiveBillingStatus(
-      entry,
-      entry.paidAmount + entry.appliedCredit,
+    const effectiveStatus = billingStatusOf(
       entry.grossDue,
+      entry.paidAmount + entry.appliedCredit,
+      entry.balance,
+      entry.dueDate,
     );
     const balance = Math.max(0, entry.balance);
     return effectiveStatus === "Partial" || effectiveStatus === "Overdue"
@@ -1440,11 +1390,7 @@ export function PropertyDetailsPopup({
                         <div className="space-y-2 md:space-y-3">
                           {upcomingPayments.slice(0, 3).map((payment) => {
                             const displayStatus = formatStatusForDisplay(
-                              getEffectiveBillingStatus(
-                                payment,
-                                (payment.paid_amount || 0) + payment.applied_credit,
-                                payment.gross_due,
-                              ),
+                              payment.status,
                             );
                             const daysUntil = calculateDaysUntilDue(
                               payment.due_date,
@@ -1595,11 +1541,7 @@ export function PropertyDetailsPopup({
                             }
 
                             const displayStatus = formatStatusForDisplay(
-                              getEffectiveBillingStatus(
-                                payment,
-                                (payment.paid_amount || 0) + payment.applied_credit,
-                                payment.gross_due,
-                              ),
+                              payment.status,
                             );
 
                             // Get tenant-specific payment details for multi-tenant properties
@@ -2288,15 +2230,12 @@ export function PropertyDetailsPopup({
                                         // reflect credit-covered invoices.
                                         const effectivePaid =
                                           row.paidAmount + row.appliedCredit;
-                                        const rowStatus =
-                                          getEffectiveBillingStatus(
-                                            {
-                                              status: row.status,
-                                              dueDate: row.dueDate,
-                                            },
-                                            effectivePaid,
-                                            row.grossDue,
-                                          );
+                                        const rowStatus = billingStatusOf(
+                                          row.grossDue,
+                                          effectivePaid,
+                                          row.balance,
+                                          row.dueDate,
+                                        );
 
                                         return (
                                           <tr
