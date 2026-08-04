@@ -9,6 +9,7 @@ import { z } from "zod";
 import {
   REMINDER_CHANNELS,
   REMINDER_STATUSES,
+  buildReminderMessage,
   type RecordReminderInput,
   type ReminderChannel,
   type ReminderLog,
@@ -178,42 +179,6 @@ function normalizePhoneToE164(contactNumber: string | null): string | null {
       ? digits.slice(1)
       : digits;
   return /^9\d{9}$/.test(subscriber) ? `+63${subscriber}` : null;
-}
-
-function buildReminderMessage(
-  channel: ReminderChannel,
-  tenantName: string,
-  propertyName: string,
-  dueDate: string | null,
-  amount: number,
-): string {
-  const amountStr = amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-
-  if (channel === "sms") {
-    // "PHP" rather than "₱": U+20B1 is outside GSM-7, so one peso sign would push
-    // the whole message to UCS-2 and cut the per-segment budget from 160 to 70
-    // characters — a one-segment reminder would start billing as two.
-    const shortDate = dueDate
-      ? new Date(dueDate).toLocaleDateString("en-PH", {
-          month: "short",
-          day: "numeric",
-        })
-      : null;
-    const due = shortDate ? `is due ${shortDate}` : "is due soon";
-    return `Hi ${tenantName}, rent for ${propertyName} (PHP ${amountStr}) ${due}. Please settle. Thank you!`;
-  }
-
-  const formattedDate = dueDate
-    ? new Date(dueDate).toLocaleDateString("en-PH", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
-    : "the due date";
-  return `Hi ${tenantName}, your rent for ${propertyName} is due on ${formattedDate} with a total amount of ₱${amountStr}. Please settle your account. Thank you!`;
 }
 
 const REMINDER_STATUS_SET = new Set<string>(REMINDER_STATUSES);
