@@ -36,6 +36,41 @@ export async function createTenant(
   }
 }
 
+export interface UpdateTenantInput {
+  tenantName: string;
+  tenantEmail?: string | null; // "" / null clears the stored email
+  contactNumber: string;
+}
+
+export interface UpdateTenantResult {
+  success: boolean;
+  tenant?: TenantListItem;
+  error?: string;
+}
+
+// Edit a tenant's identity via the API. Property (re)assignment is deliberately
+// not editable here — it flows through the property update path — so this only
+// touches name, contact, and email. An empty email clears the stored value.
+export async function updateTenant(
+  id: string,
+  input: UpdateTenantInput,
+): Promise<UpdateTenantResult> {
+  try {
+    const email = input.tenantEmail?.trim();
+    const tenant = await api.tenants.update(id, {
+      tenantName: input.tenantName.trim(),
+      email: email ? email : null,
+      contactNumber: input.contactNumber.trim(),
+    });
+    return { success: true, tenant };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to update tenant",
+    };
+  }
+}
+
 // Every tenant the landlord owns, unassigned first (the API sorts), for the
 // tenants list popup.
 export async function listLandlordTenants(): Promise<TenantListItem[]> {

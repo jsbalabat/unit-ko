@@ -5,6 +5,7 @@ import {
   Building,
   Loader2,
   Mail,
+  Pencil,
   Phone,
   RefreshCw,
   UserX,
@@ -22,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 import { listLandlordTenants } from "@/services/tenantService";
+import { EditTenantPopup } from "@/components/edit-tenant-popup";
 import type { TenantListItem } from "@unitko/shared";
 
 export type TenantsListFilter = "all" | "unassigned";
@@ -31,13 +33,20 @@ interface TenantsListPopupProps {
   onClose: () => void;
   /** Pre-selects the filter when the popup opens. Defaults to "all". */
   initialFilter?: TenantsListFilter;
+  /** Fired after an edit lands, so the caller can refresh views that show tenant
+   *  identity elsewhere (e.g. the dashboard's occupancy cards). */
+  onMutated?: () => void;
 }
 
 export function TenantsListPopup({
   isOpen,
   onClose,
   initialFilter = "all",
+  onMutated,
 }: TenantsListPopupProps) {
+  const [editingTenant, setEditingTenant] = useState<TenantListItem | null>(
+    null,
+  );
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
   const [loading, setLoading] = useState(isOpen);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +113,7 @@ export function TenantsListPopup({
   );
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={(open) => (!open ? onClose() : null)}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
@@ -210,7 +220,7 @@ export function TenantsListPopup({
                       )}
                     </div>
                   </div>
-                  <div className="flex-shrink-0">
+                  <div className="flex-shrink-0 flex flex-col items-end gap-2">
                     {t.propertyName ? (
                       <Badge variant="secondary" className="gap-1">
                         <Building className="h-3 w-3" />
@@ -222,6 +232,15 @@ export function TenantsListPopup({
                         Not assigned
                       </Badge>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => setEditingTenant(t)}
+                    >
+                      <Pencil className="h-3 w-3 mr-1" />
+                      Edit
+                    </Button>
                   </div>
                 </li>
               ))}
@@ -236,5 +255,22 @@ export function TenantsListPopup({
         </div>
       </DialogContent>
     </Dialog>
+
+    {editingTenant && (
+      <EditTenantPopup
+        key={editingTenant.id}
+        tenant={editingTenant}
+        isOpen
+        onClose={() => setEditingTenant(null)}
+        onSaved={(updated) => {
+          setTenants((prev) =>
+            prev.map((t) => (t.id === updated.id ? updated : t)),
+          );
+          onMutated?.();
+          setEditingTenant(null);
+        }}
+      />
+    )}
+    </>
   );
 }
