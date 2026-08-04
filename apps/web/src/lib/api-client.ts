@@ -9,6 +9,7 @@ import type {
   CreatePropertyInput,
   CreateTenantInput,
   CreateTenantResponseInput,
+  LeaseCredit,
   PaymentAllocation,
   Profile,
   PropertyDetail,
@@ -187,6 +188,8 @@ export const api = {
       request<BillingRevision[]>(`/billing/entries/${id}/revisions`),
     payments: (id: string) =>
       request<PaymentAllocation[]>(`/billing/entries/${id}/payments`),
+    leaseCredit: (leaseId: string) =>
+      request<LeaseCredit>(`/billing/leases/${leaseId}/credit`),
   },
 
   payments: {
