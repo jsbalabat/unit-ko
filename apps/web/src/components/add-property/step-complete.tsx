@@ -12,6 +12,14 @@ interface StepCompleteProps {
 
 /** Final review before submit; read-only summary, no inputs. */
 export function StepComplete({ formData, isAddingTenants }: StepCompleteProps) {
+  // tenantName only carries a value in single-tenant mode; bed-space properties
+  // keep their names in tenants[], so reading tenantName alone left this row
+  // blank for exactly the properties with the most tenants to confirm.
+  const namedTenants = formData.tenants
+    .filter((tenant) => tenant.tenantName.trim())
+    .map((tenant) => tenant.tenantName);
+  const isBedSpace = formData.maxTenants > 1;
+
   return (
     <div className="text-center space-y-4">
       <div className="relative inline-flex mx-auto">
@@ -61,9 +69,15 @@ export function StepComplete({ formData, isAddingTenants }: StepCompleteProps) {
             {isAddingTenants && (
               <>
                 <Separator />
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-muted-foreground">Tenant</span>
-                  <span className="text-sm">{formData.tenantName}</span>
+                <div className="flex justify-between items-start gap-3">
+                  <span className="text-xs text-muted-foreground shrink-0">
+                    {isBedSpace ? `Tenants (${namedTenants.length})` : "Tenant"}
+                  </span>
+                  <span className="text-sm text-right">
+                    {isBedSpace
+                      ? namedTenants.join(", ")
+                      : formData.tenantName}
+                  </span>
                 </div>
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-muted-foreground">
