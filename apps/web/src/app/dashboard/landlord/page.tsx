@@ -42,6 +42,7 @@ import { useShowMore } from "@/hooks/useShowMore";
 import { DashboardActions } from "@/components/dashboard-actions";
 import { cn } from "@/lib/utils";
 import { sendTenantReminder } from "@/services/tenantReminderService";
+import type { ReminderChannel } from "@unitko/shared";
 import { toast } from "sonner";
 
 function LandlordDashboard() {
@@ -132,18 +133,15 @@ function LandlordDashboard() {
     setIsReminderConfirmOpen(true);
   };
 
-  const handleConfirmSendReminder = async () => {
+  const handleConfirmSendReminder = async (channel: ReminderChannel) => {
     if (!selectedReminder) return;
 
     setIsSendingReminder(true);
     try {
       const result = await sendTenantReminder({
-        tenantName: selectedReminder.tenantName,
-        tenantPhone: selectedReminder.tenantPhone,
-        propertyName: selectedReminder.propertyName,
-        dueDate: selectedReminder.dueDate,
-        totalAmount: selectedReminder.totalAmount,
         billingEntryId: selectedReminder.billingEntryId,
+        tenantName: selectedReminder.tenantName,
+        channel,
       });
 
       if (result.success) {
@@ -1045,6 +1043,7 @@ function LandlordDashboard() {
         isOpen={isTenantsListOpen}
         onClose={() => setIsTenantsListOpen(false)}
         initialFilter={tenantsListFilter}
+        onMutated={() => refetch(true)}
       />
 
       {/* Property Details Popup */}
@@ -1092,10 +1091,10 @@ function LandlordDashboard() {
           onOpenChange={setIsReminderConfirmOpen}
           onConfirm={handleConfirmSendReminder}
           tenantName={selectedReminder.tenantName}
+          tenantPhone={selectedReminder.tenantPhone}
           propertyName={selectedReminder.propertyName}
           dueDate={selectedReminder.dueDate}
           totalAmount={selectedReminder.totalAmount}
-          message={`Hi ${selectedReminder.tenantName}, your rent for ${selectedReminder.propertyName} is due on ${new Date(selectedReminder.dueDate).toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" })} with a total amount of ₱${selectedReminder.totalAmount.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}. Please settle your account. Thank you!`}
           isLoading={isSendingReminder}
         />
       )}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buildReminderMessage, type ReminderChannel } from "@unitko/shared";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,12 +15,12 @@ import {
 interface SendReminderConfirmProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: () => Promise<void>;
+  onConfirm: (channel: ReminderChannel) => Promise<void>;
   tenantName: string;
+  tenantPhone: string;
   propertyName: string;
   dueDate: string;
   totalAmount: number;
-  message: string;
   isLoading?: boolean;
 }
 
@@ -28,20 +29,24 @@ export function SendReminderConfirm({
   onOpenChange,
   onConfirm,
   tenantName,
+  tenantPhone,
   propertyName,
   dueDate,
   totalAmount,
-  message,
   isLoading = false,
 }: SendReminderConfirmProps) {
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  // Which channel is mid-send, so only that button shows "Sending..." while both
+  // stay disabled. null when idle.
+  const [submitting, setSubmitting] = useState<ReminderChannel | null>(null);
+  const busy = submitting !== null || isLoading;
+  const hasPhone = tenantPhone.trim().length > 0;
 
-  const handleConfirm = async () => {
-    setIsSubmitting(true);
+  const handleConfirm = async (channel: ReminderChannel) => {
+    setSubmitting(channel);
     try {
-      await onConfirm();
+      await onConfirm(channel);
     } finally {
-      setIsSubmitting(false);
+      setSubmitting(null);
       onOpenChange(false);
     }
   };
@@ -56,6 +61,23 @@ export function SendReminderConfirm({
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+  // Previews come from the same builder the API dispatches with, so what the
+  // landlord sees is exactly what the tenant receives on each channel.
+  const emailMessage = buildReminderMessage(
+    "email",
+    tenantName,
+    propertyName,
+    dueDate,
+    totalAmount,
+  );
+  const smsMessage = buildReminderMessage(
+    "sms",
+    tenantName,
+    propertyName,
+    dueDate,
+    totalAmount,
+  );
 
   return (
     <AlertDialog open={isOpen} onOpenChange={onOpenChange}>
@@ -76,27 +98,46 @@ export function SendReminderConfirm({
           <div className="text-sm text-foreground font-medium">
             Amount: ₱{formattedAmount}
           </div>
+          <div className="text-sm text-foreground font-medium">
+            Mobile: {hasPhone ? tenantPhone : "Not on file"}
+          </div>
+
           <div className="bg-muted p-3 rounded-md border border-border">
             <p className="text-xs text-muted-foreground mb-1 font-medium">
-              Message:
+              Email message:
             </p>
             <p className="text-sm text-foreground italic whitespace-pre-wrap">
-              {message}
+              {emailMessage}
             </p>
           </div>
+          <div className="bg-muted p-3 rounded-md border border-border">
+            <p className="text-xs text-muted-foreground mb-1 font-medium">
+              SMS message:
+            </p>
+            <p className="text-sm text-foreground italic whitespace-pre-wrap">
+              {smsMessage}
+            </p>
+          </div>
+
           <p className="text-xs text-muted-foreground">
             Note: You can only send one reminder per day to this tenant for this
-            billing period.
+            billing period, per channel.
           </p>
         </div>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={isSubmitting}>Cancel</AlertDialogCancel>
+        <AlertDialogFooter className="gap-2">
+          <AlertDialogCancel disabled={busy}>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            onClick={handleConfirm}
-            disabled={isSubmitting || isLoading}
-            className="bg-primary hover:bg-primary/90"
+            onClick={() => handleConfirm("email")}
+            disabled={busy}
           >
-            {isSubmitting ? "Sending..." : "Send"}
+            {submitting === "email" ? "Sending..." : "Send to Email"}
+          </AlertDialogAction>
+          <AlertDialogAction
+            onClick={() => handleConfirm("sms")}
+            disabled={busy || !hasPhone}
+            title={hasPhone ? undefined : "No mobile number on file for this tenant"}
+          >
+            {submitting === "sms" ? "Sending..." : "Send to SMS"}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
