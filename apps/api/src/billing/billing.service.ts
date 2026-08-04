@@ -7,6 +7,7 @@ import {
   type BillingEntry,
   type BillingRevision,
   type BillingStatus,
+  type LeaseCredit,
   type PaymentAllocation,
   type UpdateBillingEntryInput,
 } from "@unitko/shared";
@@ -107,6 +108,22 @@ export class BillingService {
     }
     const rows = await this.repo.findPaymentsByEntry(entryId);
     return rows.map((row) => toPaymentAllocation(row));
+  }
+
+  // A lease's available overpayment credit, for the invoice-manager banner. No
+  // ownership guard needed here: the repo query filters by landlord, so a lease the
+  // landlord doesn't own simply comes back as zero credit.
+  async getLeaseCredit(
+    landlordId: string,
+    leaseId: string,
+  ): Promise<LeaseCredit> {
+    const row = await this.repo.findLeaseCredit(landlordId, leaseId);
+    return {
+      leaseId,
+      pool: row?.pool ?? 0,
+      applied: row?.applied ?? 0,
+      available: row?.available ?? 0,
+    };
   }
 
   // Returns a 0-or-1 array so a null-id view row is simply dropped (no `!`).

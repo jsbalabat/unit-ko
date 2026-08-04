@@ -206,6 +206,27 @@ export class BillingRepository {
     return data?.leases?.properties?.landlord_id ?? null;
   }
 
+  // A lease's credit figures from v_lease_credit, filtered by landlord so a
+  // non-owned (or unknown) lease returns null rather than another owner's data.
+  async findLeaseCredit(
+    landlordId: string,
+    leaseId: string,
+  ): Promise<{ pool: number; applied: number; available: number } | null> {
+    const { data, error } = await this.supabase.db
+      .from("v_lease_credit")
+      .select("credit_pool, credit_applied, credit_available")
+      .eq("lease_id", leaseId)
+      .eq("landlord_id", landlordId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    return {
+      pool: data.credit_pool ?? 0,
+      applied: data.credit_applied ?? 0,
+      available: data.credit_available ?? 0,
+    };
+  }
+
   async findRevisionsByEntry(entryId: string): Promise<BillingRevisionRow[]> {
     const { data, error } = await this.supabase.db
       .from("billing_entry_revisions")

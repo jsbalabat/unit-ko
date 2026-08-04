@@ -19,11 +19,13 @@ import {
 import {
   billingEntrySchema,
   billingRevisionSchema,
+  leaseCreditSchema,
   listBillingQuerySchema,
   paymentAllocationSchema,
   updateBillingEntrySchema,
   type BillingEntry,
   type BillingRevision,
+  type LeaseCredit,
   type ListBillingQuery,
   type PaymentAllocation,
   type UpdateBillingEntryInput,
@@ -87,5 +89,17 @@ export class BillingController {
     @Param("id", ParseUUIDPipe) id: string,
   ): Promise<PaymentAllocation[]> {
     return this.service.listPayments(landlord.id, id);
+  }
+
+  // A lease's overpayment credit (pool / applied / available). Zeroed for a lease
+  // the landlord doesn't own, so it never leaks another landlord's figures.
+  @Get("leases/:leaseId/credit")
+  @ApiParam({ name: "leaseId", format: "uuid" })
+  @ApiOkResponse({ schema: zodSchema(leaseCreditSchema) })
+  leaseCredit(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("leaseId", ParseUUIDPipe) leaseId: string,
+  ): Promise<LeaseCredit> {
+    return this.service.getLeaseCredit(landlord.id, leaseId);
   }
 }

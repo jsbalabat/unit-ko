@@ -304,3 +304,37 @@ describe("BillingService.listPayments", () => {
     });
   });
 });
+
+describe("BillingService.getLeaseCredit", () => {
+  it("returns the lease's credit figures", async () => {
+    const repo = stub<BillingRepository>({
+      findLeaseCredit: vi
+        .fn<BillingRepository["findLeaseCredit"]>()
+        .mockResolvedValue({ pool: 20000, applied: 5000, available: 15000 }),
+    });
+    const service = new BillingService(repo, stub<ActivityService>({}));
+
+    expect(await service.getLeaseCredit("landlord1", "lease1")).toEqual({
+      leaseId: "lease1",
+      pool: 20000,
+      applied: 5000,
+      available: 15000,
+    });
+  });
+
+  it("returns zero credit when the lease has no row (unowned or none)", async () => {
+    const repo = stub<BillingRepository>({
+      findLeaseCredit: vi
+        .fn<BillingRepository["findLeaseCredit"]>()
+        .mockResolvedValue(null),
+    });
+    const service = new BillingService(repo, stub<ActivityService>({}));
+
+    expect(await service.getLeaseCredit("landlord1", "lease1")).toEqual({
+      leaseId: "lease1",
+      pool: 0,
+      applied: 0,
+      available: 0,
+    });
+  });
+});
