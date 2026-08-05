@@ -64,3 +64,12 @@ export const transferTenantResultSchema = z.object({
   transferredCount: z.number().int(),
 });
 export type TransferTenantResult = z.infer<typeof transferTenantResultSchema>;
+
+// POST /tenants/:id/assign — place a currently-unhoused tenant onto one of the
+// landlord's properties (property_id + next slot). No lease is created here (there
+// are no terms to carry); the lease/billing is set up from the property afterward,
+// exactly as for a tenant added with a property. Returns the updated tenant.
+export const assignTenantSchema = z.object({
+  propertyId: z.string().uuid(),
+});
+export type AssignTenantInput = z.infer<typeof assignTenantSchema>;
