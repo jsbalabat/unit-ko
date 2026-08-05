@@ -45,3 +45,25 @@ create index idx_leases_property on public.leases (property_id);
 create index idx_leases_tenant on public.leases (tenant_id);
 -- At most one active lease per tenant.
 create unique index uq_active_lease_per_tenant on public.leases (tenant_id) where status = 'active';
+
+-- A landlord-initiated tenant transfer awaiting the tenant's confirmation. The move
+-- itself (transfer_tenant_atomic) only runs once the tenant confirms; a rejection or
+-- a landlord cancellation leaves everything unchanged. from_property/from_lease are
+-- snapshotted at proposal time for the audit trail. At most one open request per
+-- tenant (the partial unique index).
+create table public.tenant_transfer_requests (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  from_property_id uuid references public.properties(id) on delete set null,
+  from_lease_id uuid references public.leases(id) on delete set null,
+  to_property_id uuid not null references public.properties(id) on delete cascade,
+  status text not null default 'pending'
+    check (status in ('pending', 'confirmed', 'rejected', 'cancelled')),
+  created_by uuid references public.profiles(id) on delete set null,
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz
+);
+
+create index idx_transfer_requests_tenant on public.tenant_transfer_requests (tenant_id);
+create unique index uq_pending_transfer_per_tenant
+  on public.tenant_transfer_requests (tenant_id) where status = 'pending';

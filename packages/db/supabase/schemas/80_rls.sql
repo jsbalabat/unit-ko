@@ -21,6 +21,7 @@ alter table public.payments enable row level security;
 alter table public.reminder_logs enable row level security;
 alter table public.activity_logs enable row level security;
 alter table public.tenant_responses enable row level security;
+alter table public.tenant_transfer_requests enable row level security;
 
 -- Lookups are non-sensitive reference data; expose read-only to everyone.
 alter table public.property_types enable row level security;
