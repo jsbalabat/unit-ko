@@ -4,6 +4,7 @@ import type {
   ArchivedTenant,
   ArchivePropertyInput,
   ArchiveResult,
+  AssignTenantInput,
   BillingEntry,
   BillingRevision,
   CreatePropertyInput,
@@ -178,6 +179,11 @@ export const api = {
       }),
     transfer: (id: string, input: TransferTenantInput) =>
       request<TransferTenantResult>(`/tenants/${id}/transfer`, {
+        method: "POST",
+        body: input,
+      }),
+    assign: (id: string, input: AssignTenantInput) =>
+      request<TenantListItem>(`/tenants/${id}/assign`, {
         method: "POST",
         body: input,
       }),
