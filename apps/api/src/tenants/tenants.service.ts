@@ -204,6 +204,54 @@ export class TenantsService {
     return cancelled;
   }
 
+  // The tenant's own pending transfer proposal, if any (for their dashboard card).
+  getPendingTransferForTenant(
+    tenantId: string,
+  ): Promise<TransferRequest | null> {
+    return this.repo.findPendingByTenant(tenantId);
+  }
+
+  // The tenant confirms or rejects their pending proposal. Confirm runs the move
+  // (inside the RPC) and logs tenant_transferred; reject logs the rejection. Both are
+  // attributed to the landlord's activity feed.
+  async resolveTransferForTenant(
+    tenantId: string,
+    requestId: string,
+    confirm: boolean,
+  ): Promise<TransferRequest> {
+    let request: TransferRequest;
+    try {
+      request = await this.repo.resolveViaAtomicRpc(tenantId, requestId, confirm);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/transfer request not found/i.test(message)) {
+        throw new NotFoundException("Transfer request not found");
+      }
+      if (/already resolved/i.test(message)) {
+        throw new ConflictException("Transfer request already resolved");
+      }
+      if (/lease changed/i.test(message)) {
+        throw new ConflictException("This transfer can no longer be completed");
+      }
+      throw err;
+    }
+
+    const landlordId = await this.repo.findTenantLandlordId(tenantId);
+    if (landlordId) {
+      await this.activity.log({
+        actionType: confirm ? "tenant_transferred" : "tenant_transfer_rejected",
+        description: confirm
+          ? `Transfer to ${request.toPropertyName} confirmed`
+          : `Transfer to ${request.toPropertyName} rejected`,
+        userId: landlordId,
+        tenantId,
+        metadata: { requestId, toPropertyName: request.toPropertyName },
+      });
+    }
+
+    return request;
+  }
+
   private toListItem(row: TenantRow): TenantListItem {
     return {
       id: row.id,

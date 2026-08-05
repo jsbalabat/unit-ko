@@ -239,6 +239,54 @@ export class TenantsRepository {
     return this.findRequest(requestId);
   }
 
+  // The tenant's own pending proposal (or null), for their dashboard card.
+  async findPendingByTenant(tenantId: string): Promise<TransferRequest | null> {
+    const { data, error } = await this.supabase.db
+      .from("tenant_transfer_requests")
+      .select(REQUEST_ROW_COLS)
+      .eq("tenant_id", tenantId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+    const [hydrated] = await this.hydrate([data]);
+    return hydrated ?? null;
+  }
+
+  // The tenant confirms/rejects their request. The function verifies the pending
+  // request is theirs, runs the move on confirm, and stamps the outcome; re-read the
+  // resolved request for the response.
+  async resolveViaAtomicRpc(
+    tenantId: string,
+    requestId: string,
+    confirm: boolean,
+  ): Promise<TransferRequest> {
+    const { error } = await this.supabase.db.rpc(
+      "resolve_transfer_request_atomic",
+      { p_tenant_id: tenantId, p_request_id: requestId, p_confirm: confirm },
+    );
+    if (error) throw error;
+    const request = await this.findRequest(requestId);
+    if (!request) {
+      throw new Error("transfer request not found after resolve");
+    }
+    return request;
+  }
+
+  // The landlord that owns a tenant, for attributing a tenant-initiated action to the
+  // landlord's activity feed. null when the tenant is gone.
+  async findTenantLandlordId(tenantId: string): Promise<string | null> {
+    const { data, error } = await this.supabase.db
+      .from("tenants")
+      .select("landlord_id")
+      .eq("id", tenantId)
+      .maybeSingle();
+    if (error) throw error;
+    return data?.landlord_id ?? null;
+  }
+
   // Resolve request rows to the DTO, batch-fetching tenant + property names so a list
   // stays a fixed number of queries.
   private async hydrate(

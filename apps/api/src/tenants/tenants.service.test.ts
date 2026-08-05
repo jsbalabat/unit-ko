@@ -150,3 +150,61 @@ describe("TenantsService.assign", () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
+
+describe("TenantsService.resolveTransferForTenant", () => {
+  it("confirms — logs tenant_transferred to the landlord's feed", async () => {
+    const log = vi.fn<ActivityService["log"]>().mockResolvedValue(undefined);
+    const repo = stub<TenantsRepository>({
+      resolveViaAtomicRpc: vi
+        .fn<TenantsRepository["resolveViaAtomicRpc"]>()
+        .mockResolvedValue({ ...transferRequest, status: "confirmed" }),
+      findTenantLandlordId: vi
+        .fn<TenantsRepository["findTenantLandlordId"]>()
+        .mockResolvedValue("landlord1"),
+    });
+    const service = new TenantsService(repo, stub<ActivityService>({ log }));
+
+    const result = await service.resolveTransferForTenant("t1", "req1", true);
+
+    expect(result.status).toBe("confirmed");
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: "tenant_transferred",
+        userId: "landlord1",
+        tenantId: "t1",
+      }),
+    );
+  });
+
+  it("rejects — logs tenant_transfer_rejected", async () => {
+    const log = vi.fn<ActivityService["log"]>().mockResolvedValue(undefined);
+    const repo = stub<TenantsRepository>({
+      resolveViaAtomicRpc: vi
+        .fn<TenantsRepository["resolveViaAtomicRpc"]>()
+        .mockResolvedValue({ ...transferRequest, status: "rejected" }),
+      findTenantLandlordId: vi
+        .fn<TenantsRepository["findTenantLandlordId"]>()
+        .mockResolvedValue("landlord1"),
+    });
+    const service = new TenantsService(repo, stub<ActivityService>({ log }));
+
+    await service.resolveTransferForTenant("t1", "req1", false);
+
+    expect(log).toHaveBeenCalledWith(
+      expect.objectContaining({ actionType: "tenant_transfer_rejected" }),
+    );
+  });
+
+  it("maps a request that isn't the tenant's to NotFound", async () => {
+    const repo = stub<TenantsRepository>({
+      resolveViaAtomicRpc: vi
+        .fn<TenantsRepository["resolveViaAtomicRpc"]>()
+        .mockRejectedValue(new Error("transfer request not found")),
+    });
+    const service = new TenantsService(repo, stub<ActivityService>({}));
+
+    await expect(
+      service.resolveTransferForTenant("t1", "req1", true),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
