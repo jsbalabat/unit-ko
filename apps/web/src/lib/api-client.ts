@@ -230,8 +230,15 @@ export const api = {
   },
 
   activity: {
-    list: (query?: { propertyId?: string; limit?: number }) =>
-      request<ActivityLog[]>("/activity", { query }),
+    // Keyset-paginated: pass the last row's createdAt/id as before/beforeId to get
+    // the next (older) page. A returned page shorter than `limit` means the end.
+    list: (query?: {
+      propertyId?: string;
+      actionType?: string;
+      before?: string;
+      beforeId?: string;
+      limit?: number;
+    }) => request<ActivityLog[]>("/activity", { query }),
   },
 
   archives: {
