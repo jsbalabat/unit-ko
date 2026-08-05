@@ -44,6 +44,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
 import { LandlordPaymentInfo } from "@/components/landlord-payment-info";
@@ -84,6 +94,9 @@ function TenantDashboard() {
     liveFeedOptions,
   );
   const [resolvingTransfer, setResolvingTransfer] = useState(false);
+  const [pendingAction, setPendingAction] = useState<
+    "confirm" | "reject" | null
+  >(null);
 
   // Keyed by billing entry so each row shows its latest response. The list is
   // newest-first, so the first row seen per entry wins.
@@ -248,14 +261,14 @@ function TenantDashboard() {
             </CardHeader>
             <CardContent className="flex gap-2">
               <Button
-                onClick={() => handleResolveTransfer(true)}
+                onClick={() => setPendingAction("confirm")}
                 disabled={resolvingTransfer}
               >
                 Confirm
               </Button>
               <Button
                 variant="outline"
-                onClick={() => handleResolveTransfer(false)}
+                onClick={() => setPendingAction("reject")}
                 disabled={resolvingTransfer}
               >
                 Reject
@@ -263,6 +276,45 @@ function TenantDashboard() {
             </CardContent>
           </Card>
         )}
+
+        <AlertDialog
+          open={pendingAction !== null}
+          onOpenChange={(open) => (!open ? setPendingAction(null) : null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {pendingAction === "reject"
+                  ? "Reject this transfer?"
+                  : "Confirm this transfer?"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingAction === "reject"
+                  ? "The proposal will be cancelled and you'll stay in your current unit."
+                  : `You'll be moved to ${
+                      transferRequest?.toPropertyName ?? "the new unit"
+                    }, and your current lease terms and any open balances move with you.`}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={resolvingTransfer}>
+                Back
+              </AlertDialogCancel>
+              <AlertDialogAction
+                disabled={resolvingTransfer}
+                onClick={() => {
+                  const confirm = pendingAction === "confirm";
+                  setPendingAction(null);
+                  void handleResolveTransfer(confirm);
+                }}
+              >
+                {pendingAction === "reject"
+                  ? "Reject transfer"
+                  : "Confirm transfer"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Tenant & Property Information Grid */}
         <div className="grid gap-6 md:grid-cols-2">
