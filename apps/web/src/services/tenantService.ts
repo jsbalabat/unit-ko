@@ -1,5 +1,9 @@
 import { api } from "@/lib/api-client";
-import type { PayoutChannel, TenantListItem } from "@unitko/shared";
+import type {
+  PayoutChannel,
+  TenantListItem,
+  TransferTenantResult,
+} from "@unitko/shared";
 
 export interface CreateTenantInput {
   tenantName: string;
@@ -67,6 +71,29 @@ export async function updateTenant(
     return {
       success: false,
       error: err instanceof Error ? err.message : "Failed to update tenant",
+    };
+  }
+}
+
+export interface TransferTenantOutcome {
+  success: boolean;
+  result?: TransferTenantResult;
+  error?: string;
+}
+
+// Move a tenant to another of the landlord's properties. The current lease's terms
+// and open invoice balances carry over; fully-paid invoices stay on the source.
+export async function transferTenant(
+  id: string,
+  toPropertyId: string,
+): Promise<TransferTenantOutcome> {
+  try {
+    const result = await api.tenants.transfer(id, { toPropertyId });
+    return { success: true, result };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to transfer tenant",
     };
   }
 }
