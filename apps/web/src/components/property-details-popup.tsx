@@ -232,6 +232,12 @@ export function PropertyDetailsPopup({
   const [paymentNote, setPaymentNote] = useState<string>("");
   const [receiptDate, setReceiptDate] = useState<string>("");
   const [isApplyingPayment, setIsApplyingPayment] = useState(false);
+  const [showTransferred, setShowTransferred] = useState(false);
+  // tenant id -> current name + unit, so the archive box can show where each
+  // transferred invoice's balance now lives (the tenant's current property).
+  const [tenantDirectory, setTenantDirectory] = useState<
+    Map<string, { name: string; property: string | null }>
+  >(new Map());
   const [selectedTenantIndex, setSelectedTenantIndex] = useState<number | null>(
     null,
   );
@@ -359,11 +365,21 @@ export function PropertyDetailsPopup({
     setError(null);
 
     try {
-      const [detail, invoices, activity] = await Promise.all([
+      const [detail, invoices, activity, allTenants] = await Promise.all([
         api.properties.detail(propertyId),
         api.billing.list(propertyId),
         api.activity.list({ propertyId, limit: 50 }),
+        api.tenants.list(),
       ]);
+
+      const directory = new Map<
+        string,
+        { name: string; property: string | null }
+      >();
+      for (const t of allTenants) {
+        directory.set(t.id, { name: t.tenantName, property: t.propertyName });
+      }
+      setTenantDirectory(directory);
 
       const entriesByTenant = new Map<string, BillingEntry[]>();
       for (const inv of invoices) {
@@ -714,7 +730,7 @@ export function PropertyDetailsPopup({
         selectedTenantIndex !== null && tenantIdsByIndex[selectedTenantIndex]
           ? tenantIdsByIndex[selectedTenantIndex]
           : activeTenant.id;
-      const leaseId = billingEntries.find(
+      const leaseId = liveBillingEntries.find(
         (entry) => entry.tenant_id === targetTenantId && entry.lease_id,
       )?.lease_id;
       if (!leaseId) throw new Error("No active lease to record against");
@@ -836,6 +852,17 @@ export function PropertyDetailsPopup({
           )
       : activeTenant?.billing_entries || [];
 
+  // Transferred invoices moved to another unit. Keep them out of the live
+  // statement (and its per-period aggregation, where a transferred invoice sharing
+  // a period with an active one would corrupt the shared row's status) and surface
+  // them on their own in the archive box.
+  const transferredEntries = billingEntries.filter(
+    (e) => e.status === "Transferred",
+  );
+  const liveBillingEntries = billingEntries.filter(
+    (e) => e.status !== "Transferred",
+  );
+
   const currentDate = new Date();
   currentDate.setHours(0, 0, 0, 0);
 
@@ -857,11 +884,11 @@ export function PropertyDetailsPopup({
     const sourceEntries =
       paxCount > 1 && billingViewMode.startsWith("tenant-")
         ? selectedBillingTenantId !== null
-          ? billingEntries.filter(
+          ? liveBillingEntries.filter(
               (entry) => entry.tenant_id === selectedBillingTenantId,
             )
           : []
-        : billingEntries;
+        : liveBillingEntries;
 
     const groupedRows = new Map<string, BillingDisplayRow>();
 
@@ -915,7 +942,7 @@ export function PropertyDetailsPopup({
   })();
 
   // Recent Transactions: Entries that have been paid (Paid or Partial) sorted by most recent
-  const recentPayments: BillingEntry[] = billingEntries
+  const recentPayments: BillingEntry[] = liveBillingEntries
     .filter((entry) => {
       // Single-invoice status is canonical on the server (credit-inclusive + date-aware).
       return entry.status === "Paid" || entry.status === "Partial";
@@ -926,15 +953,10 @@ export function PropertyDetailsPopup({
     .slice(0, 5);
 
   // Upcoming Payments: Unpaid/Partial entries (excluding Not Yet Set), sorted by due date
-  const upcomingPayments: BillingEntry[] = billingEntries
+  const upcomingPayments: BillingEntry[] = liveBillingEntries
     .filter((entry) => {
       // Everything not fully paid and not unset, by the canonical server status.
-      // Transferred invoices moved to another unit, so they aren't upcoming here.
-      return (
-        entry.status !== "Paid" &&
-        entry.status !== "Not Yet Set" &&
-        entry.status !== "Transferred"
-      );
+      return entry.status !== "Paid" && entry.status !== "Not Yet Set";
     })
     .sort(
       (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
@@ -1058,6 +1080,21 @@ export function PropertyDetailsPopup({
               >
                 <Pencil className="h-3.5 w-3.5" />
                 Edit Property
+              </Button>
+            </div>
+          )}
+
+          {/* Archived transfers — kept out of the live statement above */}
+          {activeTab === "finances" && transferredEntries.length > 0 && (
+            <div className="mx-4 md:mx-6 mt-3 flex justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowTransferred(true)}
+                className="text-xs h-8 gap-1.5"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Transferred ({transferredEntries.length})
               </Button>
             </div>
           )}
@@ -2223,17 +2260,12 @@ export function PropertyDetailsPopup({
                                         // reflect credit-covered invoices.
                                         const effectivePaid =
                                           row.paidAmount + row.appliedCredit;
-                                        // A transferred invoice keeps its server
-                                        // status; everything else runs the mirror.
-                                        const rowStatus =
-                                          row.status === "Transferred"
-                                            ? "Transferred"
-                                            : billingStatusOf(
-                                                row.grossDue,
-                                                effectivePaid,
-                                                row.balance,
-                                                row.dueDate,
-                                              );
+                                        const rowStatus = billingStatusOf(
+                                          row.grossDue,
+                                          effectivePaid,
+                                          row.balance,
+                                          row.dueDate,
+                                        );
 
                                         return (
                                           <tr
@@ -2365,7 +2397,7 @@ export function PropertyDetailsPopup({
                       </div>
 
                       {/* Per-Tenant Payment Summary */}
-                      {paxCount > 1 && billingEntries.length > 0 && (
+                      {paxCount > 1 && liveBillingEntries.length > 0 && (
                         <div className="mt-6 cborder-t pt-6">
                           <h4 className="text-sm font-semibold mb-3 flex items-center">
                             <User className="h-4 w-4 mr-2 text-primary" />
@@ -2380,7 +2412,7 @@ export function PropertyDetailsPopup({
                               let tenantTotalDue = 0;
                               let tenantTotalPaid = 0;
 
-                              billingEntries.forEach((entry) => {
+                              liveBillingEntries.forEach((entry) => {
                                 if (tenantId && entry.tenant_id === tenantId) {
                                   tenantTotalDue += entry.gross_due;
                                   tenantTotalPaid += entry.paid_amount || 0;
@@ -2666,6 +2698,64 @@ export function PropertyDetailsPopup({
       />
 
       {/* Record Payment Dialog */}
+      <Dialog open={showTransferred} onOpenChange={setShowTransferred}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Archive className="h-5 w-5 text-primary" />
+              Transferred Invoices
+            </DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
+              These invoices moved to another unit when the tenant was
+              transferred. Their open balance is now billed on the destination
+              lease, so they no longer appear in the statement above.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto">
+            <ul className="divide-y">
+              {transferredEntries.map((entry) => {
+                const info = entry.tenant_id
+                  ? tenantDirectory.get(entry.tenant_id)
+                  : null;
+                return (
+                  <li
+                    key={entry.id}
+                    className="flex items-center justify-between py-2.5 text-sm"
+                  >
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-medium">
+                        {formatDate(entry.due_date)}
+                      </span>
+                      <span className="text-xs text-muted-foreground truncate">
+                        {info?.name ?? "—"}
+                        {info?.property ? ` · now in ${info.property}` : ""}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      <span className="font-medium">
+                        {formatCurrency(entry.gross_due)}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusColorClass(
+                          "transferred",
+                        )}`}
+                      >
+                        Transferred
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button variant="outline" onClick={() => setShowTransferred(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
         <DialogContent className="max-w-[95vw] sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
           <DialogHeader className="space-y-1">
