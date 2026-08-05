@@ -98,6 +98,28 @@ export async function transferTenant(
   }
 }
 
+export interface AssignTenantOutcome {
+  success: boolean;
+  tenant?: TenantListItem;
+  error?: string;
+}
+
+// Place an unhoused tenant onto a property (no lease is created — see the API).
+export async function assignTenant(
+  id: string,
+  propertyId: string,
+): Promise<AssignTenantOutcome> {
+  try {
+    const tenant = await api.tenants.assign(id, { propertyId });
+    return { success: true, tenant };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to assign tenant",
+    };
+  }
+}
+
 // Every tenant the landlord owns, unassigned first (the API sorts), for the
 // tenants list popup.
 export async function listLandlordTenants(): Promise<TenantListItem[]> {

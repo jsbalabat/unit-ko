@@ -21,31 +21,33 @@ import {
 } from "@/components/ui/select";
 
 import { api } from "@/lib/api-client";
-import { transferTenant } from "@/services/tenantService";
+import { assignTenant, transferTenant } from "@/services/tenantService";
 import type { TenantListItem } from "@unitko/shared";
 
-interface TransferTenantPopupProps {
+interface PlaceTenantPopupProps {
   // The parent remounts this per tenant (keyed by id), so state starts clean.
+  // A housed tenant (propertyId set) transfers; an unhoused one is assigned.
   tenant: TenantListItem;
   isOpen: boolean;
   onClose: () => void;
-  onTransferred: () => void;
+  onPlaced: () => void;
 }
 
-export function TransferTenantPopup({
+export function PlaceTenantPopup({
   tenant,
   isOpen,
   onClose,
-  onTransferred,
-}: TransferTenantPopupProps) {
+  onPlaced,
+}: PlaceTenantPopupProps) {
+  const isTransfer = tenant.propertyId !== null;
   const [properties, setProperties] = useState<
     { id: string; unitName: string }[]
   >([]);
   const [destination, setDestination] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
 
-  // The landlord's other properties are the transfer destinations; a failed load
-  // just leaves the picker empty (the tenant can't be transferred to nowhere).
+  // Destinations are the landlord's other properties (the current one, if any, is
+  // filtered out); a failed load just leaves the picker empty.
   useEffect(() => {
     let ignore = false;
     api.properties
@@ -66,27 +68,41 @@ export function TransferTenantPopup({
     };
   }, [tenant.propertyId]);
 
-  const handleTransfer = async () => {
+  const handlePlace = async () => {
     if (!destination) return;
     setSubmitting(true);
-    const outcome = await transferTenant(tenant.id, destination);
-    setSubmitting(false);
 
-    if (!outcome.success || !outcome.result) {
-      toast.error("Transfer failed", {
-        description: outcome.error ?? "Please try again.",
+    if (isTransfer) {
+      const outcome = await transferTenant(tenant.id, destination);
+      setSubmitting(false);
+      if (!outcome.success || !outcome.result) {
+        toast.error("Transfer failed", {
+          description: outcome.error ?? "Please try again.",
+        });
+        return;
+      }
+      const carried = outcome.result.transferredCount;
+      toast.success(`${tenant.tenantName} transferred`, {
+        description:
+          carried > 0
+            ? `${carried} open invoice${carried === 1 ? "" : "s"} carried over.`
+            : "No open balance to carry.",
       });
-      return;
+    } else {
+      const outcome = await assignTenant(tenant.id, destination);
+      setSubmitting(false);
+      if (!outcome.success) {
+        toast.error("Assign failed", {
+          description: outcome.error ?? "Please try again.",
+        });
+        return;
+      }
+      toast.success(`${tenant.tenantName} assigned`, {
+        description: "Set up their lease and billing from the property.",
+      });
     }
 
-    const carried = outcome.result.transferredCount;
-    toast.success(`${tenant.tenantName} transferred`, {
-      description:
-        carried > 0
-          ? `${carried} open invoice${carried === 1 ? "" : "s"} carried over.`
-          : "No open balance to carry.",
-    });
-    onTransferred();
+    onPlaced();
   };
 
   return (
@@ -98,27 +114,41 @@ export function TransferTenantPopup({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ArrowRightLeft className="h-5 w-5 text-primary" />
-            Transfer Tenant
+            {isTransfer ? "Transfer Tenant" : "Assign Tenant"}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Move{" "}
-            <span className="font-medium text-foreground">
-              {tenant.tenantName}
-            </span>
-            {tenant.propertyName ? (
+            {isTransfer ? (
               <>
-                {" "}
-                from{" "}
+                Move{" "}
                 <span className="font-medium text-foreground">
-                  {tenant.propertyName}
+                  {tenant.tenantName}
                 </span>
+                {tenant.propertyName ? (
+                  <>
+                    {" "}
+                    from{" "}
+                    <span className="font-medium text-foreground">
+                      {tenant.propertyName}
+                    </span>
+                  </>
+                ) : null}{" "}
+                to another unit. Their current lease terms and any open invoice
+                balances carry over; fully-paid invoices stay on the current
+                property.
               </>
-            ) : null}{" "}
-            to another unit. Their current lease terms and any open invoice
-            balances carry over; fully-paid invoices stay on the current property.
+            ) : (
+              <>
+                Assign{" "}
+                <span className="font-medium text-foreground">
+                  {tenant.tenantName}
+                </span>{" "}
+                to a property. They&apos;re placed on the unit; set up their lease
+                and billing from the property afterward.
+              </>
+            )}
           </p>
 
           <div className="space-y-1.5">
@@ -134,7 +164,7 @@ export function TransferTenantPopup({
               <SelectContent>
                 {properties.length === 0 ? (
                   <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                    No other properties to transfer to.
+                    No other properties available.
                   </div>
                 ) : (
                   properties.map((p) => (
@@ -159,18 +189,18 @@ export function TransferTenantPopup({
           </Button>
           <Button
             type="button"
-            onClick={handleTransfer}
+            onClick={handlePlace}
             disabled={submitting || !destination}
           >
             {submitting ? (
               <>
                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Transferring...
+                {isTransfer ? "Transferring..." : "Assigning..."}
               </>
             ) : (
               <>
                 <ArrowRightLeft className="h-4 w-4 mr-2" />
-                Transfer
+                {isTransfer ? "Transfer" : "Assign"}
               </>
             )}
           </Button>

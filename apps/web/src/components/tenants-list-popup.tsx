@@ -25,7 +25,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 
 import { listLandlordTenants } from "@/services/tenantService";
 import { EditTenantPopup } from "@/components/edit-tenant-popup";
-import { TransferTenantPopup } from "@/components/transfer-tenant-popup";
+import { PlaceTenantPopup } from "@/components/place-tenant-popup";
 import type { TenantListItem } from "@unitko/shared";
 
 export type TenantsListFilter = "all" | "unassigned";
@@ -49,8 +49,9 @@ export function TenantsListPopup({
   const [editingTenant, setEditingTenant] = useState<TenantListItem | null>(
     null,
   );
-  const [transferringTenant, setTransferringTenant] =
-    useState<TenantListItem | null>(null);
+  const [placingTenant, setPlacingTenant] = useState<TenantListItem | null>(
+    null,
+  );
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
   const [loading, setLoading] = useState(isOpen);
   const [error, setError] = useState<string | null>(null);
@@ -246,17 +247,15 @@ export function TenantsListPopup({
                         <Pencil className="h-3 w-3 mr-1" />
                         Edit
                       </Button>
-                      {t.propertyId && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() => setTransferringTenant(t)}
-                        >
-                          <ArrowRightLeft className="h-3 w-3 mr-1" />
-                          Transfer
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setPlacingTenant(t)}
+                      >
+                        <ArrowRightLeft className="h-3 w-3 mr-1" />
+                        {t.propertyId ? "Transfer" : "Assign"}
+                      </Button>
                     </div>
                   </div>
                 </li>
@@ -289,16 +288,16 @@ export function TenantsListPopup({
       />
     )}
 
-    {transferringTenant && (
-      <TransferTenantPopup
-        key={transferringTenant.id}
-        tenant={transferringTenant}
+    {placingTenant && (
+      <PlaceTenantPopup
+        key={placingTenant.id}
+        tenant={placingTenant}
         isOpen
-        onClose={() => setTransferringTenant(null)}
-        onTransferred={() => {
+        onClose={() => setPlacingTenant(null)}
+        onPlaced={() => {
           void load();
           onMutated?.();
-          setTransferringTenant(null);
+          setPlacingTenant(null);
         }}
       />
     )}
