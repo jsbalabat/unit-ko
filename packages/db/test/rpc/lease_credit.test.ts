@@ -178,4 +178,48 @@ describe("lease credit auto-application (v_billing_entries_full)", () => {
       expect(a.status_code).toBe("Overdue");
     });
   });
+
+  it("draws credit down oldest-first across multiple open invoices, exhausting the pool", async () => {
+    await withRollback(async (tx) => {
+      const landlordId = await seedLandlord(tx);
+      const { leaseId, entryId: aId } = await seedLeaseWithEntry(tx, landlordId, {
+        entry: { rentDue: 1000, dueDate: "2026-06-01", sequence: 1 },
+      });
+      // Overpay A by 500 -> a 500 lease credit.
+      await callRpc(tx, "record_payment_atomic", landlordId, {
+        billingEntryId: aId,
+        amount: 1500,
+      });
+      // Two newer invoices: the 500 pool covers B in full, then C only partially.
+      const bId = await seedEntry(tx, leaseId, {
+        rentDue: 300,
+        dueDate: "2026-07-01",
+        sequence: 2,
+      });
+      const cId = await seedEntry(tx, leaseId, {
+        rentDue: 400,
+        dueDate: "2026-08-01",
+        sequence: 3,
+      });
+
+      const b = await entryRow(tx, bId);
+      expect(b.applied_credit).toBe(300);
+      expect(b.balance).toBe(0);
+      expect(b.status_code).toBe("Paid");
+
+      // C claims only what B left behind: 500 - 300 = 200.
+      const c = await entryRow(tx, cId);
+      expect(c.applied_credit).toBe(200);
+      expect(c.balance).toBe(200);
+      expect(c.status_code).toBe("Partial");
+
+      // A is untouched and the pool is fully drawn down.
+      expect((await entryRow(tx, aId)).balance).toBe(0);
+      expect(await leaseCredit(tx, leaseId)).toEqual({
+        pool: 500,
+        applied: 500,
+        available: 0,
+      });
+    });
+  });
 });
