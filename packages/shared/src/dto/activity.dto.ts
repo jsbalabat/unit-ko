@@ -15,9 +15,17 @@ export const activityLogSchema = z.object({
 });
 export type ActivityLog = z.infer<typeof activityLogSchema>;
 
-// GET /activity?propertyId=&limit=
+// GET /activity?propertyId=&actionType=&before=&beforeId=&limit=
+// The feed is keyset-paginated on (created_at desc, id desc): pass the last row's
+// createdAt/id as before/beforeId to fetch the next (older) page. `before` is an
+// opaque cursor echoed straight back from a prior row, so it isn't re-validated as
+// a datetime here — the DB compares it as timestamptz. beforeId disambiguates rows
+// that share a timestamp, so a page boundary can't skip one.
 export const listActivityQuerySchema = z.object({
   propertyId: z.string().uuid().optional(),
+  actionType: z.enum(ACTIVITY_ACTION_TYPES).optional(),
+  before: z.string().optional(),
+  beforeId: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 export type ListActivityQuery = z.infer<typeof listActivityQuerySchema>;
