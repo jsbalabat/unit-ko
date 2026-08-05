@@ -238,6 +238,10 @@ export function PropertyDetailsPopup({
   const [tenantDirectory, setTenantDirectory] = useState<
     Map<string, { name: string; property: string | null }>
   >(new Map());
+  // Transferred invoices for the whole property (all leases, incl. tenants who have
+  // since moved away), so the archive box shows them even when they're no longer
+  // attached to an active tenant on this unit.
+  const [archivedTransfers, setArchivedTransfers] = useState<BillingEntry[]>([]);
   const [selectedTenantIndex, setSelectedTenantIndex] = useState<number | null>(
     null,
   );
@@ -380,6 +384,12 @@ export function PropertyDetailsPopup({
         directory.set(t.id, { name: t.tenantName, property: t.propertyName });
       }
       setTenantDirectory(directory);
+
+      setArchivedTransfers(
+        invoices
+          .filter((inv) => inv.status === "Transferred")
+          .map((inv) => toLegacyEntry(inv, propertyId)),
+      );
 
       const entriesByTenant = new Map<string, BillingEntry[]>();
       for (const inv of invoices) {
@@ -856,9 +866,6 @@ export function PropertyDetailsPopup({
   // statement (and its per-period aggregation, where a transferred invoice sharing
   // a period with an active one would corrupt the shared row's status) and surface
   // them on their own in the archive box.
-  const transferredEntries = billingEntries.filter(
-    (e) => e.status === "Transferred",
-  );
   const liveBillingEntries = billingEntries.filter(
     (e) => e.status !== "Transferred",
   );
@@ -1085,7 +1092,7 @@ export function PropertyDetailsPopup({
           )}
 
           {/* Archived transfers — kept out of the live statement above */}
-          {activeTab === "finances" && transferredEntries.length > 0 && (
+          {activeTab === "finances" && archivedTransfers.length > 0 && (
             <div className="mx-4 md:mx-6 mt-3 flex justify-end">
               <Button
                 size="sm"
@@ -1094,7 +1101,7 @@ export function PropertyDetailsPopup({
                 className="text-xs h-8 gap-1.5"
               >
                 <Archive className="h-3.5 w-3.5" />
-                Transferred ({transferredEntries.length})
+                Transferred ({archivedTransfers.length})
               </Button>
             </div>
           )}
@@ -2713,7 +2720,7 @@ export function PropertyDetailsPopup({
           </DialogHeader>
           <div className="max-h-[60vh] overflow-auto">
             <ul className="divide-y">
-              {transferredEntries.map((entry) => {
+              {archivedTransfers.map((entry) => {
                 const info = entry.tenant_id
                   ? tenantDirectory.get(entry.tenant_id)
                   : null;
