@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRightLeft,
   Building,
+  Clock,
   Loader2,
   Mail,
   Pencil,
@@ -11,7 +12,9 @@ import {
   RefreshCw,
   UserX,
   Users,
+  X,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   Dialog,
@@ -23,10 +26,14 @@ import { Button } from "@/components/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-import { listLandlordTenants } from "@/services/tenantService";
+import { api } from "@/lib/api-client";
+import {
+  cancelTransferRequest,
+  listLandlordTenants,
+} from "@/services/tenantService";
 import { EditTenantPopup } from "@/components/edit-tenant-popup";
 import { PlaceTenantPopup } from "@/components/place-tenant-popup";
-import type { TenantListItem } from "@unitko/shared";
+import type { TenantListItem, TransferRequest } from "@unitko/shared";
 
 export type TenantsListFilter = "all" | "unassigned";
 
@@ -53,25 +60,51 @@ export function TenantsListPopup({
     null,
   );
   const [tenants, setTenants] = useState<TenantListItem[]>([]);
+  const [pendingByTenant, setPendingByTenant] = useState<
+    Map<string, TransferRequest>
+  >(new Map());
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(isOpen);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<TenantsListFilter>(initialFilter);
 
-  const applyTenants = useCallback((rows: TenantListItem[]) => {
-    setTenants(rows);
-    setError(null);
-  }, []);
+  const applyData = useCallback(
+    (rows: TenantListItem[], pending: TransferRequest[]) => {
+      setTenants(rows);
+      setPendingByTenant(new Map(pending.map((r) => [r.tenantId, r])));
+      setError(null);
+    },
+    [],
+  );
 
   // Manual retry from the error state.
   const load = useCallback(() => {
     setLoading(true);
-    return listLandlordTenants()
-      .then(applyTenants)
+    return Promise.all([listLandlordTenants(), api.tenants.transferRequests()])
+      .then(([rows, pending]) => applyData(rows, pending))
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to load tenants"),
       )
       .finally(() => setLoading(false));
-  }, [applyTenants]);
+  }, [applyData]);
+
+  const handleCancel = useCallback(
+    (requestId: string) => {
+      setCancellingId(requestId);
+      cancelTransferRequest(requestId)
+        .then((res) => {
+          if (res.success) {
+            toast.success("Transfer cancelled");
+            void load();
+            onMutated?.();
+          } else {
+            toast.error("Cancel failed", { description: res.error });
+          }
+        })
+        .finally(() => setCancellingId(null));
+    },
+    [load, onMutated],
+  );
 
   // Reset the filter to the caller's chosen initial state (and re-enter the
   // loading state when the popup opens) during render — per React's "adjust
@@ -88,9 +121,9 @@ export function TenantsListPopup({
   useEffect(() => {
     if (!isOpen) return;
     let ignore = false;
-    listLandlordTenants()
-      .then((rows) => {
-        if (!ignore) applyTenants(rows);
+    Promise.all([listLandlordTenants(), api.tenants.transferRequests()])
+      .then(([rows, pending]) => {
+        if (!ignore) applyData(rows, pending);
       })
       .catch((err) => {
         if (!ignore)
@@ -104,7 +137,7 @@ export function TenantsListPopup({
     return () => {
       ignore = true;
     };
-  }, [isOpen, applyTenants]);
+  }, [isOpen, applyData]);
 
   const unassignedCount = tenants.filter((t) => !t.propertyId).length;
   const assignedCount = tenants.length - unassignedCount;
@@ -205,7 +238,9 @@ export function TenantsListPopup({
         ) : (
           <ScrollArea className="h-[420px] pr-4">
             <ul className="space-y-2">
-              {visibleTenants.map((t) => (
+              {visibleTenants.map((t) => {
+                const pending = pendingByTenant.get(t.id);
+                return (
                 <li
                   key={t.id}
                   className="flex items-start justify-between gap-3 p-3 rounded-md border bg-card hover:bg-muted/30 transition-colors"
@@ -237,29 +272,60 @@ export function TenantsListPopup({
                         Not assigned
                       </Badge>
                     )}
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setEditingTenant(t)}
-                      >
-                        <Pencil className="h-3 w-3 mr-1" />
-                        Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setPlacingTenant(t)}
-                      >
-                        <ArrowRightLeft className="h-3 w-3 mr-1" />
-                        {t.propertyId ? "Transfer" : "Assign"}
-                      </Button>
-                    </div>
+                    {pending ? (
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 inline-flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          Transfer pending → {pending.toPropertyName}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => setEditingTenant(t)}
+                          >
+                            <Pencil className="h-3 w-3 mr-1" />
+                            Edit
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => handleCancel(pending.id)}
+                            disabled={cancellingId === pending.id}
+                          >
+                            <X className="h-3 w-3 mr-1" />
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setEditingTenant(t)}
+                        >
+                          <Pencil className="h-3 w-3 mr-1" />
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setPlacingTenant(t)}
+                        >
+                          <ArrowRightLeft className="h-3 w-3 mr-1" />
+                          {t.propertyId ? "Transfer" : "Assign"}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           </ScrollArea>
         )}

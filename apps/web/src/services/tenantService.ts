@@ -2,7 +2,7 @@ import { api } from "@/lib/api-client";
 import type {
   PayoutChannel,
   TenantListItem,
-  TransferTenantResult,
+  TransferRequest,
 } from "@unitko/shared";
 
 export interface CreateTenantInput {
@@ -77,23 +77,38 @@ export async function updateTenant(
 
 export interface TransferTenantOutcome {
   success: boolean;
-  result?: TransferTenantResult;
+  request?: TransferRequest;
   error?: string;
 }
 
-// Move a tenant to another of the landlord's properties. The current lease's terms
-// and open invoice balances carry over; fully-paid invoices stay on the source.
+// Propose a transfer for the tenant to confirm — no move happens until they do. The
+// current lease's terms and open invoice balances carry over on confirmation.
 export async function transferTenant(
   id: string,
   toPropertyId: string,
 ): Promise<TransferTenantOutcome> {
   try {
-    const result = await api.tenants.transfer(id, { toPropertyId });
-    return { success: true, result };
+    const request = await api.tenants.transfer(id, { toPropertyId });
+    return { success: true, request };
   } catch (err) {
     return {
       success: false,
-      error: err instanceof Error ? err.message : "Failed to transfer tenant",
+      error: err instanceof Error ? err.message : "Failed to propose transfer",
+    };
+  }
+}
+
+// Withdraw a pending transfer proposal.
+export async function cancelTransferRequest(
+  requestId: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    await api.tenants.cancelTransferRequest(requestId);
+    return { success: true };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "Failed to cancel transfer",
     };
   }
 }

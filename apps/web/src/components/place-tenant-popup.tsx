@@ -75,18 +75,14 @@ export function PlaceTenantPopup({
     if (isTransfer) {
       const outcome = await transferTenant(tenant.id, destination);
       setSubmitting(false);
-      if (!outcome.success || !outcome.result) {
+      if (!outcome.success || !outcome.request) {
         toast.error("Transfer failed", {
           description: outcome.error ?? "Please try again.",
         });
         return;
       }
-      const carried = outcome.result.transferredCount;
-      toast.success(`${tenant.tenantName} transferred`, {
-        description:
-          carried > 0
-            ? `${carried} open invoice${carried === 1 ? "" : "s"} carried over.`
-            : "No open balance to carry.",
+      toast.success(`Transfer proposed to ${outcome.request.toPropertyName}`, {
+        description: `Waiting for ${tenant.tenantName} to confirm.`,
       });
     } else {
       const outcome = await assignTenant(tenant.id, destination);
@@ -137,7 +133,7 @@ export function PlaceTenantPopup({
                 ) : null}{" "}
                 to another unit. Their current lease terms and any open invoice
                 balances carry over; fully-paid invoices stay on the current
-                property.
+                property. The tenant must confirm before anything moves.
               </>
             ) : (
               <>
