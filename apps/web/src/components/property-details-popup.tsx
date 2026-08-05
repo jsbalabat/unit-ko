@@ -78,6 +78,7 @@ import type {
 import { api } from "@/lib/api-client";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
 import { EditBillingPopup } from "@/components/edit-billing-popup";
+import { billingStatusOf } from "./billing-status";
 import {
   AmenitiesPopup,
   AVAILABLE_AMENITIES,
@@ -654,24 +655,6 @@ export function PropertyDetailsPopup({
     today.setHours(0, 0, 0, 0);
 
     return Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  };
-
-  // Mirror of the SQL billing_entry_status ladder (packages/db schemas/50_functions.sql).
-  // The server derives each invoice's status directly; only consolidated rows —
-  // several invoices merged for one period — lack a server status, so the same
-  // ladder runs against their summed amounts here. Keep in lockstep with the SQL.
-  const billingStatusOf = (
-    grossDue: number,
-    effectivePaid: number,
-    balance: number,
-    dueDate: string,
-  ): string => {
-    const epsilon = 0.01;
-    if (grossDue <= epsilon) return "Not Yet Set";
-    if (balance <= epsilon) return "Paid";
-    if (effectivePaid > epsilon) return "Partial";
-    if (dueDate && calculateDaysUntilDue(dueDate) < 0) return "Overdue";
-    return "Not Yet Due";
   };
 
   const parseExpenseItems = (entry: BillingEntry): ExpenseItem[] => {
