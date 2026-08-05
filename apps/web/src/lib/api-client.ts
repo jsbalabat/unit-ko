@@ -19,6 +19,7 @@ import type {
   RecordPaymentInput,
   RecordPaymentResult,
   RecordReminderRequest,
+  ResolveTransferRequestInput,
   VoidPaymentInput,
   VoidPaymentResult,
   ReminderLog,
@@ -32,8 +33,8 @@ import type {
   TenantLoginResponse,
   TenantResponse,
   TenantSessionResponse,
+  TransferRequest,
   TransferTenantInput,
-  TransferTenantResult,
   UpdatePropertyInput,
   UpdateProfileInput,
   UpdateSubscriptionInput,
@@ -177,10 +178,17 @@ export const api = {
         method: "PATCH",
         body: input,
       }),
+    // Proposes a transfer for the tenant to confirm (no move yet).
     transfer: (id: string, input: TransferTenantInput) =>
-      request<TransferTenantResult>(`/tenants/${id}/transfer`, {
+      request<TransferRequest>(`/tenants/${id}/transfer`, {
         method: "POST",
         body: input,
+      }),
+    transferRequests: () =>
+      request<TransferRequest[]>("/tenants/transfer-requests"),
+    cancelTransferRequest: (requestId: string) =>
+      request<TransferRequest>(`/tenants/transfer-requests/${requestId}/cancel`, {
+        method: "POST",
       }),
     assign: (id: string, input: AssignTenantInput) =>
       request<TenantListItem>(`/tenants/${id}/assign`, {
@@ -293,6 +301,17 @@ export const api = {
           auth: "tenant",
         }),
     },
+    // The tenant's pending transfer proposal (or null) + confirm/reject.
+    transferRequest: () =>
+      request<TransferRequest | null>("/tenant/transfer-request", {
+        auth: "tenant",
+      }),
+    resolveTransferRequest: (id: string, input: ResolveTransferRequestInput) =>
+      request<TransferRequest>(`/tenant/transfer-request/${id}/resolve`, {
+        method: "POST",
+        body: input,
+        auth: "tenant",
+      }),
   },
 
   profile: {
