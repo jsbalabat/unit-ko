@@ -33,8 +33,13 @@ export class ActivityRepository {
 
   async findByLandlord(
     landlordId: string,
-    propertyId: string | undefined,
-    limit: number,
+    opts: {
+      propertyId?: string;
+      actionType?: string;
+      before?: string;
+      beforeId?: string;
+      limit: number;
+    },
   ) {
     let query = this.supabase.db
       .from("activity_logs")
@@ -43,8 +48,18 @@ export class ActivityRepository {
       )
       .eq("user_id", landlordId)
       .order("created_at", { ascending: false })
-      .limit(limit);
-    if (propertyId) query = query.eq("property_id", propertyId);
+      .order("id", { ascending: false })
+      .limit(opts.limit);
+    if (opts.propertyId) query = query.eq("property_id", opts.propertyId);
+    if (opts.actionType) query = query.eq("action_type_code", opts.actionType);
+    // Keyset page: rows strictly older than the cursor in the (created_at, id)
+    // desc ordering. The id tiebreak keeps a page boundary from skipping rows that
+    // share a timestamp. Both cursor parts are required together.
+    if (opts.before && opts.beforeId) {
+      query = query.or(
+        `created_at.lt.${opts.before},and(created_at.eq.${opts.before},id.lt.${opts.beforeId})`,
+      );
+    }
 
     const { data, error } = await query;
     if (error) throw error;

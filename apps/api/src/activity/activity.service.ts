@@ -44,11 +44,13 @@ export class ActivityService {
     landlordId: string,
     query: ListActivityQuery,
   ): Promise<ActivityLog[]> {
-    const rows = await this.repo.findByLandlord(
-      landlordId,
-      query.propertyId,
-      query.limit,
-    );
+    const rows = await this.repo.findByLandlord(landlordId, {
+      propertyId: query.propertyId,
+      actionType: query.actionType,
+      before: query.before,
+      beforeId: query.beforeId,
+      limit: query.limit,
+    });
     return rows.map((r) => this.toLog(r));
   }
 

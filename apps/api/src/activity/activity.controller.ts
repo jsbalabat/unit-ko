@@ -27,6 +27,9 @@ export class ActivityController {
 
   @Get()
   @ApiQuery({ name: "propertyId", required: false, type: String })
+  @ApiQuery({ name: "actionType", required: false, type: String })
+  @ApiQuery({ name: "before", required: false, type: String })
+  @ApiQuery({ name: "beforeId", required: false, type: String })
   @ApiQuery({ name: "limit", required: false, type: Number })
   @ApiOkResponse({ schema: zodArraySchema(activityLogSchema) })
   list(
