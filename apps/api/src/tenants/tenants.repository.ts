@@ -121,12 +121,23 @@ export class TenantsRepository {
   ) {
     const { data: prop, error: propErr } = await this.supabase.db
       .from("properties")
-      .select("id")
+      .select("id, max_tenants")
       .eq("id", propertyId)
       .eq("landlord_id", landlordId)
       .maybeSingle();
     if (propErr) throw propErr;
     if (!prop) throw new Error("property not found");
+
+    // Refuse if the destination is already at its tenant capacity.
+    const { count, error: cErr } = await this.supabase.db
+      .from("tenants")
+      .select("*", { count: "exact", head: true })
+      .eq("property_id", propertyId)
+      .eq("is_active", true);
+    if (cErr) throw cErr;
+    if ((count ?? 0) >= (prop.max_tenants ?? 1)) {
+      throw new Error("destination property is full");
+    }
 
     const { data: top, error: slotErr } = await this.supabase.db
       .from("tenants")

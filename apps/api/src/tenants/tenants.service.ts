@@ -111,6 +111,9 @@ export class TenantsService {
       if (/property not found/i.test(message)) {
         throw new NotFoundException("Property not found");
       }
+      if (/property is full/i.test(message)) {
+        throw new ConflictException("The destination property is full");
+      }
       throw err;
     }
     if (!row) {
@@ -163,6 +166,9 @@ export class TenantsService {
       }
       if (/already on this property/i.test(message)) {
         throw new ConflictException("Tenant is already on this property");
+      }
+      if (/property is full/i.test(message)) {
+        throw new ConflictException("The destination property is full");
       }
       throw err;
     }
@@ -232,6 +238,9 @@ export class TenantsService {
       }
       if (/lease changed/i.test(message)) {
         throw new ConflictException("This transfer can no longer be completed");
+      }
+      if (/property is full/i.test(message)) {
+        throw new ConflictException("The destination property is full");
       }
       throw err;
     }
