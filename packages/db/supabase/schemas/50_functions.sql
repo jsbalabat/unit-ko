@@ -779,6 +779,281 @@ $$;
 revoke execute on function public.archive_and_reset_property_atomic(uuid, jsonb) from public;
 grant execute on function public.archive_and_reset_property_atomic(uuid, jsonb) to service_role;
 
+-- Move a tenant to another of the landlord's properties in one transaction: end the
+-- current active lease (reason 'transferred', linked to the new lease), open a new
+-- active lease on the destination carrying the old lease's terms, move the tenant
+-- (property_id + next slot), and carry every still-open invoice's remaining balance
+-- onto the new lease while soft-marking the originals transferred_at. Fully-paid
+-- invoices stay on the source property as history. Returns the ids the API logs.
+-- Takes the verified landlord id; locked to service_role.
+create or replace function public.transfer_tenant_atomic(
+  p_landlord_id uuid,
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_tenant_id uuid := nullif(p_payload->>'tenantId', '')::uuid;
+  v_to_property_id uuid := nullif(p_payload->>'toPropertyId', '')::uuid;
+  v_from_lease public.leases%rowtype;
+  v_from_property_id uuid;
+  v_to_owner uuid;
+  v_to_max integer;
+  v_to_lease_id uuid;
+  v_next_slot integer;
+  v_transferred_count integer := 0;
+  v_entry record;
+begin
+  if p_landlord_id is null then raise exception 'landlord id is required'; end if;
+  if v_tenant_id is null then raise exception 'tenantId is required'; end if;
+  if v_to_property_id is null then raise exception 'toPropertyId is required'; end if;
+
+  perform 1 from public.tenants
+  where id = v_tenant_id and landlord_id = p_landlord_id for update;
+  if not found then raise exception 'tenant not found'; end if;
+
+  -- The source is the tenant's current active lease (uq_active_lease_per_tenant
+  -- guarantees at most one).
+  select * into v_from_lease from public.leases
+  where tenant_id = v_tenant_id and status = 'active' for update;
+  if not found then raise exception 'tenant has no active lease to transfer'; end if;
+  v_from_property_id := v_from_lease.property_id;
+
+  if v_from_property_id = v_to_property_id then
+    raise exception 'tenant is already on this property';
+  end if;
+
+  select landlord_id, coalesce(max_tenants, 1) into v_to_owner, v_to_max
+  from public.properties where id = v_to_property_id for update;
+  if not found then raise exception 'destination property not found'; end if;
+  if v_to_owner is distinct from p_landlord_id then
+    raise exception 'destination property not owned by landlord';
+  end if;
+
+  -- Refuse if the destination is already at its tenant capacity.
+  if (
+    select count(*) from public.tenants
+    where property_id = v_to_property_id and is_active
+  ) >= v_to_max then
+    raise exception 'destination property is full';
+  end if;
+
+  -- End the source lease first, so the one-active-lease-per-tenant constraint holds
+  -- when the destination lease is opened.
+  update public.leases
+  set status = 'ended', ended_at = now(), end_reason = 'transferred', updated_at = now()
+  where id = v_from_lease.id;
+
+  insert into public.leases (
+    property_id, tenant_id, billing_frequency_code, contract_periods,
+    rent_amount, rent_start_date, rent_end_date, due_day,
+    advance_payment, security_deposit, status
+  ) values (
+    v_to_property_id, v_tenant_id, v_from_lease.billing_frequency_code, v_from_lease.contract_periods,
+    v_from_lease.rent_amount, v_from_lease.rent_start_date, v_from_lease.rent_end_date, v_from_lease.due_day,
+    v_from_lease.advance_payment, v_from_lease.security_deposit, 'active'
+  )
+  returning id into v_to_lease_id;
+
+  update public.leases set transferred_to_lease_id = v_to_lease_id, updated_at = now()
+  where id = v_from_lease.id;
+
+  select coalesce(max(tenant_slot), 0) + 1 into v_next_slot
+  from public.tenants where property_id = v_to_property_id;
+
+  update public.tenants
+  set property_id = v_to_property_id, tenant_slot = v_next_slot, is_active = true, updated_at = now()
+  where id = v_tenant_id;
+
+  -- Carry each still-open invoice's remaining balance (credit-inclusive, net of
+  -- cash) onto the new lease and soft-mark the original transferred. Fully-paid
+  -- invoices (balance <= 0) are left on the source property untouched. The view is
+  -- read once up front, so flagging inside the loop can't shift the balances.
+  for v_entry in
+    select id, due_date, sequence, balance
+    from public.v_billing_entries_full
+    where lease_id = v_from_lease.id and balance > 0 and transferred_at is null
+  loop
+    insert into public.billing_entries (lease_id, due_date, rent_due, sequence)
+    values (v_to_lease_id, v_entry.due_date, v_entry.balance, v_entry.sequence);
+
+    update public.billing_entries set transferred_at = now(), updated_at = now()
+    where id = v_entry.id;
+
+    v_transferred_count := v_transferred_count + 1;
+  end loop;
+
+  return jsonb_build_object(
+    'tenantId', v_tenant_id,
+    'fromPropertyId', v_from_property_id,
+    'toPropertyId', v_to_property_id,
+    'fromLeaseId', v_from_lease.id,
+    'toLeaseId', v_to_lease_id,
+    'transferredCount', v_transferred_count
+  );
+end;
+$$;
+
+revoke execute on function public.transfer_tenant_atomic(uuid, jsonb) from public;
+grant execute on function public.transfer_tenant_atomic(uuid, jsonb) to service_role;
+
+-- Propose a tenant transfer for the tenant to confirm — no data moves yet. Verifies
+-- the landlord owns the tenant + destination and that the tenant has an active lease,
+-- snapshots the source property/lease, and inserts a pending request. The partial
+-- unique index (one pending per tenant) is the hard guard; the explicit check just
+-- gives a cleaner error. Takes the verified landlord id; locked to service_role.
+create or replace function public.create_transfer_request_atomic(
+  p_landlord_id uuid,
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_tenant_id uuid := nullif(p_payload->>'tenantId', '')::uuid;
+  v_to_property_id uuid := nullif(p_payload->>'toPropertyId', '')::uuid;
+  v_from_lease public.leases%rowtype;
+  v_from_property_id uuid;
+  v_to_owner uuid;
+  v_to_max integer;
+  v_request_id uuid;
+begin
+  if p_landlord_id is null then raise exception 'landlord id is required'; end if;
+  if v_tenant_id is null then raise exception 'tenantId is required'; end if;
+  if v_to_property_id is null then raise exception 'toPropertyId is required'; end if;
+
+  perform 1 from public.tenants
+  where id = v_tenant_id and landlord_id = p_landlord_id;
+  if not found then raise exception 'tenant not found'; end if;
+
+  select * into v_from_lease from public.leases
+  where tenant_id = v_tenant_id and status = 'active';
+  if not found then raise exception 'tenant has no active lease to transfer'; end if;
+  v_from_property_id := v_from_lease.property_id;
+
+  if v_from_property_id = v_to_property_id then
+    raise exception 'tenant is already on this property';
+  end if;
+
+  select landlord_id, coalesce(max_tenants, 1) into v_to_owner, v_to_max
+  from public.properties where id = v_to_property_id;
+  if not found then raise exception 'destination property not found'; end if;
+  if v_to_owner is distinct from p_landlord_id then
+    raise exception 'destination property not owned by landlord';
+  end if;
+
+  -- Refuse if the destination is already at its tenant capacity.
+  if (
+    select count(*) from public.tenants
+    where property_id = v_to_property_id and is_active
+  ) >= v_to_max then
+    raise exception 'destination property is full';
+  end if;
+
+  if exists (
+    select 1 from public.tenant_transfer_requests
+    where tenant_id = v_tenant_id and status = 'pending'
+  ) then
+    raise exception 'a transfer is already pending for this tenant';
+  end if;
+
+  insert into public.tenant_transfer_requests (
+    tenant_id, from_property_id, from_lease_id, to_property_id, status, created_by
+  ) values (
+    v_tenant_id, v_from_property_id, v_from_lease.id, v_to_property_id, 'pending', p_landlord_id
+  )
+  returning id into v_request_id;
+
+  return jsonb_build_object(
+    'requestId', v_request_id,
+    'tenantId', v_tenant_id,
+    'fromPropertyId', v_from_property_id,
+    'toPropertyId', v_to_property_id,
+    'fromLeaseId', v_from_lease.id,
+    'status', 'pending'
+  );
+end;
+$$;
+
+revoke execute on function public.create_transfer_request_atomic(uuid, jsonb) from public;
+grant execute on function public.create_transfer_request_atomic(uuid, jsonb) to service_role;
+
+-- Resolve a pending transfer request as the tenant. On confirm, run the actual move
+-- (transfer_tenant_atomic) and stamp 'confirmed' in one transaction; on reject, just
+-- stamp 'rejected' and nothing moves. Verifies the request is pending and belongs to
+-- the tenant, and that the tenant's lease hasn't changed since the proposal (else the
+-- snapshot is stale). Takes the verified tenant id; locked to service_role.
+create or replace function public.resolve_transfer_request_atomic(
+  p_tenant_id uuid,
+  p_request_id uuid,
+  p_confirm boolean
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_request public.tenant_transfer_requests%rowtype;
+  v_landlord_id uuid;
+  v_transfer jsonb := null;
+  v_new_status text;
+begin
+  if p_tenant_id is null then raise exception 'tenant id is required'; end if;
+  if p_request_id is null then raise exception 'request id is required'; end if;
+
+  select * into v_request from public.tenant_transfer_requests
+  where id = p_request_id for update;
+  if not found or v_request.tenant_id is distinct from p_tenant_id then
+    raise exception 'transfer request not found';
+  end if;
+  if v_request.status <> 'pending' then
+    raise exception 'transfer request already resolved';
+  end if;
+
+  if p_confirm then
+    -- The proposal snapshot must still hold: the source lease is the tenant's current
+    -- active one. If it changed, refuse rather than move under different conditions.
+    if not exists (
+      select 1 from public.leases
+      where id = v_request.from_lease_id and tenant_id = p_tenant_id and status = 'active'
+    ) then
+      raise exception 'the tenant''s lease changed since this transfer was proposed';
+    end if;
+
+    select landlord_id into v_landlord_id from public.tenants where id = p_tenant_id;
+    v_transfer := public.transfer_tenant_atomic(
+      v_landlord_id,
+      jsonb_build_object('tenantId', p_tenant_id, 'toPropertyId', v_request.to_property_id)
+    );
+    v_new_status := 'confirmed';
+  else
+    v_new_status := 'rejected';
+  end if;
+
+  update public.tenant_transfer_requests
+  set status = v_new_status, resolved_at = now()
+  where id = p_request_id;
+
+  return jsonb_build_object(
+    'requestId', p_request_id,
+    'tenantId', p_tenant_id,
+    'status', v_new_status,
+    'fromPropertyId', v_request.from_property_id,
+    'toPropertyId', v_request.to_property_id,
+    'transfer', v_transfer
+  );
+end;
+$$;
+
+revoke execute on function public.resolve_transfer_request_atomic(uuid, uuid, boolean) from public;
+grant execute on function public.resolve_transfer_request_atomic(uuid, uuid, boolean) to service_role;
+
 -- Replace a landlord's full set of payout channels in one transaction: the API
 -- sends the complete desired set, so anything omitted is removed. p_payload is
 -- the payoutMethods array ([{method, accountName, accountNumber, details}]).

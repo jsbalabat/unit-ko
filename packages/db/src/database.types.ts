@@ -205,6 +205,7 @@ export type Database = {
           period_id: string | null
           rent_due: number
           sequence: number
+          transferred_at: string | null
           updated_at: string
         }
         Insert: {
@@ -215,6 +216,7 @@ export type Database = {
           period_id?: string | null
           rent_due?: number
           sequence?: number
+          transferred_at?: string | null
           updated_at?: string
         }
         Update: {
@@ -225,6 +227,7 @@ export type Database = {
           period_id?: string | null
           rent_due?: number
           sequence?: number
+          transferred_at?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -453,6 +456,7 @@ export type Database = {
           security_deposit: number
           status: string
           tenant_id: string
+          transferred_to_lease_id: string | null
           updated_at: string
         }
         Insert: {
@@ -471,6 +475,7 @@ export type Database = {
           security_deposit?: number
           status?: string
           tenant_id: string
+          transferred_to_lease_id?: string | null
           updated_at?: string
         }
         Update: {
@@ -489,6 +494,7 @@ export type Database = {
           security_deposit?: number
           status?: string
           tenant_id?: string
+          transferred_to_lease_id?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -519,6 +525,27 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "tenants"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leases_transferred_to_lease_id_fkey"
+            columns: ["transferred_to_lease_id"]
+            isOneToOne: false
+            referencedRelation: "leases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leases_transferred_to_lease_id_fkey"
+            columns: ["transferred_to_lease_id"]
+            isOneToOne: false
+            referencedRelation: "v_archived_tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leases_transferred_to_lease_id_fkey"
+            columns: ["transferred_to_lease_id"]
+            isOneToOne: false
+            referencedRelation: "v_lease_credit"
+            referencedColumns: ["lease_id"]
           },
         ]
       }
@@ -1119,6 +1146,106 @@ export type Database = {
           },
         ]
       }
+      tenant_transfer_requests: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          from_lease_id: string | null
+          from_property_id: string | null
+          id: string
+          resolved_at: string | null
+          status: string
+          tenant_id: string
+          to_property_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          from_lease_id?: string | null
+          from_property_id?: string | null
+          id?: string
+          resolved_at?: string | null
+          status?: string
+          tenant_id: string
+          to_property_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          from_lease_id?: string | null
+          from_property_id?: string | null
+          id?: string
+          resolved_at?: string | null
+          status?: string
+          tenant_id?: string
+          to_property_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_transfer_requests_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_transfer_requests_from_lease_id_fkey"
+            columns: ["from_lease_id"]
+            isOneToOne: false
+            referencedRelation: "leases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_transfer_requests_from_lease_id_fkey"
+            columns: ["from_lease_id"]
+            isOneToOne: false
+            referencedRelation: "v_archived_tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_transfer_requests_from_lease_id_fkey"
+            columns: ["from_lease_id"]
+            isOneToOne: false
+            referencedRelation: "v_lease_credit"
+            referencedColumns: ["lease_id"]
+          },
+          {
+            foreignKeyName: "tenant_transfer_requests_from_property_id_fkey"
+            columns: ["from_property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_transfer_requests_from_property_id_fkey"
+            columns: ["from_property_id"]
+            isOneToOne: false
+            referencedRelation: "v_property_occupancy"
+            referencedColumns: ["property_id"]
+          },
+          {
+            foreignKeyName: "tenant_transfer_requests_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_transfer_requests_to_property_id_fkey"
+            columns: ["to_property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "tenant_transfer_requests_to_property_id_fkey"
+            columns: ["to_property_id"]
+            isOneToOne: false
+            referencedRelation: "v_property_occupancy"
+            referencedColumns: ["property_id"]
+          },
+        ]
+      }
       tenants: {
         Row: {
           contact_number: string
@@ -1249,6 +1376,7 @@ export type Database = {
           rent_due: number | null
           sequence: number | null
           status_code: string | null
+          transferred_at: string | null
           updated_at: string | null
         }
         Relationships: [
@@ -1456,6 +1584,10 @@ export type Database = {
         Args: { p_landlord_id: string; p_payload: Json }
         Returns: Json
       }
+      create_transfer_request_atomic: {
+        Args: { p_landlord_id: string; p_payload: Json }
+        Returns: Json
+      }
       create_unhoused_tenant_atomic: {
         Args: { p_landlord_id: string; p_payload: Json }
         Returns: Json
@@ -1477,6 +1609,14 @@ export type Database = {
       replace_landlord_payout_methods: {
         Args: { p_landlord_id: string; p_payload: Json }
         Returns: undefined
+      }
+      resolve_transfer_request_atomic: {
+        Args: { p_confirm: boolean; p_request_id: string; p_tenant_id: string }
+        Returns: Json
+      }
+      transfer_tenant_atomic: {
+        Args: { p_landlord_id: string; p_payload: Json }
+        Returns: Json
       }
       update_billing_entry_atomic: {
         Args: { p_entry_id: string; p_landlord_id: string; p_payload: Json }
