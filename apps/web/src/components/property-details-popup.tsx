@@ -494,6 +494,11 @@ export function PropertyDetailsPopup({
       return "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/50 dark:text-slate-400 dark:border-slate-700/50";
     }
 
+    // Transferred - the open balance moved to another unit (settled here) - Violet
+    if (lowerStatus === "transferred") {
+      return "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900/50 dark:text-violet-300 dark:border-violet-800/50";
+    }
+
     // Default / Neutral - Gray
     return "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800/50 dark:text-gray-300 dark:border-gray-700/50";
   };
@@ -924,7 +929,12 @@ export function PropertyDetailsPopup({
   const upcomingPayments: BillingEntry[] = billingEntries
     .filter((entry) => {
       // Everything not fully paid and not unset, by the canonical server status.
-      return entry.status !== "Paid" && entry.status !== "Not Yet Set";
+      // Transferred invoices moved to another unit, so they aren't upcoming here.
+      return (
+        entry.status !== "Paid" &&
+        entry.status !== "Not Yet Set" &&
+        entry.status !== "Transferred"
+      );
     })
     .sort(
       (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
@@ -2213,12 +2223,17 @@ export function PropertyDetailsPopup({
                                         // reflect credit-covered invoices.
                                         const effectivePaid =
                                           row.paidAmount + row.appliedCredit;
-                                        const rowStatus = billingStatusOf(
-                                          row.grossDue,
-                                          effectivePaid,
-                                          row.balance,
-                                          row.dueDate,
-                                        );
+                                        // A transferred invoice keeps its server
+                                        // status; everything else runs the mirror.
+                                        const rowStatus =
+                                          row.status === "Transferred"
+                                            ? "Transferred"
+                                            : billingStatusOf(
+                                                row.grossDue,
+                                                effectivePaid,
+                                                row.balance,
+                                                row.dueDate,
+                                              );
 
                                         return (
                                           <tr
