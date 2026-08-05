@@ -44,3 +44,23 @@ export const listTenantsQuerySchema = z.object({
     .optional(),
 });
 export type ListTenantsQuery = z.infer<typeof listTenantsQuerySchema>;
+
+// POST /tenants/:id/transfer — move the tenant to another of the landlord's
+// properties, carrying the current lease's terms and its open invoice balances (the
+// originals are marked transferred on the source). The tenant id comes from the path.
+export const transferTenantSchema = z.object({
+  toPropertyId: z.string().uuid(),
+});
+export type TransferTenantInput = z.infer<typeof transferTenantSchema>;
+
+// The atomic result: the source/destination properties + leases and how many open
+// invoices were carried forward, for the activity log and a confirmation toast.
+export const transferTenantResultSchema = z.object({
+  tenantId: z.string().uuid(),
+  fromPropertyId: z.string().uuid(),
+  toPropertyId: z.string().uuid(),
+  fromLeaseId: z.string().uuid(),
+  toLeaseId: z.string().uuid(),
+  transferredCount: z.number().int(),
+});
+export type TransferTenantResult = z.infer<typeof transferTenantResultSchema>;

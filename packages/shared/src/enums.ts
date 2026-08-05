@@ -27,6 +27,7 @@ export const BILLING_STATUSES = [
   "Partial",
   "Paid",
   "Overdue",
+  "Transferred",
 ] as const;
 export type BillingStatus = (typeof BILLING_STATUSES)[number];
 
@@ -73,6 +74,7 @@ export const ACTIVITY_ACTION_TYPES = [
   "property_note_deleted",
   "tenant_reminder_sent",
   "tenant_removed",
+  "tenant_transferred",
   "profile_updated",
   "subscription_updated",
   "tenant_responded",
