@@ -75,6 +75,9 @@ export const ACTIVITY_ACTION_TYPES = [
   "tenant_reminder_sent",
   "tenant_removed",
   "tenant_transferred",
+  "tenant_transfer_proposed",
+  "tenant_transfer_rejected",
+  "tenant_transfer_cancelled",
   "profile_updated",
   "subscription_updated",
   "tenant_responded",
@@ -83,3 +86,13 @@ export const ACTIVITY_ACTION_TYPES = [
   "legacy_event",
 ] as const;
 export type ActivityActionType = (typeof ACTIVITY_ACTION_TYPES)[number];
+
+// Lifecycle of a landlord-proposed tenant transfer awaiting the tenant's decision.
+// Mirrors the check constraint on tenant_transfer_requests.status.
+export const TRANSFER_REQUEST_STATUSES = [
+  "pending",
+  "confirmed",
+  "rejected",
+  "cancelled",
+] as const;
+export type TransferRequestStatus = (typeof TRANSFER_REQUEST_STATUSES)[number];

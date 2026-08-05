@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRANSFER_REQUEST_STATUSES } from "../enums";
 
 // A tenant as shown in the landlord's tenant list / cards. `propertyId` null =
 // unhoused (the "Unassigned" filter). Lease/billing live behind other endpoints.
@@ -73,3 +74,27 @@ export const assignTenantSchema = z.object({
   propertyId: z.string().uuid(),
 });
 export type AssignTenantInput = z.infer<typeof assignTenantSchema>;
+
+// A tenant-transfer request in the landlord↔tenant handshake. Property names are
+// resolved by the API for display. The landlord proposes (POST /tenants/:id/transfer
+// now creates one of these instead of moving immediately), and the tenant confirms
+// or rejects it; only a confirm actually moves the tenant.
+export const transferRequestSchema = z.object({
+  id: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  tenantName: z.string(),
+  fromPropertyName: z.string().nullable(),
+  toPropertyName: z.string(),
+  status: z.enum(TRANSFER_REQUEST_STATUSES),
+  createdAt: z.string(),
+  resolvedAt: z.string().nullable(),
+});
+export type TransferRequest = z.infer<typeof transferRequestSchema>;
+
+// POST /tenant/transfer-request/:id/resolve — the tenant confirms or rejects.
+export const resolveTransferRequestSchema = z.object({
+  confirm: z.boolean(),
+});
+export type ResolveTransferRequestInput = z.infer<
+  typeof resolveTransferRequestSchema
+>;
