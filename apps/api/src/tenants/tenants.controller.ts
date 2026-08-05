@@ -24,10 +24,14 @@ import {
   createTenantSchema,
   listTenantsQuerySchema,
   tenantListItemSchema,
+  transferTenantResultSchema,
+  transferTenantSchema,
   updateTenantSchema,
   type CreateTenantInput,
   type ListTenantsQuery,
   type TenantListItem,
+  type TransferTenantInput,
+  type TransferTenantResult,
   type UpdateTenantInput,
 } from "@unitko/shared";
 import { SupabaseJwtGuard } from "../auth/supabase-jwt.guard";
@@ -76,5 +80,18 @@ export class TenantsController {
     @Body(new ZodValidationPipe(updateTenantSchema)) input: UpdateTenantInput,
   ): Promise<TenantListItem> {
     return this.service.update(landlord.id, id, input);
+  }
+
+  @Post(":id/transfer")
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiBody({ schema: zodSchema(transferTenantSchema) })
+  @ApiOkResponse({ schema: zodSchema(transferTenantResultSchema) })
+  transfer(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(transferTenantSchema)) input: TransferTenantInput,
+  ): Promise<TransferTenantResult> {
+    return this.service.transfer(landlord.id, id, input);
   }
 }

@@ -1,6 +1,11 @@
 import { Injectable } from "@nestjs/common";
 import type { Database } from "@unitko/db";
-import type { CreateTenantInput, UpdateTenantInput } from "@unitko/shared";
+import {
+  transferTenantResultSchema,
+  type CreateTenantInput,
+  type TransferTenantResult,
+  type UpdateTenantInput,
+} from "@unitko/shared";
 import { SupabaseService } from "../supabase/supabase.service";
 
 type TenantUpdate = Database["public"]["Tables"]["tenants"]["Update"];
@@ -82,5 +87,21 @@ export class TenantsRepository {
       .eq("id", tenantId)
       .eq("landlord_id", landlordId);
     if (error) throw error;
+  }
+
+  // Move the tenant to another property atomically: the function verifies ownership
+  // of the tenant + destination, ends the current lease and opens the new one, and
+  // carries open invoice balances. It raises on any precondition failure.
+  async transferViaAtomicRpc(
+    landlordId: string,
+    tenantId: string,
+    toPropertyId: string,
+  ): Promise<TransferTenantResult> {
+    const { data, error } = await this.supabase.db.rpc("transfer_tenant_atomic", {
+      p_landlord_id: landlordId,
+      p_payload: { tenantId, toPropertyId },
+    });
+    if (error) throw error;
+    return transferTenantResultSchema.parse(data);
   }
 }

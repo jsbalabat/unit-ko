@@ -1,7 +1,13 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import type {
   CreateTenantInput,
   TenantListItem,
+  TransferTenantInput,
+  TransferTenantResult,
   UpdateTenantInput,
 } from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
@@ -78,6 +84,59 @@ export class TenantsService {
       metadata: { fields: Object.keys(input) },
     });
     return this.toListItem(row);
+  }
+
+  // Transfer a tenant to another of the landlord's properties. The RPC enforces
+  // ownership and the tenant's transferable state; map its raised errors to the
+  // right HTTP status so the client sees a 404/409, not an opaque 500. The log is
+  // attributed to the destination (where the active lease now lives), with the
+  // source carried in metadata.
+  async transfer(
+    landlordId: string,
+    tenantId: string,
+    input: TransferTenantInput,
+  ): Promise<TransferTenantResult> {
+    let result: TransferTenantResult;
+    try {
+      result = await this.repo.transferViaAtomicRpc(
+        landlordId,
+        tenantId,
+        input.toPropertyId,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/tenant not found/i.test(message)) {
+        throw new NotFoundException("Tenant not found");
+      }
+      if (/destination property not found|not owned by landlord/i.test(message)) {
+        throw new NotFoundException("Destination property not found");
+      }
+      if (/no active lease/i.test(message)) {
+        throw new ConflictException("Tenant has no active lease to transfer");
+      }
+      if (/already on this property/i.test(message)) {
+        throw new ConflictException("Tenant is already on this property");
+      }
+      throw err;
+    }
+
+    await this.activity.log({
+      actionType: "tenant_transferred",
+      description: "Tenant transferred",
+      userId: landlordId,
+      propertyId: result.toPropertyId,
+      tenantId: result.tenantId,
+      leaseId: result.toLeaseId,
+      metadata: {
+        fromPropertyId: result.fromPropertyId,
+        toPropertyId: result.toPropertyId,
+        fromLeaseId: result.fromLeaseId,
+        toLeaseId: result.toLeaseId,
+        transferredCount: result.transferredCount,
+      },
+    });
+
+    return result;
   }
 
   private toListItem(row: TenantRow): TenantListItem {
