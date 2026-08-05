@@ -14,6 +14,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
+  ArrowRightLeft,
   Building2,
   Calendar,
   Home,
@@ -77,6 +78,12 @@ function TenantDashboard() {
     () => api.tenant.responses.list(),
     liveFeedOptions,
   );
+  const { data: transferRequest, mutate: mutateTransferRequest } = useSWR(
+    "tenant-transfer-request",
+    () => api.tenant.transferRequest(),
+    liveFeedOptions,
+  );
+  const [resolvingTransfer, setResolvingTransfer] = useState(false);
 
   // Keyed by billing entry so each row shows its latest response. The list is
   // newest-first, so the first row seen per entry wins.
@@ -150,6 +157,24 @@ function TenantDashboard() {
     setIsTraditionalPaymentOpen(false);
   };
 
+  const handleResolveTransfer = async (confirm: boolean) => {
+    if (!transferRequest) return;
+    setResolvingTransfer(true);
+    try {
+      await api.tenant.resolveTransferRequest(transferRequest.id, { confirm });
+      toast.success(confirm ? "Transfer confirmed" : "Transfer rejected");
+      await mutateTransferRequest();
+      // On confirm the move happened — reload the dashboard (new property/lease).
+      if (confirm) setDashboardData(await fetchTenantDashboard());
+    } catch (err) {
+      toast.error("Couldn't update the transfer", {
+        description: err instanceof Error ? err.message : "Please try again.",
+      });
+    } finally {
+      setResolvingTransfer(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-muted/30 p-4 md:p-8">
@@ -205,6 +230,40 @@ function TenantDashboard() {
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto p-4 md:p-8 space-y-8">
+        {transferRequest && (
+          <Card className="border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ArrowRightLeft className="h-5 w-5 text-amber-600" />
+                Transfer proposed
+              </CardTitle>
+              <CardDescription>
+                Your landlord proposes moving you to{" "}
+                <span className="font-medium text-foreground">
+                  {transferRequest.toPropertyName}
+                </span>
+                . Your current lease terms and any open balances move with you.
+                Confirm to proceed, or reject to stay put.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex gap-2">
+              <Button
+                onClick={() => handleResolveTransfer(true)}
+                disabled={resolvingTransfer}
+              >
+                Confirm
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => handleResolveTransfer(false)}
+                disabled={resolvingTransfer}
+              >
+                Reject
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Tenant & Property Information Grid */}
         <div className="grid gap-6 md:grid-cols-2">
           {/* Tenant Information Card */}
