@@ -31,6 +31,8 @@ import type {
   TenantLoginResponse,
   TenantResponse,
   TenantSessionResponse,
+  TransferTenantInput,
+  TransferTenantResult,
   UpdatePropertyInput,
   UpdateProfileInput,
   UpdateSubscriptionInput,
@@ -172,6 +174,11 @@ export const api = {
     update: (id: string, input: UpdateTenantInput) =>
       request<TenantListItem>(`/tenants/${id}`, {
         method: "PATCH",
+        body: input,
+      }),
+    transfer: (id: string, input: TransferTenantInput) =>
+      request<TransferTenantResult>(`/tenants/${id}/transfer`, {
+        method: "POST",
         body: input,
       }),
   },
