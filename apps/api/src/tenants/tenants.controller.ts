@@ -21,12 +21,14 @@ import {
   ApiTags,
 } from "@nestjs/swagger";
 import {
+  assignTenantSchema,
   createTenantSchema,
   listTenantsQuerySchema,
   tenantListItemSchema,
   transferTenantResultSchema,
   transferTenantSchema,
   updateTenantSchema,
+  type AssignTenantInput,
   type CreateTenantInput,
   type ListTenantsQuery,
   type TenantListItem,
@@ -93,5 +95,18 @@ export class TenantsController {
     @Body(new ZodValidationPipe(transferTenantSchema)) input: TransferTenantInput,
   ): Promise<TransferTenantResult> {
     return this.service.transfer(landlord.id, id, input);
+  }
+
+  @Post(":id/assign")
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiBody({ schema: zodSchema(assignTenantSchema) })
+  @ApiOkResponse({ schema: zodSchema(tenantListItemSchema) })
+  assign(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(assignTenantSchema)) input: AssignTenantInput,
+  ): Promise<TenantListItem> {
+    return this.service.assign(landlord.id, id, input);
   }
 }

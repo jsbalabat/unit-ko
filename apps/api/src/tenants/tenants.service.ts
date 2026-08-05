@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import type {
+  AssignTenantInput,
   CreateTenantInput,
   TenantListItem,
   TransferTenantInput,
@@ -83,6 +84,49 @@ export class TenantsService {
       propertyId: row.property_id,
       metadata: { fields: Object.keys(input) },
     });
+    return this.toListItem(row);
+  }
+
+  // Place an unhoused tenant onto one of the landlord's properties (property_id +
+  // next slot). No lease is created — the tenant reads "No Active Lease" until one
+  // is set up from the property, exactly as for a tenant added with a property.
+  async assign(
+    landlordId: string,
+    tenantId: string,
+    input: AssignTenantInput,
+  ): Promise<TenantListItem> {
+    const existing = await this.repo.findByIdForLandlord(landlordId, tenantId);
+    if (!existing) {
+      throw new NotFoundException("Tenant not found");
+    }
+    if (existing.property_id) {
+      throw new ConflictException("Tenant is already assigned to a property");
+    }
+
+    let row: Awaited<ReturnType<TenantsRepository["assignToProperty"]>>;
+    try {
+      row = await this.repo.assignToProperty(landlordId, tenantId, input.propertyId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (/property not found/i.test(message)) {
+        throw new NotFoundException("Property not found");
+      }
+      throw err;
+    }
+    if (!row) {
+      // The tenant was housed between the check and the update (a race).
+      throw new ConflictException("Tenant is already assigned to a property");
+    }
+
+    await this.activity.log({
+      actionType: "tenant_updated",
+      description: `Tenant assigned: ${row.tenant_name}`,
+      userId: landlordId,
+      tenantId,
+      propertyId: row.property_id,
+      metadata: { assignedToPropertyId: input.propertyId },
+    });
+
     return this.toListItem(row);
   }
 
