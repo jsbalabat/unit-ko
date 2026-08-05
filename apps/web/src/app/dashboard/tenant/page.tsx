@@ -176,9 +176,10 @@ function TenantDashboard() {
     try {
       await api.tenant.resolveTransferRequest(transferRequest.id, { confirm });
       toast.success(confirm ? "Transfer confirmed" : "Transfer rejected");
-      await mutateTransferRequest();
-      // On confirm the move happened — reload the dashboard (new property/lease).
-      if (confirm) setDashboardData(await fetchTenantDashboard());
+      // Clear the proposal card at once (no revalidation lag), then reload the
+      // dashboard so the page reflects the outcome — the new unit on confirm.
+      await mutateTransferRequest(null, { revalidate: false });
+      setDashboardData(await fetchTenantDashboard());
     } catch (err) {
       toast.error("Couldn't update the transfer", {
         description: err instanceof Error ? err.message : "Please try again.",
