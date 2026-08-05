@@ -7,8 +7,8 @@ import type {
   AssignTenantInput,
   CreateTenantInput,
   TenantListItem,
+  TransferRequest,
   TransferTenantInput,
-  TransferTenantResult,
   UpdateTenantInput,
 } from "@unitko/shared";
 import { ActivityService } from "../activity/activity.service";
@@ -130,19 +130,17 @@ export class TenantsService {
     return this.toListItem(row);
   }
 
-  // Transfer a tenant to another of the landlord's properties. The RPC enforces
-  // ownership and the tenant's transferable state; map its raised errors to the
-  // right HTTP status so the client sees a 404/409, not an opaque 500. The log is
-  // attributed to the destination (where the active lease now lives), with the
-  // source carried in metadata.
-  async transfer(
+  // Propose a transfer for the tenant to confirm — nothing moves until they do. The
+  // RPC enforces ownership + the tenant's transferable state + one-pending-per-tenant;
+  // map its raised errors to 404/409, then log the proposal.
+  async proposeTransfer(
     landlordId: string,
     tenantId: string,
     input: TransferTenantInput,
-  ): Promise<TransferTenantResult> {
-    let result: TransferTenantResult;
+  ): Promise<TransferRequest> {
+    let requestId: string;
     try {
-      result = await this.repo.transferViaAtomicRpc(
+      requestId = await this.repo.createTransferRequestViaAtomicRpc(
         landlordId,
         tenantId,
         input.toPropertyId,
@@ -158,29 +156,52 @@ export class TenantsService {
       if (/no active lease/i.test(message)) {
         throw new ConflictException("Tenant has no active lease to transfer");
       }
+      if (/already pending/i.test(message)) {
+        throw new ConflictException(
+          "A transfer is already pending for this tenant",
+        );
+      }
       if (/already on this property/i.test(message)) {
         throw new ConflictException("Tenant is already on this property");
       }
       throw err;
     }
 
+    const request = await this.repo.findRequest(requestId);
+    if (!request) {
+      throw new NotFoundException("Transfer request not found after creation");
+    }
     await this.activity.log({
-      actionType: "tenant_transferred",
-      description: "Tenant transferred",
+      actionType: "tenant_transfer_proposed",
+      description: `Transfer proposed to ${request.toPropertyName}`,
       userId: landlordId,
-      propertyId: result.toPropertyId,
-      tenantId: result.tenantId,
-      leaseId: result.toLeaseId,
-      metadata: {
-        fromPropertyId: result.fromPropertyId,
-        toPropertyId: result.toPropertyId,
-        fromLeaseId: result.fromLeaseId,
-        toLeaseId: result.toLeaseId,
-        transferredCount: result.transferredCount,
-      },
+      tenantId,
+      metadata: { requestId, toPropertyName: request.toPropertyName },
     });
+    return request;
+  }
 
-    return result;
+  listPendingTransferRequests(landlordId: string): Promise<TransferRequest[]> {
+    return this.repo.findPendingByLandlord(landlordId);
+  }
+
+  // Withdraw a pending proposal before the tenant responds.
+  async cancelTransferRequest(
+    landlordId: string,
+    requestId: string,
+  ): Promise<TransferRequest> {
+    const cancelled = await this.repo.cancelRequest(landlordId, requestId);
+    if (!cancelled) {
+      throw new NotFoundException("Pending transfer request not found");
+    }
+    await this.activity.log({
+      actionType: "tenant_transfer_cancelled",
+      description: "Transfer cancelled",
+      userId: landlordId,
+      tenantId: cancelled.tenantId,
+      metadata: { requestId },
+    });
+    return cancelled;
   }
 
   private toListItem(row: TenantRow): TenantListItem {

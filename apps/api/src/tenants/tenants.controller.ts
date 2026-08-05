@@ -25,15 +25,15 @@ import {
   createTenantSchema,
   listTenantsQuerySchema,
   tenantListItemSchema,
-  transferTenantResultSchema,
+  transferRequestSchema,
   transferTenantSchema,
   updateTenantSchema,
   type AssignTenantInput,
   type CreateTenantInput,
   type ListTenantsQuery,
   type TenantListItem,
+  type TransferRequest,
   type TransferTenantInput,
-  type TransferTenantResult,
   type UpdateTenantInput,
 } from "@unitko/shared";
 import { SupabaseJwtGuard } from "../auth/supabase-jwt.guard";
@@ -84,17 +84,39 @@ export class TenantsController {
     return this.service.update(landlord.id, id, input);
   }
 
+  // Propose a transfer for the tenant to confirm — nothing moves yet. Returns the
+  // pending request.
   @Post(":id/transfer")
   @HttpCode(HttpStatus.OK)
   @ApiParam({ name: "id", format: "uuid" })
   @ApiBody({ schema: zodSchema(transferTenantSchema) })
-  @ApiOkResponse({ schema: zodSchema(transferTenantResultSchema) })
-  transfer(
+  @ApiOkResponse({ schema: zodSchema(transferRequestSchema) })
+  proposeTransfer(
     @CurrentLandlord() landlord: AuthenticatedLandlord,
     @Param("id", ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(transferTenantSchema)) input: TransferTenantInput,
-  ): Promise<TransferTenantResult> {
-    return this.service.transfer(landlord.id, id, input);
+  ): Promise<TransferRequest> {
+    return this.service.proposeTransfer(landlord.id, id, input);
+  }
+
+  // Pending proposals across the landlord's tenants, so the directory can flag them.
+  @Get("transfer-requests")
+  @ApiOkResponse({ schema: zodArraySchema(transferRequestSchema) })
+  listTransferRequests(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+  ): Promise<TransferRequest[]> {
+    return this.service.listPendingTransferRequests(landlord.id);
+  }
+
+  @Post("transfer-requests/:id/cancel")
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiOkResponse({ schema: zodSchema(transferRequestSchema) })
+  cancelTransferRequest(
+    @CurrentLandlord() landlord: AuthenticatedLandlord,
+    @Param("id", ParseUUIDPipe) id: string,
+  ): Promise<TransferRequest> {
+    return this.service.cancelTransferRequest(landlord.id, id);
   }
 
   @Post(":id/assign")
