@@ -631,6 +631,8 @@ function LandlordDashboard() {
                   onAddTenant={() => setIsAddTenantPopupOpen(true)}
                   onViewTenants={() => openTenantsList("all")}
                   onViewUnassigned={() => openTenantsList("unassigned")}
+                  onRefresh={() => refetch()}
+                  refreshing={loading}
                 />
               }
             />

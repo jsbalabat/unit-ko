@@ -1,6 +1,6 @@
 "use client";
 
-import { Building, Plus, Eye, UserX } from "lucide-react";
+import { Building, Plus, Eye, UserX, RefreshCw } from "lucide-react";
 import { Button } from "@/components/button";
 
 interface DashboardActionsProps {
@@ -8,6 +8,8 @@ interface DashboardActionsProps {
   onAddTenant: () => void;
   onViewTenants: () => void;
   onViewUnassigned: () => void;
+  onRefresh: () => void;
+  refreshing?: boolean;
 }
 
 // The single portfolio action toolbar. Previously duplicated across the dashboard
@@ -18,6 +20,8 @@ export function DashboardActions({
   onAddTenant,
   onViewTenants,
   onViewUnassigned,
+  onRefresh,
+  refreshing = false,
 }: DashboardActionsProps) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -36,6 +40,17 @@ export function DashboardActions({
       <Button size="sm" variant="outline" onClick={onViewUnassigned}>
         <UserX className="h-4 w-4 mr-2" />
         Unassigned
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={onRefresh}
+        disabled={refreshing}
+      >
+        <RefreshCw
+          className={`h-4 w-4 mr-2 ${refreshing ? "animate-spin" : ""}`}
+        />
+        Refresh
       </Button>
     </div>
   );
