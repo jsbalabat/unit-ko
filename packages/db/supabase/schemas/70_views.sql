@@ -45,7 +45,12 @@ credited as (
   select
     base.*,
     coalesce(lc.pool, 0) as credit_pool,
-    coalesce(sum(greatest(base.post_payment_balance, 0)) over (
+    -- A transferred invoice no longer draws from (or reserves) the pool, so exclude
+    -- its balance from what older invoices are treated as having claimed.
+    coalesce(sum(greatest(
+      case when base.transferred_at is null then base.post_payment_balance else 0 end,
+      0
+    )) over (
       partition by base.lease_id
       order by base.due_date asc nulls last, base.sequence asc nulls last, base.id
       rows between unbounded preceding and 1 preceding
@@ -56,23 +61,30 @@ credited as (
 applied as (
   select
     credited.*,
-    greatest(0, least(post_payment_balance, credit_pool - prior_claimed))
-      as applied_credit
+    case when transferred_at is not null then 0
+      else greatest(0, least(post_payment_balance, credit_pool - prior_claimed))
+    end as applied_credit
   from credited
 )
 select
   id, lease_id, period_id, due_date, rent_due, sequence, created_at, updated_at,
+  transferred_at,
   other_charges,
   gross_due,
   paid_amount,
   applied_credit,
-  post_payment_balance - applied_credit as balance,
-  public.billing_entry_status(
-    gross_due,
-    paid_amount + applied_credit,
-    post_payment_balance - applied_credit,
-    due_date
-  ) as status_code
+  -- A transferred invoice's open balance moved to the new lease, so it reads 0 here
+  -- and carries the settled 'Transferred' status instead of running the due ladder.
+  case when transferred_at is not null then 0
+    else post_payment_balance - applied_credit end as balance,
+  case when transferred_at is not null then 'Transferred'
+    else public.billing_entry_status(
+      gross_due,
+      paid_amount + applied_credit,
+      post_payment_balance - applied_credit,
+      due_date
+    )
+  end as status_code
 from applied;
 
 -- Lease-level credit, so the app can show what's available rather than leaving an

@@ -16,7 +16,8 @@ insert into public.billing_statuses (code, label, sort_order, is_settled) values
   ('Not Yet Due', 'Not Yet Due', 1, false),
   ('Partial', 'Partial', 2, false),
   ('Paid', 'Paid', 3, true),
-  ('Overdue', 'Overdue', 4, false)
+  ('Overdue', 'Overdue', 4, false),
+  ('Transferred', 'Transferred', 5, true)
 on conflict (code) do nothing;
 
 insert into public.billing_frequencies (code, label, interval_days) values
@@ -60,6 +61,7 @@ insert into public.activity_action_types (code, label) values
   ('property_note_deleted', 'Note deleted'),
   ('tenant_reminder_sent', 'Reminder sent'),
   ('tenant_removed', 'Tenant removed'),
+  ('tenant_transferred', 'Tenant transferred'),
   ('profile_updated', 'Profile updated'),
   ('subscription_updated', 'Subscription updated'),
   ('tenant_responded', 'Tenant responded'),

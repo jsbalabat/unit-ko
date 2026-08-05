@@ -20,6 +20,10 @@ create table public.billing_entries (
   due_date date not null,
   rent_due numeric(12, 2) not null default 0,
   sequence integer not null default 1,
+  -- Soft-mark set when this invoice's open balance is carried onto a new lease in a
+  -- tenant transfer: the row stays for audit but drops out of the property's live
+  -- ledger (balance 0, status 'Transferred'). null = active.
+  transferred_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

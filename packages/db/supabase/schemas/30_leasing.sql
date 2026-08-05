@@ -34,6 +34,9 @@ create table public.leases (
   status text not null default 'active' check (status in ('active', 'ended')),
   end_reason text,
   ended_at timestamptz,
+  -- Set on the source lease when a tenant is transferred to another unit: points at
+  -- the new active lease, so the move is auditable A -> B. null = not transferred.
+  transferred_to_lease_id uuid references public.leases(id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
