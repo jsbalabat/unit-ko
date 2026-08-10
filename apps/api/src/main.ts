@@ -43,7 +43,9 @@ async function bootstrap(): Promise<void> {
   }
 
   const port = config.get("PORT", { infer: true });
-  await app.listen(port);
+  // Bind all interfaces (not Node's default IPv6-only `::`) so container
+  // platforms that probe for an open port over IPv4 can detect and route to us.
+  await app.listen(port, "0.0.0.0");
   const logger = new Logger("Bootstrap");
   logger.log(`@unitko/api listening on http://localhost:${port}`);
   if (process.env.NODE_ENV !== "production") {
