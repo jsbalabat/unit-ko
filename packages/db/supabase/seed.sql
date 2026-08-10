@@ -1,7 +1,8 @@
 -- Seed data, applied on every `supabase db reset`.
--- 1) Reference rows for every lookup table. Codes mirror packages/shared/src/enums.ts.
--- 2) The signup trigger on auth.users (kept here, not in schemas/, because
---    `supabase db diff` only manages the public schema).
+-- Reference rows for every lookup table (codes mirror packages/shared/src/enums.ts)
+-- plus a local-dev landlord. The auth.users signup trigger is NOT here anymore —
+-- it lives in a forward migration (20260810120000_auth_signup_trigger.sql) so
+-- `db push` carries it to every environment; this file never runs remotely.
 
 -- ── Lookups ────────────────────────────────────────────────────────────────
 insert into public.property_types (code, label) values
@@ -103,12 +104,6 @@ insert into public.amenities (code, label) values
   ('furnished', 'Furnished')
 on conflict (code) do nothing;
 
--- ── Auth signup trigger ──────────────────────────────────────────────────────
-drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute function public.handle_new_user();
-
 -- ── Local dev landlord ───────────────────────────────────────────────────────
 -- A known account so `db reset` always leaves a working login (otherwise every
 -- reset wipes auth.users → 400 "Invalid login credentials"). LOCAL DEV ONLY —
@@ -117,8 +112,9 @@ create trigger on_auth_user_created
 -- Password login needs three things GoTrue would normally create: a bcrypt
 -- `encrypted_password` (pgcrypto lives in the `extensions` schema), a confirmed
 -- email, and an `auth.identities` row for the email provider. The signup trigger
--- above mints the matching public.profiles row. Guarded by NOT EXISTS so a
--- re-run is a no-op. Login → dev@unitko.test / devpassword123
+-- (from the migration, applied before this seed runs) mints the matching
+-- public.profiles row. Guarded by NOT EXISTS so a re-run is a no-op.
+-- Login → dev@unitko.test / devpassword123
 with dev_user as (
   insert into auth.users (
     instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,

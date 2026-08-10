@@ -15,8 +15,9 @@ create table public.profiles (
 create index idx_profiles_email on public.profiles (email);
 
 -- Auto-create a landlord profile when a new auth user signs up.
--- The trigger ON auth.users is created in seed.sql: `supabase db diff` only
--- manages the public schema, so an auth-schema trigger can't be declared here.
+-- The trigger ON auth.users lives in a forward migration
+-- (20260810120000_auth_signup_trigger.sql), not here: `supabase db diff` only
+-- manages the public schema, so an auth-schema trigger can't be declared in schemas/.
 create or replace function public.handle_new_user()
 returns trigger
 security definer
