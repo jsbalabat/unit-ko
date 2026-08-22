@@ -69,6 +69,19 @@ Each runs through Turborepo, so results are cached and only changed packages reb
 docker compose up
 ```
 
+## Documentation
+
+`docs/` covers two feature areas in depth:
+
+| Document | Covers |
+|---|---|
+| [Property reset and archiving](docs/PROPERTY_RESET_GUIDE.md) | Moving a property between tenants while preserving full rental history |
+| [Reset feature setup](docs/RESET_FEATURE_SETUP.md) | Provisioning the archive tables |
+| [Reset feature summary](docs/RESET_FEATURE_SUMMARY.md) | Implementation detail for the archive and reset flow |
+| [Tenant email and profile](docs/TENANT_EMAIL_PROFILE_FEATURE.md) | Automatic profile creation and role assignment when a tenant is added |
+
+These notes predate the move to the Turborepo layout and refer to migration paths from the earlier single-app structure. `packages/db` is the source of truth for the current schema.
+
 ## Status
 
 Actively developed. The current work is a migration from the original Next.js and Supabase monolith to this Turborepo structure, alongside a normalization pass on the schema. Legacy migrations are retained under `packages/db/legacy-migrations` for history.
