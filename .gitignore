@@ -61,3 +61,5 @@ test.ts
 **/dist/
 **/build/
 **/*.tsbuildinfo
+# README is the one exception: it is the repository's public front page.
+!README.md
