@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import type {
-  BillingChargeItem,
   BillingEntry,
   BillingRevision,
   PaymentAllocation,
@@ -19,90 +18,26 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Loader2,
   Building2,
   Receipt,
-  Pencil,
   RefreshCw,
-  History,
   CreditCard,
-  ArrowDownToLine,
-  Ban,
 } from "lucide-react";
-import { OtherChargesPopup } from "@/components/other-charges-popup";
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+  InvoiceRow,
+  RecordPaymentDialog,
+  InvoiceHistorySheet,
+  VoidPaymentDialog,
+  type EditBillingPopupProps,
+  type HistoryItem,
+  type PaymentTypeValue,
+  formatDateTime,
+  peso,
+} from "./edit-billing";
 
-interface EditBillingPopupProps {
-  propertyId: string;
-  tenantId: string;
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccess?: () => void;
-  onSwitchToProperty?: () => void;
-}
-
-const PAYMENT_TYPE_OPTIONS = [
-  { value: "rent", label: "Rent" },
-  { value: "deposit", label: "Deposit" },
-  { value: "advance", label: "Advance" },
-] as const;
-
-function peso(amount: number): string {
-  return `₱${amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function formatDateTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-const STATUS_TONE: Record<string, string> = {
-  Paid: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-  Partial: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300",
-  Overdue: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-};
-
-function paymentTypeLabel(value: string): string {
-  return PAYMENT_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value;
-}
+export type { EditBillingPopupProps };
 
 // The two ledgers behind the history drawer, fetched together (shared by the
 // open-effect and the post-void refresh so the drawer reflects the reversal).
@@ -111,11 +46,6 @@ function fetchHistory(
 ): Promise<[BillingRevision[], PaymentAllocation[]]> {
   return Promise.all([api.billing.revisions(id), api.billing.payments(id)]);
 }
-
-// One row of the invoice history drawer: an edit revision or a payment.
-type HistoryItem =
-  | { kind: "revision"; at: string; rev: BillingRevision }
-  | { kind: "payment"; at: string; pay: PaymentAllocation };
 
 // Per-tenant invoice manager. Reads the tenant's invoices (derived figures) and
 // mutates only through the API: payments go to the ledger (POST /payments) and
@@ -315,7 +245,7 @@ export function EditBillingPopup({
       await api.payments.record({
         billingEntryId: payFor.id,
         amount,
-        paymentType: payType as (typeof PAYMENT_TYPE_OPTIONS)[number]["value"],
+        paymentType: payType as PaymentTypeValue,
         paidAt: payDate ? new Date(payDate).toISOString() : undefined,
         notes: payNotes.trim() || undefined,
       });
@@ -483,503 +413,46 @@ export function EditBillingPopup({
       </Dialog>
 
       {/* Record payment */}
-      <Dialog open={payFor !== null} onOpenChange={(open) => (!open ? setPayFor(null) : null)}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Record Payment</DialogTitle>
-            <DialogDescription>
-              {payFor &&
-                `Period ${payFor.sequence ?? "—"} · balance ${peso(payFor.balance)}`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="pay-amount">Amount (₱)</Label>
-              <Input
-                id="pay-amount"
-                type="number"
-                min="0"
-                step="0.01"
-                value={payAmount}
-                onChange={(e) => setPayAmount(e.target.value)}
-                placeholder="0.00"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Type</Label>
-                <Select value={payType} onValueChange={setPayType}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PAYMENT_TYPE_OPTIONS.map((o) => (
-                      <SelectItem key={o.value} value={o.value}>
-                        {o.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="pay-date">Date (optional)</Label>
-                <Input
-                  id="pay-date"
-                  type="date"
-                  value={payDate}
-                  onChange={(e) => setPayDate(e.target.value)}
-                />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="pay-notes">Notes (optional)</Label>
-              <Input
-                id="pay-notes"
-                value={payNotes}
-                onChange={(e) => setPayNotes(e.target.value)}
-                placeholder="Reference, channel, etc."
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPayFor(null)}>
-              Cancel
-            </Button>
-            <Button onClick={submitPayment} disabled={busyId !== null}>
-              {busyId !== null ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : null}
-              Record
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RecordPaymentDialog
+        isOpen={payFor !== null}
+        onClose={() => setPayFor(null)}
+        payFor={payFor}
+        payAmount={payAmount}
+        setPayAmount={setPayAmount}
+        payType={payType}
+        setPayType={setPayType}
+        payDate={payDate}
+        setPayDate={setPayDate}
+        payNotes={payNotes}
+        setPayNotes={setPayNotes}
+        isBusy={busyId !== null}
+        onSubmitPayment={submitPayment}
+      />
 
       {/* Invoice history — edits + payments */}
-      <Sheet
-        open={historyFor !== null}
-        onOpenChange={(open) => (!open ? setHistoryFor(null) : null)}
-      >
-        <SheetContent className="w-full sm:max-w-md overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>History</SheetTitle>
-            <SheetDescription>
-              {historyFor
-                ? `Period ${historyFor.sequence ?? "—"} — edits and payments, newest first.`
-                : ""}
-            </SheetDescription>
-          </SheetHeader>
+      <InvoiceHistorySheet
+        isOpen={historyFor !== null}
+        onClose={() => setHistoryFor(null)}
+        historyFor={historyFor}
+        historyLoading={historyLoading}
+        historyError={historyError}
+        historyItems={historyItems}
+        onVoidTarget={(pay) => setVoidTarget(pay)}
+      />
 
-          <div className="px-4 pb-6 space-y-3">
-            {historyLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : historyError ? (
-              <div className="py-8 text-center text-sm text-destructive">
-                {historyError}
-              </div>
-            ) : historyItems.length === 0 ? (
-              <div className="py-12 text-center text-muted-foreground text-sm">
-                No edits or payments recorded yet.
-              </div>
-            ) : (
-              historyItems.map((item) =>
-                item.kind === "revision" ? (
-                  <Card key={`rev-${item.rev.id}`} className="border">
-                    <CardContent className="p-3 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <Pencil className="h-3.5 w-3.5" />
-                          {formatDateTime(item.rev.editedAt)}
-                        </span>
-                        <Badge
-                          className={
-                            STATUS_TONE[item.rev.status] ??
-                            "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
-                          }
-                        >
-                          {item.rev.status}
-                        </Badge>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 text-sm">
-                        <div>
-                          <p className="text-[11px] text-muted-foreground">Rent</p>
-                          <p className="font-medium">{peso(item.rev.rentDue)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] text-muted-foreground">Other</p>
-                          <p className="font-medium">
-                            {peso(item.rev.otherCharges)}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-[11px] text-muted-foreground">Gross</p>
-                          <p className="font-medium">{peso(item.rev.grossDue)}</p>
-                        </div>
-                      </div>
-                      {item.rev.charges.length > 0 && (
-                        <div className="border-t pt-2 space-y-1 text-xs text-muted-foreground">
-                          {item.rev.charges.map((c, i) => (
-                            <div key={i} className="flex justify-between gap-2">
-                              <span className="truncate">{c.name}</span>
-                              <span>{peso(c.amount)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Card
-                    key={`pay-${item.pay.id}`}
-                    className={item.pay.voidedAt ? "border opacity-60" : "border"}
-                  >
-                    <CardContent className="p-3 space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                          <CreditCard className="h-3.5 w-3.5 text-green-600" />
-                          {formatDateTime(item.pay.paidAt)}
-                        </span>
-                        {item.pay.voidedAt ? (
-                          <Badge className="gap-1 bg-muted text-muted-foreground">
-                            <Ban className="h-3 w-3" />
-                            Voided
-                          </Badge>
-                        ) : item.pay.isOverflow ? (
-                          <Badge className="gap-1 bg-sky-100 text-sky-800 dark:bg-sky-900 dark:text-sky-300">
-                            <ArrowDownToLine className="h-3 w-3" />
-                            Waterfall
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
-                            Payment
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-baseline justify-between gap-2">
-                        <span
-                          className={
-                            item.pay.voidedAt
-                              ? "text-sm font-semibold text-muted-foreground line-through"
-                              : "text-sm font-semibold text-green-700 dark:text-green-400"
-                          }
-                        >
-                          +{peso(item.pay.amount)}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {paymentTypeLabel(item.pay.paymentType)}
-                        </span>
-                      </div>
-                      {item.pay.isOverflow && (
-                        <p className="text-[11px] text-muted-foreground">
-                          Cascaded here from an overpayment on another period.
-                        </p>
-                      )}
-                      {item.pay.notes && (
-                        <p className="border-t pt-2 text-xs text-muted-foreground">
-                          {item.pay.notes}
-                        </p>
-                      )}
-                      {!item.pay.voidedAt && (
-                        <div className="flex justify-end border-t pt-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 gap-1 text-xs text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950"
-                            onClick={() => setVoidTarget(item.pay)}
-                          >
-                            <Ban className="h-3 w-3" />
-                            Void
-                          </Button>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ),
-              )
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      <AlertDialog
-        open={voidTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && !voidBusy) {
-            setVoidTarget(null);
-            setVoidReason("");
-          }
+      {/* Void payment confirmation */}
+      <VoidPaymentDialog
+        isOpen={voidTarget !== null}
+        voidTarget={voidTarget}
+        voidReason={voidReason}
+        setVoidReason={setVoidReason}
+        voidBusy={voidBusy}
+        onClose={() => {
+          setVoidTarget(null);
+          setVoidReason("");
         }}
-      >
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Void this payment?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {voidTarget
-                ? `Reverses ${peso(voidTarget.amount)}. If this payment was split across periods (a waterfall), every part is reversed. It stays in the ledger for audit but no longer counts toward any balance.`
-                : ""}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-2 px-1">
-            <Label htmlFor="void-reason" className="text-xs">
-              Reason (optional)
-            </Label>
-            <Input
-              id="void-reason"
-              value={voidReason}
-              onChange={(e) => setVoidReason(e.target.value)}
-              placeholder="e.g. duplicate entry"
-              maxLength={500}
-              disabled={voidBusy}
-            />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={voidBusy}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => {
-                e.preventDefault();
-                confirmVoid();
-              }}
-              disabled={voidBusy}
-              className="bg-red-600 hover:bg-red-700"
-            >
-              {voidBusy ? "Voiding..." : "Void payment"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onConfirmVoid={confirmVoid}
+      />
     </>
-  );
-}
-
-interface InvoiceRowProps {
-  invoice: BillingEntry;
-  busy: boolean;
-  onRecordPayment: () => void;
-  onViewHistory: () => void;
-  onSave: (body: UpdateBillingEntryInput) => void;
-}
-
-function chargesSignature(charges: BillingChargeItem[]): string {
-  return charges.map((c) => `${c.name}:${c.amount}`).join("|");
-}
-
-function sumCharges(charges: BillingChargeItem[]): number {
-  return charges.reduce((total, c) => total + c.amount, 0);
-}
-
-// Edits stage in a local draft and commit on one explicit Save → a single PATCH
-// (the server recomputes status). Reset discards the draft; nothing auto-saves.
-function InvoiceRow({
-  invoice,
-  busy,
-  onRecordPayment,
-  onViewHistory,
-  onSave,
-}: InvoiceRowProps) {
-  const [draftRent, setDraftRent] = useState(String(invoice.rentDue));
-  const [draftDate, setDraftDate] = useState(invoice.dueDate ?? "");
-  const [draftCharges, setDraftCharges] = useState<BillingChargeItem[]>(
-    invoice.charges,
-  );
-  const [editingCharges, setEditingCharges] = useState(false);
-
-  // Resync the draft when the persisted invoice changes (e.g. a save bumps
-  // updatedAt) — in render, not an effect, to avoid a synchronous setState there.
-  const version = [
-    invoice.rentDue,
-    invoice.dueDate ?? "",
-    invoice.updatedAt ?? "",
-    chargesSignature(invoice.charges),
-  ].join("§");
-  const [lastVersion, setLastVersion] = useState(version);
-  if (lastVersion !== version) {
-    setLastVersion(version);
-    setDraftRent(String(invoice.rentDue));
-    setDraftDate(invoice.dueDate ?? "");
-    setDraftCharges(invoice.charges);
-  }
-
-  const rentNum = Number(draftRent);
-  const rentValid = draftRent !== "" && Number.isFinite(rentNum) && rentNum >= 0;
-  const rentChanged = rentValid && rentNum !== invoice.rentDue;
-  const dateChanged = draftDate !== "" && draftDate !== (invoice.dueDate ?? "");
-  const chargesChanged =
-    chargesSignature(draftCharges) !== chargesSignature(invoice.charges);
-  const dirty = rentChanged || dateChanged || chargesChanged;
-
-  const draftOtherCharges = sumCharges(draftCharges);
-  const draftGross = (rentValid ? rentNum : invoice.rentDue) + draftOtherCharges;
-  // Auto-applied lease credit, clamped to what's actually owed after cash — the
-  // server caps it the same way, so an unedited invoice matches invoice.balance.
-  // While editing rent/charges it's a live estimate; the server recomputes on save.
-  const draftCredit = Math.min(
-    invoice.appliedCredit,
-    Math.max(0, draftGross - invoice.paidAmount),
-  );
-  const draftBalance = draftGross - invoice.paidAmount - draftCredit;
-
-  const reset = () => {
-    setDraftRent(String(invoice.rentDue));
-    setDraftDate(invoice.dueDate ?? "");
-    setDraftCharges(invoice.charges);
-  };
-
-  const save = () => {
-    const body: UpdateBillingEntryInput = {};
-    if (rentChanged) body.rentDue = rentNum;
-    if (dateChanged) body.dueDate = draftDate;
-    if (chargesChanged) body.charges = draftCharges;
-    if (Object.keys(body).length > 0) onSave(body);
-  };
-
-  return (
-    <Card className="border">
-      <CardContent className="p-4 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm">
-              Period {invoice.sequence ?? "—"}
-            </span>
-            <Badge
-              className={
-                STATUS_TONE[invoice.status] ??
-                "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-300"
-              }
-            >
-              {invoice.status}
-            </Badge>
-            {dirty && (
-              <Badge
-                variant="outline"
-                className="text-[10px] border-amber-300 text-amber-600"
-              >
-                Unsaved
-              </Badge>
-            )}
-            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-          </div>
-          <Input
-            type="date"
-            aria-label="Due date"
-            value={draftDate}
-            onChange={(e) => setDraftDate(e.target.value)}
-            className="h-7 w-36 text-xs"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm">
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">Rent</p>
-            <Input
-              type="number"
-              min="0"
-              step="0.01"
-              value={draftRent}
-              onChange={(e) => setDraftRent(e.target.value)}
-              className="h-7 text-sm"
-            />
-          </div>
-          <div className="space-y-1">
-            <p className="text-xs text-muted-foreground">Other charges</p>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 font-medium hover:text-primary"
-              onClick={() => setEditingCharges(true)}
-            >
-              {peso(draftOtherCharges)}
-              <Pencil className="h-3 w-3" />
-            </button>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Paid / Due</p>
-            {/* Paid is the effective settled amount: cash plus any applied credit,
-                so it stays consistent with the balance below. */}
-            <p className="font-medium">
-              {peso(invoice.paidAmount + draftCredit)} / {peso(draftGross)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Balance</p>
-            <p
-              className={`font-semibold ${
-                draftBalance > 0
-                  ? "text-red-600 dark:text-red-400"
-                  : "text-green-600 dark:text-green-400"
-              }`}
-            >
-              {peso(draftBalance)}
-            </p>
-          </div>
-        </div>
-
-        {draftCredit > 0 && (
-          <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-            Lease credit applied: −{peso(draftCredit)}
-          </p>
-        )}
-
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            {dirty ? (
-              <>
-                <Button size="sm" onClick={save} disabled={busy || !rentValid}>
-                  Save changes
-                </Button>
-                <Button size="sm" variant="ghost" onClick={reset} disabled={busy}>
-                  Reset
-                </Button>
-              </>
-            ) : (
-              invoice.updatedAt && (
-                <span className="text-[11px] text-muted-foreground">
-                  Updated {formatDateTime(invoice.updatedAt)}
-                </span>
-              )
-            )}
-          </div>
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={onViewHistory}
-              disabled={busy}
-            >
-              <History className="h-3.5 w-3.5 mr-1" />
-              History
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onRecordPayment}
-              disabled={busy}
-            >
-              Record Payment
-            </Button>
-          </div>
-        </div>
-      </CardContent>
-
-      {editingCharges && (
-        <OtherChargesPopup
-          isOpen
-          onClose={() => setEditingCharges(false)}
-          month={invoice.sequence ?? 0}
-          dueDate={draftDate || invoice.dueDate || ""}
-          existingItems={draftCharges.map((c, i) => ({
-            id: `charge-${i}`,
-            name: c.name,
-            amount: c.amount,
-          }))}
-          onSave={(_total, items) => {
-            setDraftCharges(
-              items.map((i) => ({ name: i.name, amount: i.amount })),
-            );
-            setEditingCharges(false);
-          }}
-        />
-      )}
-    </Card>
   );
 }
