@@ -36,179 +36,50 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/button";
-import { Card, CardContent } from "@/components/ui/card";
-// import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   Building,
-  User,
   MapPin,
-  Calendar,
-  Clock,
   Loader2,
   AlertCircle,
   Pencil,
-  Phone,
-  FileText,
-  ClipboardCheck,
-  CreditCard,
-  Home,
   Archive,
-  Trash2,
-  TrendingUp,
-  Plus,
-  Minus,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { toast } from "sonner";
-import type {
-  ActivityLog,
-  BillingEntry as ApiBillingEntry,
-} from "@unitko/shared";
+import type { ActivityLog } from "@unitko/shared";
 import { api } from "@/lib/api-client";
 import { EditPropertyPopup } from "@/components/edit-property-popup";
 import { EditBillingPopup } from "@/components/edit-billing-popup";
+import { AmenitiesPopup } from "@/components/amenities-popup";
+import { PropertyResetDialog } from "@/components/property-reset-dialog";
+import { archiveAndResetProperty } from "@/services/archiveService";
 import { billingStatusOf } from "./billing-status";
 import {
-  AmenitiesPopup,
-  AVAILABLE_AMENITIES,
-} from "@/components/amenities-popup";
-import { PropertyResetDialog } from "@/components/property-reset-dialog";
-import { ActionIcon, ActivityMetadata } from "@/components/activity-log";
-import { archiveAndResetProperty } from "@/services/archiveService";
-// import { ScrollArea } from "@/components/ui/scroll-area";
+  BillingEntry,
+  BillingDisplayRow,
+  Property,
+  PropertyDetailsPopupProps,
+  toLegacyEntry,
+  parseExpenseItems,
+  PropertyDetailsTab,
+  PropertySoaTab,
+  PropertyHistoryTab,
+  PropertyTransferredDialog,
+  PropertyPaymentDialog,
+} from "./property-details";
 
-// Define TypeScript interfaces for data structures
-interface BillingEntry {
-  id: string;
-  property_id: string;
-  tenant_id: string;
-  lease_id?: string;
-  period_id?: string;
-  due_date: string;
-  rent_due: number;
-  other_charges: number; // Keep for data compatibility
-  gross_due: number;
-  status: string;
-  billing_period: number;
-  paid_amount?: number;
-  // Lease credit auto-applied to this invoice, and the credit-net balance
-  // (gross − cash − applied credit). Both server-derived.
-  applied_credit: number;
-  balance: number;
-  created_at: string;
-  updated_at: string;
-  expense_items?: string; // Add this field for the JSON string of expense items
-}
-
-interface BillingDisplayRow {
-  key: string;
-  dueDate: string;
-  billingPeriod: number;
-  rentDue: number;
-  otherCharges: number;
-  grossDue: number;
-  paidAmount: number;
-  appliedCredit: number;
-  balance: number;
-  status: string;
-  expenseItems: ExpenseItem[];
-  sourceEntryCount: number;
-}
-
-interface ExpenseItem {
-  id: string;
-  name: string;
-  amount: number;
-}
-
-interface Tenant {
-  id: string;
-  property_id: string;
-  tenant_name: string;
-  email?: string;
-  contact_number: string;
-  tenant_slot?: number;
-  contract_months: number; // Number of billing periods (weekly, monthly, quarterly, etc.)
-  rent_start_date: string;
-  due_day: string;
-  is_active: boolean;
-  advance_payment?: number;
-  security_deposit?: number;
-  overflow?: number;
-  created_at: string;
-  updated_at: string;
-  billing_entries?: BillingEntry[];
-}
-
-interface Property {
-  id: string;
-  unit_name: string;
-  property_type: string;
-  occupancy_status: "occupied" | "vacant";
-  property_location: string;
-  rent_amount: number;
-  max_tenants?: number; // Bed space support
-  bed_space_billing_mode?: string; // 'unified' or 'per_tenant'
-  amenities?: string; // JSON string array of amenity IDs
-  notes?: string; // JSON array of notes
-  created_at: string;
-  updated_at: string;
-  tenants?: Tenant[];
-}
-
-interface PropertyNote {
-  id: string;
-  text: string;
-  createdAt: string;
-  updatedAt?: string;
-}
-
-interface PropertyDetailsPopupProps {
-  propertyId: string;
-  isOpen: boolean;
-  onClose: () => void;
-  onEdit?: (propertyId: string) => void;
-  onSuccess?: () => void;
-  defaultTab?: string;
-}
-
-// Maps an API invoice (derived figures, camelCase) onto the legacy per-tenant
-// billing row this component renders. expense_items is the charge list re-encoded
-// as JSON so the existing parseExpenseItems path keeps working.
-function toLegacyEntry(inv: ApiBillingEntry, propertyId: string): BillingEntry {
-  return {
-    id: inv.id,
-    property_id: propertyId,
-    tenant_id: inv.tenantId ?? "",
-    lease_id: inv.leaseId ?? undefined,
-    period_id: inv.periodId ?? undefined,
-    due_date: inv.dueDate ?? "",
-    rent_due: inv.rentDue,
-    other_charges: inv.otherCharges,
-    gross_due: inv.grossDue,
-    status: inv.status,
-    billing_period: inv.sequence ?? 0,
-    paid_amount: inv.paidAmount,
-    applied_credit: inv.appliedCredit,
-    balance: inv.balance,
-    created_at: "",
-    updated_at: "",
-    expense_items: JSON.stringify(
-      inv.charges.map((c) => ({ name: c.name, amount: c.amount })),
-    ),
-  };
-}
+export type {
+  BillingEntry,
+  BillingDisplayRow,
+  ExpenseItem,
+  Tenant,
+  Property,
+  PropertyNote,
+  PropertyDetailsPopupProps,
+} from "./property-details";
+export { toLegacyEntry } from "./property-details";
 
 export function PropertyDetailsPopup({
   propertyId,
@@ -269,8 +140,8 @@ export function PropertyDetailsPopup({
       setNewNoteText("");
       setIsAddingNote(false);
       toast.success("Note added successfully");
-    } catch (error) {
-      console.error("Error adding note:", error);
+    } catch (err) {
+      console.error("Error adding note:", err);
       toast.error("Failed to add note");
     }
   };
@@ -287,8 +158,8 @@ export function PropertyDetailsPopup({
       setEditingNoteIndex(null);
       setEditingNoteText("");
       toast.success("Note updated successfully");
-    } catch (error) {
-      console.error("Error updating note:", error);
+    } catch (err) {
+      console.error("Error updating note:", err);
       toast.error("Failed to update note");
     }
   };
@@ -300,8 +171,8 @@ export function PropertyDetailsPopup({
       await api.properties.deleteNote(propertyId, noteId);
       await fetchPropertyDetails();
       toast.success("Note deleted successfully");
-    } catch (error) {
-      console.error("Error deleting note:", error);
+    } catch (err) {
+      console.error("Error deleting note:", err);
       toast.error("Failed to delete note");
     }
   };
@@ -353,14 +224,7 @@ export function PropertyDetailsPopup({
 
   // Composes the property detail, its invoices, and its activity log from the
   // API into the nested, snake_case `Property` shape the rest of this component
-  // renders. Derived billing figures map onto the legacy column names; lease
-  // terms (contract length, start date, due day, advance/deposit) come from the
-  // property's shared active lease. `overflow` has no normalized equivalent
-  // (credit is derived from the payments ledger), so it stays 0.
-  //
-  // Tracks the currently-loaded property so a background refresh of the same
-  // property doesn't re-trigger the full-screen loader — which would unmount an
-  // open child popup (billing/edit) via the `if (loading) return` early-return.
+  // renders.
   const loadedPropertyRef = useRef<string | null>(null);
   const fetchPropertyDetails = useCallback(async () => {
     if (!isOpen || !propertyId) return;
@@ -455,13 +319,10 @@ export function PropertyDetailsPopup({
   }, [propertyId, isOpen]);
 
   useEffect(() => {
-    // Call the function in useEffect
     fetchPropertyDetails();
   }, [fetchPropertyDetails]);
 
-  // Reset the transient view state when the modal opens (or its inputs change
-  // while open) during render — per React's "adjust state on prop change"
-  // guidance — rather than in open-effects that synchronously set state.
+  // Reset transient view state when modal opens or inputs change per React guidance
   const [viewAnchor, setViewAnchor] = useState({
     open: isOpen,
     propertyId,
@@ -484,249 +345,7 @@ export function PropertyDetailsPopup({
     }
   }
 
-  // Enhanced status styling with improved colors and design
-  const getStatusColorClass = (status: string): string => {
-    const lowerStatus = status.toLowerCase();
-
-    // Paid - Green
-    if (lowerStatus.includes("collected") || lowerStatus === "paid") {
-      return "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-800/50";
-    }
-
-    // Needs Monitoring - Orange/Yellow
-    if (lowerStatus.includes("delayed") || lowerStatus === "needs monitoring") {
-      return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-900/50 dark:text-amber-300 dark:border-amber-800/50";
-    }
-
-    // Problem/Urgent - Red
-    if (
-      lowerStatus.includes("overdue") ||
-      lowerStatus.includes("problem") ||
-      lowerStatus.includes("urgent")
-    ) {
-      return "bg-red-200 text-red-900 border-red-300 ring-1 ring-red-300/60 dark:bg-red-900/60 dark:text-red-200 dark:border-red-700/70 dark:ring-red-700/40";
-    }
-
-    // Not Yet Due / Upcoming - Blue
-    if (
-      lowerStatus.includes("not yet due") ||
-      lowerStatus.includes("upcoming")
-    ) {
-      return "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/50 dark:text-blue-300 dark:border-blue-800/50";
-    }
-
-    // Not Yet Set - Light Gray/Muted
-    if (lowerStatus.includes("not yet set")) {
-      return "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/50 dark:text-slate-400 dark:border-slate-700/50";
-    }
-
-    // Transferred - the open balance moved to another unit (settled here) - Violet
-    if (lowerStatus === "transferred") {
-      return "bg-violet-100 text-violet-800 border-violet-200 dark:bg-violet-900/50 dark:text-violet-300 dark:border-violet-800/50";
-    }
-
-    // Default / Neutral - Gray
-    return "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800/50 dark:text-gray-300 dark:border-gray-700/50";
-  };
-
-  // Convert billing status to payment display status
-  // Capitalize status for display consistency
-  const formatStatusForDisplay = (status: string): string => {
-    // Keep the actual status but ensure proper capitalization
-    if (status.toLowerCase() === "overdue") return "Overdue";
-    if (status === "Paid") return "Paid";
-    if (status === "Partial") return "Partial";
-    if (status === "Not Yet Due") return "Not Yet Due";
-    if (status === "Not Yet Set") return "Not Yet Set";
-    return status;
-  };
-
-  const formatCurrency = (amount: number): string => {
-    return new Intl.NumberFormat("en-PH", {
-      style: "currency",
-      currency: "PHP",
-      minimumFractionDigits: 2,
-    }).format(amount);
-  };
-
-  const formatDate = (dateString: string): string => {
-    if (!dateString) return "";
-
-    // Check if it's already formatted (e.g., "Sep 14, 2025")
-    if (dateString.includes(",")) {
-      return dateString;
-    }
-
-    const monthNames = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-
-    // Handle ISO date string (YYYY-MM-DD)
-    if (dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
-      const [year, month, day] = dateString.split("-").map(Number);
-      return `${monthNames[month - 1]} ${day}, ${year}`;
-    }
-
-    // Handle full ISO datetime strings (with T or Z)
-    if (dateString.includes("T") || dateString.includes("Z")) {
-      const date = new Date(dateString);
-      const year = date.getFullYear();
-      const month = date.getMonth();
-      const day = date.getDate();
-      return `${monthNames[month]} ${day}, ${year}`;
-    }
-
-    // Fallback: try to parse and handle as local date
-    const parts = dateString.split("-");
-    if (parts.length === 3) {
-      const [year, month, day] = parts.map(Number);
-      return `${monthNames[month - 1]} ${day}, ${year}`;
-    }
-
-    // Last resort fallback
-    return dateString;
-  };
-
-  const formatDueDate = (dateString: string): string => {
-    if (!dateString) return "";
-
-    // If already formatted, return as is
-    if (dateString.includes(",")) {
-      return dateString;
-    }
-
-    const monthNames = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-
-    // Parse the date string manually to avoid timezone conversion
-    let year: number, month: number, day: number;
-
-    if (dateString.includes("-")) {
-      [year, month, day] = dateString.split("-").map(Number);
-    } else if (dateString.includes("/")) {
-      const parts = dateString.split("/");
-      month = parseInt(parts[0]);
-      day = parseInt(parts[1]);
-      year = parseInt(parts[2]);
-    } else {
-      return dateString;
-    }
-
-    return `${monthNames[month - 1]} ${day}, ${year}`;
-  };
-
-  const formatDateTime = (dateString: string): string => {
-    if (!dateString) return "";
-
-    const monthNames = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-
-    const date = new Date(dateString);
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const day = date.getDate();
-    const hours = date.getHours();
-    const minutes = date.getMinutes();
-
-    // Format to 12-hour time with AM/PM
-    const period = hours >= 12 ? "PM" : "AM";
-    const displayHours = hours % 12 || 12;
-    const displayMinutes = minutes.toString().padStart(2, "0");
-
-    return `${monthNames[month]} ${day}, ${year}, ${displayHours}:${displayMinutes} ${period}`;
-  };
-
-  // Calculate days until due
-  const calculateDaysUntilDue = (dueDate: string | undefined): number => {
-    // Parse as local date to avoid timezone offset
-    if (!dueDate) {
-      return 0;
-    }
-
-    const [year, month, day] = dueDate.split("-").map(Number);
-    const due = new Date(year, month - 1, day);
-
-    // Get today at midnight local time
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    return Math.ceil((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  };
-
-  const parseExpenseItems = (entry: BillingEntry): ExpenseItem[] => {
-    const fallbackItems: ExpenseItem[] = [
-      {
-        id: `default-${entry.id}`,
-        name: "Miscellaneous",
-        amount: entry.other_charges,
-      },
-    ];
-
-    if (typeof entry.expense_items !== "string") {
-      return fallbackItems;
-    }
-
-    const rawExpenseItems = entry.expense_items.trim();
-    if (!rawExpenseItems) {
-      return fallbackItems;
-    }
-
-    try {
-      const parsed = JSON.parse(rawExpenseItems);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .filter((item) => item && typeof item === "object")
-          .map((item, index) => ({
-            id: String(item.id ?? `${entry.id}-${index}`),
-            name: String(item.name ?? "Miscellaneous"),
-            amount: Number(item.amount ?? 0),
-          }));
-      }
-    } catch (error) {
-      console.error("Failed to parse expense items:", error);
-    }
-
-    return fallbackItems;
-  };
-
-  // Properties are archived (the lease ends, history is preserved), never
-  // hard-deleted — there is no delete endpoint by design. Recording a payment
-  // posts to the ledger; balances and status stay derived.
+  // Properties are archived (the lease ends, history is preserved), never hard-deleted
   const handleApplyPayment = async () => {
     if (!property || !activeTenant || paymentAmount === 0) return;
     if (paymentAmount < 0) {
@@ -749,10 +368,6 @@ export function PropertyDetailsPopup({
         : undefined;
       const notes = paymentNote.trim() || undefined;
 
-      // The API waterfalls a rent payment across the lease's unpaid invoices
-      // (oldest-first, capped per invoice) and books any surplus as a lease-level
-      // credit; deposit/advance stay lease-level. paid_amount/balance/status stay
-      // derived, so a single POST does the whole allocation.
       await api.payments.record({
         leaseId,
         amount: paymentAmount,
@@ -791,7 +406,7 @@ export function PropertyDetailsPopup({
       <Dialog open={isOpen} onOpenChange={onClose}>
         <DialogContent
           className="sm:max-w-[95%] md:max-w-[90%] lg:max-w-[900px] max-h-[90vh] p-0"
-          aria-describedby="loading-description" // This correctly matches the ID below
+          aria-describedby="loading-description"
         >
           <DialogHeader className="sr-only">
             <DialogTitle>Property Details</DialogTitle>
@@ -849,7 +464,6 @@ export function PropertyDetailsPopup({
   }));
 
   const tenantIdsByIndex = activeTenants.map((tenant) => tenant.id);
-
   const paxCount = activeTenants.length || 1;
 
   const billingEntries =
@@ -862,16 +476,9 @@ export function PropertyDetailsPopup({
           )
       : activeTenant?.billing_entries || [];
 
-  // Transferred invoices moved to another unit. Keep them out of the live
-  // statement (and its per-period aggregation, where a transferred invoice sharing
-  // a period with an active one would corrupt the shared row's status) and surface
-  // them on their own in the archive box.
   const liveBillingEntries = billingEntries.filter(
     (e) => e.status !== "Transferred",
   );
-
-  const currentDate = new Date();
-  currentDate.setHours(0, 0, 0, 0);
 
   const isIndividualBillingView =
     paxCount > 1 && billingViewMode.startsWith("tenant-");
@@ -948,10 +555,8 @@ export function PropertyDetailsPopup({
     return Array.from(groupedRows.values());
   })();
 
-  // Recent Transactions: Entries that have been paid (Paid or Partial) sorted by most recent
   const recentPayments: BillingEntry[] = liveBillingEntries
     .filter((entry) => {
-      // Single-invoice status is canonical on the server (credit-inclusive + date-aware).
       return entry.status === "Paid" || entry.status === "Partial";
     })
     .sort(
@@ -959,17 +564,14 @@ export function PropertyDetailsPopup({
     )
     .slice(0, 5);
 
-  // Upcoming Payments: Unpaid/Partial entries (excluding Not Yet Set), sorted by due date
   const upcomingPayments: BillingEntry[] = liveBillingEntries
     .filter((entry) => {
-      // Everything not fully paid and not unset, by the canonical server status.
       return entry.status !== "Paid" && entry.status !== "Not Yet Set";
     })
     .sort(
       (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime(),
     );
 
-  // Calculate financial summaries for the current view mode (consolidated or selected tenant)
   const totalRevenue = billingDisplayRows.reduce(
     (sum, entry) => sum + entry.paidAmount,
     0,
@@ -982,7 +584,6 @@ export function PropertyDetailsPopup({
       entry.balance,
       entry.dueDate,
     );
-    // Server-derived balance is already net of applied lease credit.
     const balance = Math.max(0, entry.balance);
     return effectiveStatus === "Not Yet Due" ? sum + balance : sum;
   }, 0);
@@ -1004,7 +605,7 @@ export function PropertyDetailsPopup({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent
         className="sm:max-w-[95%] md:max-w-[90%] lg:max-w-[900px] p-0 max-h-[95vh] overflow-hidden flex flex-col"
-        aria-describedby="property-details-description" // Add this specific ID
+        aria-describedby="property-details-description"
       >
         {/* Header - Sticky */}
         <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm border-b p-4 md:p-6 pb-3 md:pb-4">
@@ -1031,7 +632,7 @@ export function PropertyDetailsPopup({
                     {property.unit_name}
                   </DialogTitle>
                   <DialogDescription
-                    id="property-details-description" // Use the same ID as aria-describedby
+                    id="property-details-description"
                     className="flex items-center mt-0.5"
                   >
                     <MapPin className="h-3 w-3 md:h-3.5 md:w-3.5 mr-1 text-muted-foreground flex-shrink-0" />
@@ -1042,7 +643,6 @@ export function PropertyDetailsPopup({
                 </div>
               </div>
 
-              {/* Status Badge - Responsive positioning */}
               <Badge
                 variant="outline"
                 className={`${
@@ -1091,7 +691,7 @@ export function PropertyDetailsPopup({
             </div>
           )}
 
-          {/* Archived transfers — kept out of the live statement above */}
+          {/* Archived transfers button — shown only in finances tab */}
           {activeTab === "finances" && archivedTransfers.length > 0 && (
             <div className="mx-4 md:mx-6 mt-3 flex justify-end">
               <Button
@@ -1110,1472 +710,71 @@ export function PropertyDetailsPopup({
             value="details"
             className="flex-1 overflow-auto px-4 md:px-6 pt-4 pb-16"
           >
-            <div className="space-y-4 md:space-y-6">
-              {/* Details tab content... */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                <Card className="shadow-sm">
-                  <CardContent className="p-4 md:p-6">
-                    <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center">
-                      <Building className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
-                      Property Information
-                    </h3>
-                    <div className="space-y-2 md:space-y-3 text-sm">
-                      <div className="grid grid-cols-2 items-center">
-                        <span className="text-muted-foreground text-xs md:text-sm">
-                          Property Type
-                        </span>
-                        <span className="font-medium text-xs md:text-sm">
-                          {property.property_type}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 items-center">
-                        <span className="text-muted-foreground text-xs md:text-sm">
-                          Monthly Rent per Tenant
-                        </span>
-                        <span className="font-medium text-green-600 dark:text-green-400 text-xs md:text-sm">
-                          ~ {formatCurrency(property.rent_amount)}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 items-center">
-                        <span className="text-muted-foreground text-xs md:text-sm">
-                          Status
-                        </span>
-                        <span className="font-medium text-xs md:text-sm">
-                          {property.occupancy_status === "occupied" &&
-                          property.max_tenants ? (
-                            paxCount > property.max_tenants ? (
-                              <span
-                                className="text-amber-600 dark:text-amber-400"
-                                title="Over capacity — adjust capacity in Edit Property or remove tenants"
-                              >
-                                Occupied ({paxCount}/{property.max_tenants}) ⚠
-                              </span>
-                            ) : (
-                              <span className="text-green-600 dark:text-green-400">
-                                Occupied ({paxCount}/{property.max_tenants})
-                              </span>
-                            )
-                          ) : (
-                            <span className="capitalize">
-                              {property.occupancy_status}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2 items-center">
-                        <span className="text-muted-foreground text-xs md:text-sm">
-                          Date Added
-                        </span>
-                        <span className="font-medium text-xs md:text-sm">
-                          {formatDate(property.created_at)}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-2">
-                        <span className="text-muted-foreground text-xs md:text-sm">
-                          Location
-                        </span>
-                        <span className="font-medium break-words text-xs md:text-sm">
-                          {property.property_location}
-                        </span>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {activeTenant ? (
-                  <Card className="shadow-sm">
-                    <CardContent className="p-4 md:p-6">
-                      <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center">
-                        <User className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
-                        Tenant Information
-                      </h3>
-                      <div className="space-y-4">
-                        {/* Contract Details */}
-                        <div className="space-y-2 md:space-y-3 text-sm">
-                          <div className="grid grid-cols-2 items-center">
-                            <span className="text-muted-foreground text-xs md:text-sm">
-                              Number of Occupants
-                            </span>
-                            <span className="font-medium text-xs md:text-sm">
-                              {activeTenants.length}{" "}
-                              {activeTenants.length === 1
-                                ? "person"
-                                : "people"}
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-2 items-center">
-                            <span className="text-muted-foreground text-xs md:text-sm">
-                              Contract Duration
-                            </span>
-                            <span className="font-medium text-xs md:text-sm">
-                              {activeTenant.contract_months}{" "}
-                              {activeTenant.contract_months === 1
-                                ? "period"
-                                : "periods"}
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-2 items-center">
-                            <span className="text-muted-foreground text-xs md:text-sm">
-                              Rent Agreement Date
-                            </span>
-                            <span className="font-medium text-xs md:text-sm">
-                              {formatDate(activeTenant.rent_start_date)}
-                            </span>
-                          </div>
-                          <div className="grid grid-cols-2 items-center">
-                            <span className="text-muted-foreground text-xs md:text-sm">
-                              Payment Due Marker
-                            </span>
-                            <span className="font-medium text-xs md:text-sm">
-                              {activeTenant.due_day.includes(",")
-                                ? (() => {
-                                    const [firstDay = "", secondDay = ""] =
-                                      activeTenant.due_day.split(",");
-                                    return `Days ${firstDay.trim()} and ${secondDay.trim()} of each billing period`;
-                                  })()
-                                : activeTenant.due_day === "last"
-                                  ? "Last day of each billing period"
-                                  : `Day ${activeTenant.due_day} of each billing period`}
-                            </span>
-                          </div>
-                          {((activeTenant.advance_payment !== undefined &&
-                            activeTenant.advance_payment > 0) ||
-                            (activeTenant.security_deposit !== undefined &&
-                              activeTenant.security_deposit > 0) ||
-                            (activeTenant.overflow !== undefined &&
-                              activeTenant.overflow > 0)) && (
-                            <>
-                              <div className="col-span-2 border-t my-2"></div>
-                              {activeTenant.advance_payment !== undefined &&
-                                activeTenant.advance_payment > 0 && (
-                                  <div className="grid grid-cols-2 items-center">
-                                    <span className="text-muted-foreground text-xs md:text-sm">
-                                      Advance Payment
-                                    </span>
-                                    <span className="font-medium text-green-600 dark:text-green-400 text-xs md:text-sm">
-                                      {formatCurrency(
-                                        activeTenant.advance_payment,
-                                      )}
-                                    </span>
-                                  </div>
-                                )}
-                              {activeTenant.security_deposit !== undefined &&
-                                activeTenant.security_deposit > 0 && (
-                                  <div className="grid grid-cols-2 items-center">
-                                    <span className="text-muted-foreground text-xs md:text-sm">
-                                      Security Deposit
-                                    </span>
-                                    <span className="font-medium text-green-600 dark:text-green-400 text-xs md:text-sm">
-                                      {formatCurrency(
-                                        activeTenant.security_deposit,
-                                      )}
-                                    </span>
-                                  </div>
-                                )}
-                              {activeTenant.overflow !== undefined &&
-                                activeTenant.overflow > 0 && (
-                                  <div className="grid grid-cols-2 items-center">
-                                    <span className="text-muted-foreground text-xs md:text-sm flex items-center gap-1">
-                                      <TrendingUp className="h-3 w-3" />
-                                      Overflow (Excess Payment)
-                                    </span>
-                                    <span className="font-medium text-blue-600 dark:text-blue-400 text-xs md:text-sm">
-                                      {formatCurrency(activeTenant.overflow)}
-                                    </span>
-                                  </div>
-                                )}
-                            </>
-                          )}
-                        </div>
-
-                        {/* Occupant Details */}
-                        {paxCount > 0 && (
-                          <div className="border-t pt-4">
-                            <h4 className="text-sm font-semibold mb-3">
-                              Occupant Details ({paxCount}/{paxCount} Occupied)
-                            </h4>
-                            <div className="space-y-3">
-                              {Array.from({ length: paxCount }, (_, index) => {
-                                const person = tenantProfiles[index];
-                                const isOccupied =
-                                  person?.name && person.name.trim() !== "";
-
-                                return (
-                                  <div
-                                    key={index}
-                                    className={`p-3 rounded-lg border ${
-                                      isOccupied
-                                        ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
-                                        : "bg-gray-50 dark:bg-gray-900/30 border-gray-200 dark:border-gray-800 border-dashed"
-                                    }`}
-                                  >
-                                    <div className="flex items-start gap-3">
-                                      <div
-                                        className={`h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                                          isOccupied
-                                            ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
-                                            : "bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-600"
-                                        }`}
-                                      >
-                                        <User className="h-5 w-5" />
-                                      </div>
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 mb-1">
-                                          <p
-                                            className={`font-medium text-sm ${
-                                              isOccupied
-                                                ? "text-foreground"
-                                                : "text-muted-foreground italic"
-                                            }`}
-                                          >
-                                            {isOccupied
-                                              ? person.name
-                                              : `Slot ${index + 1} - Vacant`}
-                                          </p>
-                                          {isOccupied && (
-                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300">
-                                              Occupied
-                                            </span>
-                                          )}
-                                          {!isOccupied && (
-                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
-                                              Available
-                                            </span>
-                                          )}
-                                        </div>
-                                        {isOccupied ? (
-                                          <>
-                                            {person.email && (
-                                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
-                                                <svg
-                                                  xmlns="http://www.w3.org/2000/svg"
-                                                  className="h-3 w-3"
-                                                  viewBox="0 0 24 24"
-                                                  fill="none"
-                                                  stroke="currentColor"
-                                                  strokeWidth="2"
-                                                  strokeLinecap="round"
-                                                  strokeLinejoin="round"
-                                                >
-                                                  <rect
-                                                    width="20"
-                                                    height="16"
-                                                    x="2"
-                                                    y="4"
-                                                    rx="2"
-                                                  />
-                                                  <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
-                                                </svg>
-                                                <span className="truncate">
-                                                  {person.email}
-                                                </span>
-                                              </div>
-                                            )}
-                                            {person.phone && (
-                                              <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                                <Phone className="h-3 w-3" />
-                                                <span>{person.phone}</span>
-                                              </div>
-                                            )}
-                                          </>
-                                        ) : (
-                                          <p className="text-xs text-muted-foreground">
-                                            No tenant assigned to this slot
-                                          </p>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  <Card className="shadow-sm">
-                    <CardContent className="p-4 md:p-6">
-                      <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center">
-                        <User className="h-4 w-4 md:h-5 md:w-5 mr-2 text-muted-foreground" />
-                        Tenant Information
-                      </h3>
-                      <div className="flex flex-col items-center justify-center h-24 md:h-32 text-center text-muted-foreground">
-                        <Building className="h-6 w-6 md:h-8 md:w-8 mb-2 opacity-40" />
-                        <p className="text-xs md:text-sm">
-                          This property is currently vacant
-                        </p>
-                        <p className="text-xs mt-1">
-                          Add a tenant once the property is rented
-                        </p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-
-              {property.occupancy_status === "occupied" && activeTenant && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
-                  <Card className="shadow-sm">
-                    <CardContent className="p-4 md:p-6">
-                      <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center">
-                        <Calendar className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
-                        Upcoming Payments
-                      </h3>
-                      {upcomingPayments.length > 0 ? (
-                        <div className="space-y-2 md:space-y-3">
-                          {upcomingPayments.slice(0, 3).map((payment) => {
-                            const displayStatus = formatStatusForDisplay(
-                              payment.status,
-                            );
-                            const daysUntil = calculateDaysUntilDue(
-                              payment.due_date,
-                            );
-
-                            // Get tenant-specific amounts and payments for multi-tenant properties
-                            const showTenantDetails = paxCount > 1;
-                            const tenantDetails: Array<{
-                              name: string;
-                              due: number;
-                              paid: number;
-                              balance: number;
-                            }> = [];
-
-                            if (showTenantDetails) {
-                              const tenantIdx = tenantIdsByIndex.findIndex(
-                                (id) => id === payment.tenant_id,
-                              );
-                              const person =
-                                tenantIdx >= 0
-                                  ? tenantProfiles[tenantIdx]
-                                  : undefined;
-                              const tenantName =
-                                person?.name ||
-                                (tenantIdx >= 0
-                                  ? `Tenant ${tenantIdx + 1}`
-                                  : "Tenant");
-
-                              const tenantDue = payment.gross_due;
-                              const tenantPaid = payment.paid_amount || 0;
-                              const tenantBalance = tenantDue - tenantPaid;
-
-                              if (tenantBalance > 0.01) {
-                                tenantDetails.push({
-                                  name: tenantName,
-                                  due: tenantDue,
-                                  paid: tenantPaid,
-                                  balance: tenantBalance,
-                                });
-                              }
-                            }
-
-                            return (
-                              <div
-                                key={payment.id}
-                                className="flex flex-col p-2 md:p-3 bg-muted/30 rounded-lg border"
-                              >
-                                <div className="flex justify-between items-center">
-                                  <div className="flex items-center">
-                                    <Clock className="h-3.5 w-3.5 text-blue-500 mr-1.5 flex-shrink-0" />
-                                    <div>
-                                      <p className="text-xs md:text-sm font-medium">
-                                        {formatDueDate(payment.due_date)}
-                                      </p>
-                                      <p className="text-[10px] md:text-xs text-muted-foreground">
-                                        {daysUntil < 0
-                                          ? `${Math.abs(daysUntil)} days overdue`
-                                          : `Due in ${daysUntil} days`}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="text-right">
-                                    <span className="text-xs md:text-sm font-bold block">
-                                      {formatCurrency(
-                                        payment.gross_due -
-                                          (payment.paid_amount || 0),
-                                      )}
-                                    </span>
-                                    <Badge
-                                      variant="outline"
-                                      className={`text-[10px] md:text-xs mt-1 ${getStatusColorClass(
-                                        displayStatus,
-                                      )}`}
-                                    >
-                                      {displayStatus}
-                                    </Badge>
-                                  </div>
-                                </div>
-                                {showTenantDetails &&
-                                  tenantDetails.length > 0 && (
-                                    <div className="mt-2 pt-2 border-t border-muted space-y-1">
-                                      {tenantDetails.map((tenant, idx) => (
-                                        <div
-                                          key={idx}
-                                          className="flex items-center justify-between text-[10px] md:text-xs"
-                                        >
-                                          <div className="flex items-center gap-1">
-                                            <User className="h-2.5 w-2.5 text-muted-foreground" />
-                                            <span className="text-muted-foreground">
-                                              {tenant.name}:
-                                            </span>
-                                          </div>
-                                          <span className="font-semibold">
-                                            {formatCurrency(tenant.balance)}
-                                          </span>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center h-20 md:h-24 text-center text-muted-foreground">
-                          <p className="text-xs md:text-sm">
-                            No upcoming payments
-                          </p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-
-                  <Card className="shadow-sm">
-                    <CardContent className="p-4 md:p-6">
-                      <h3 className="text-base md:text-lg font-semibold mb-3 md:mb-4 flex items-center">
-                        Recent Transactions
-                      </h3>
-                      {recentPayments.length > 0 ? (
-                        <div className="space-y-2 md:space-y-3">
-                          {recentPayments.slice(0, 3).map((payment) => {
-                            // Parse expense items
-                            let expenseItems: ExpenseItem[] = [
-                              {
-                                id: `default-${payment.id}`,
-                                name: "Miscellaneous",
-                                amount: payment.other_charges,
-                              },
-                            ];
-
-                            if (payment.expense_items) {
-                              try {
-                                const parsed = JSON.parse(
-                                  payment.expense_items,
-                                );
-                                if (Array.isArray(parsed)) {
-                                  expenseItems = parsed;
-                                }
-                              } catch {
-                                expenseItems = [
-                                  {
-                                    id: `default-${payment.id}`,
-                                    name: "Miscellaneous",
-                                    amount: payment.other_charges,
-                                  },
-                                ];
-                              }
-                            }
-
-                            const displayStatus = formatStatusForDisplay(
-                              payment.status,
-                            );
-
-                            // Get tenant-specific payment details for multi-tenant properties
-                            const showTenantDetails = paxCount > 1;
-                            const tenantPaymentDetails: Array<{
-                              name: string;
-                              amount: number;
-                            }> = [];
-
-                            if (showTenantDetails) {
-                              const tenantIdx = tenantIdsByIndex.findIndex(
-                                (id) => id === payment.tenant_id,
-                              );
-                              const person =
-                                tenantIdx >= 0
-                                  ? tenantProfiles[tenantIdx]
-                                  : undefined;
-                              const tenantName =
-                                person?.name ||
-                                (tenantIdx >= 0
-                                  ? `Tenant ${tenantIdx + 1}`
-                                  : "Tenant");
-                              const tenantPaid = payment.paid_amount || 0;
-
-                              if (tenantPaid > 0.01) {
-                                tenantPaymentDetails.push({
-                                  name: tenantName,
-                                  amount: tenantPaid,
-                                });
-                              }
-                            }
-
-                            return (
-                              <div
-                                key={payment.id}
-                                className="flex flex-col p-2 md:p-3 bg-muted/30 rounded-lg border group"
-                              >
-                                <div className="flex justify-between items-center">
-                                  <div className="flex items-center">
-                                    <CreditCard className="h-3.5 w-3.5 text-muted-foreground mr-1.5 flex-shrink-0" />
-                                    <div>
-                                      <p className="text-xs md:text-sm font-medium">
-                                        {formatDate(payment.due_date)}
-                                      </p>
-                                      <p className="text-[10px] md:text-xs text-muted-foreground">
-                                        {payment.billing_period > 0
-                                          ? `Billing Period #${payment.billing_period}`
-                                          : "Additional Charge"}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="text-right">
-                                    <span className="text-xs md:text-sm font-bold">
-                                      {formatCurrency(payment.paid_amount || 0)}
-                                    </span>
-                                    <Badge
-                                      variant="outline"
-                                      className={`block mt-1 text-[10px] md:text-xs ${getStatusColorClass(
-                                        displayStatus,
-                                      )}`}
-                                    >
-                                      {displayStatus}
-                                    </Badge>
-
-                                    {/* Expense items tooltip - more mobile friendly - wrapper technique */}
-                                    <span className="absolute invisible group-hover:visible z-[100]">
-                                      <span className="relative block right-0 bottom-full mb-1 bg-popover shadow-md rounded-md p-2 w-48 xs:w-64 border">
-                                        <div className="text-xs font-medium mb-1">
-                                          Expense Breakdown:
-                                        </div>
-                                        <div className="flex justify-between text-xs mb-1">
-                                          <span>Rent</span>
-                                          <span>
-                                            {formatCurrency(payment.rent_due)}
-                                          </span>
-                                        </div>
-                                        {expenseItems.map((item) => (
-                                          <div
-                                            key={item.id}
-                                            className="flex justify-between text-xs mb-1"
-                                          >
-                                            <span className="truncate mr-2">
-                                              {item.name}
-                                            </span>
-                                            <span className="flex-shrink-0">
-                                              {formatCurrency(item.amount)}
-                                            </span>
-                                          </div>
-                                        ))}
-                                        <div className="border-t pt-1 mt-1 text-xs font-semibold">
-                                          <div className="flex justify-between">
-                                            <span>Total</span>
-                                            <span>
-                                              {formatCurrency(
-                                                payment.gross_due,
-                                              )}
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </span>
-                                    </span>
-                                  </div>
-                                </div>
-                                {showTenantDetails &&
-                                  tenantPaymentDetails.length > 0 && (
-                                    <div className="mt-2 pt-2 border-t border-muted space-y-1">
-                                      {tenantPaymentDetails.map(
-                                        (tenant, idx) => (
-                                          <div
-                                            key={idx}
-                                            className="flex items-center justify-between text-[10px] md:text-xs"
-                                          >
-                                            <div className="flex items-center gap-1">
-                                              <User className="h-2.5 w-2.5 text-green-600" />
-                                              <span className="text-muted-foreground">
-                                                {tenant.name} paid:
-                                              </span>
-                                            </div>
-                                            <span className="font-semibold text-green-600">
-                                              {formatCurrency(tenant.amount)}
-                                            </span>
-                                          </div>
-                                        ),
-                                      )}
-                                    </div>
-                                  )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="flex flex-col items-center justify-center h-20 md:h-24 text-center text-muted-foreground">
-                          <p className="text-xs md:text-sm">
-                            No recent transactions
-                          </p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
-
-              {/* Amenities and Notes Section - Side by Side */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-                {/* Amenities Section */}
-                <Card className="shadow-sm">
-                  <CardContent className="p-4 md:p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-base md:text-lg font-semibold flex items-center">
-                        <Home className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
-                        What this place offers
-                      </h3>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setIsAmenitiesPopupOpen(true)}
-                        className="text-xs h-8"
-                      >
-                        <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                        Edit
-                      </Button>
-                    </div>
-
-                    {property &&
-                    property.amenities &&
-                    JSON.parse(property.amenities).length > 0 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {JSON.parse(property.amenities).map(
-                          (amenityId: string) => {
-                            const amenity = AVAILABLE_AMENITIES.find(
-                              (a) => a.id === amenityId,
-                            );
-                            if (!amenity) return null;
-                            return (
-                              <div
-                                key={amenity.id}
-                                className="flex items-center gap-3 p-3 rounded-lg border bg-muted/20"
-                              >
-                                <span className="text-muted-foreground">
-                                  {amenity.icon}
-                                </span>
-                                <span className="text-sm">{amenity.name}</span>
-                              </div>
-                            );
-                          },
-                        )}
-                      </div>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
-                        <Home className="h-8 w-8 mb-2 opacity-40" />
-                        <p className="text-sm">No amenities added yet</p>
-                        <p className="text-xs mt-1">
-                          Click Edit to add amenities to this property
-                        </p>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Notes Section */}
-                <Card className="shadow-sm">
-                  <CardContent className="p-4 md:p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-base md:text-lg font-semibold flex items-center">
-                        <FileText className="h-4 w-4 md:h-5 md:w-5 mr-2 text-orange-600" />
-                        Property Notes
-                      </h3>
-                      {!isAddingNote && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setIsAddingNote(true)}
-                          className="text-xs h-8"
-                        >
-                          <Plus className="h-3.5 w-3.5 mr-1.5" />
-                          Add Note
-                        </Button>
-                      )}
-                    </div>
-
-                    {/* Add Note Form */}
-                    {isAddingNote && (
-                      <div className="mb-4 p-3 bg-muted/30 rounded-lg border">
-                        <textarea
-                          value={newNoteText}
-                          onChange={(e) => setNewNoteText(e.target.value)}
-                          placeholder="Enter your note e.g. penalty for late payment, maintenance issues, tenant complaints, etc."
-                          className="w-full min-h-[80px] p-2 text-sm border rounded-md resize-none focus:ring-1 focus:ring-primary bg-background"
-                          autoFocus
-                        />
-                        <div className="flex gap-2 mt-2">
-                          <Button
-                            size="sm"
-                            onClick={handleAddNote}
-                            disabled={!newNoteText.trim()}
-                            className="text-xs h-8"
-                          >
-                            Save Note
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => {
-                              setIsAddingNote(false);
-                              setNewNoteText("");
-                            }}
-                            className="text-xs h-8"
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Notes List */}
-                    {property &&
-                    property.notes &&
-                    JSON.parse(property.notes).length > 0 ? (
-                      <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                        {JSON.parse(property.notes).map(
-                          (note: PropertyNote, index: number) => (
-                            <div
-                              key={note.id}
-                              className="p-3 rounded-lg border bg-muted/20 group hover:bg-muted/30 transition-colors"
-                            >
-                              {editingNoteIndex === index ? (
-                                <div className="space-y-2">
-                                  <textarea
-                                    value={editingNoteText}
-                                    onChange={(e) =>
-                                      setEditingNoteText(e.target.value)
-                                    }
-                                    className="w-full min-h-[60px] p-2 text-sm border rounded-md resize-none focus:ring-1 focus:ring-primary bg-background"
-                                    autoFocus
-                                  />
-                                  <div className="flex gap-2">
-                                    <Button
-                                      size="sm"
-                                      onClick={() => handleUpdateNote(index)}
-                                      disabled={!editingNoteText.trim()}
-                                      className="text-xs h-7"
-                                    >
-                                      Save
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={cancelEditingNote}
-                                      className="text-xs h-7"
-                                    >
-                                      Cancel
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <>
-                                  <p className="text-sm mb-2 whitespace-pre-wrap">
-                                    {note.text}
-                                  </p>
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs text-muted-foreground">
-                                      {note.updatedAt
-                                        ? `Updated ${formatDateTime(note.updatedAt)}`
-                                        : `Added ${formatDateTime(note.createdAt)}`}
-                                    </span>
-                                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() =>
-                                          startEditingNote(index, note.text)
-                                        }
-                                        className="h-7 w-7 p-0"
-                                      >
-                                        <Pencil className="h-3.5 w-3.5" />
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() => handleDeleteNote(index)}
-                                        className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </Button>
-                                    </div>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          ),
-                        )}
-                      </div>
-                    ) : !isAddingNote ? (
-                      <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
-                        <FileText className="h-8 w-8 mb-2 opacity-40" />
-                        <p className="text-sm">No notes added yet</p>
-                        <p className="text-xs mt-1">
-                          Click Add Note to create a note for this property
-                        </p>
-                      </div>
-                    ) : null}
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
+            <PropertyDetailsTab
+              property={property}
+              activeTenants={activeTenants}
+              activeTenant={activeTenant}
+              paxCount={paxCount}
+              tenantProfiles={tenantProfiles}
+              tenantIdsByIndex={tenantIdsByIndex}
+              upcomingPayments={upcomingPayments}
+              recentPayments={recentPayments}
+              onOpenAmenities={() => setIsAmenitiesPopupOpen(true)}
+              isAddingNote={isAddingNote}
+              setIsAddingNote={setIsAddingNote}
+              newNoteText={newNoteText}
+              setNewNoteText={setNewNoteText}
+              editingNoteIndex={editingNoteIndex}
+              editingNoteText={editingNoteText}
+              setEditingNoteText={setEditingNoteText}
+              handleAddNote={handleAddNote}
+              handleUpdateNote={handleUpdateNote}
+              handleDeleteNote={handleDeleteNote}
+              startEditingNote={startEditingNote}
+              cancelEditingNote={cancelEditingNote}
+            />
           </TabsContent>
 
           <TabsContent
             value="finances"
             className="flex-1 overflow-auto px-4 md:px-6 pt-4 pb-16"
           >
-            <div className="space-y-4 md:space-y-6">
-              {/* Finances tab content... */}
-              {property.occupancy_status === "occupied" && activeTenant ? (
-                <>
-                  {/* Financial Overview - Ticker Strip */}
-                  <div className="sticky top-0 z-20">
-                    <div className="overflow-hidden bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 rounded-lg border shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
-                      <div className="px-4 pt-3 flex items-center gap-2 flex-wrap">
-                        <span className="text-[11px] text-muted-foreground whitespace-nowrap">
-                          View Mode
-                        </span>
-                        {paxCount > 1 ? (
-                          <Select
-                            value={billingViewMode}
-                            onValueChange={updateBillingViewMode}
-                          >
-                            <SelectTrigger
-                              id="billing-view-strip"
-                              className="h-8 text-xs w-full sm:w-[240px] bg-background/90"
-                            >
-                              <SelectValue placeholder="Select view mode" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="consolidated">
-                                Consolidated (All Tenants)
-                              </SelectItem>
-                              {tenantProfiles.map((person, idx) => (
-                                <SelectItem key={idx} value={`tenant-${idx}`}>
-                                  {person.name || `Tenant ${idx + 1}`}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">
-                            {selectedBillingTenant?.name ||
-                              `Tenant ${(selectedBillingTenantIdx ?? 0) + 1}`}
-                          </span>
-                        )}
-                      </div>
-                      <div className="overflow-x-auto scrollbar-hide">
-                        <div className="flex items-center justify-between sm:justify-around py-3 px-4 gap-4 sm:gap-6 min-w-max sm:min-w-0">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="min-w-0">
-                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                                Total Revenue
-                              </div>
-                              <div className="text-lg font-bold text-green-600 dark:text-green-400 whitespace-nowrap">
-                                {formatCurrency(totalRevenue)}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="h-10 w-px bg-border shrink-0" />
-
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="min-w-0">
-                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                                Pending Payments
-                              </div>
-                              <div className="text-lg font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                                {formatCurrency(pendingPayments)}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="h-10 w-px bg-border shrink-0" />
-
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="min-w-0">
-                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                                Unpaid Balance
-                              </div>
-                              <div className="text-lg font-bold text-red-600 dark:text-red-400 whitespace-nowrap">
-                                {formatCurrency(unpaidBalance)}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="h-10 w-px bg-border shrink-0" />
-
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="min-w-0">
-                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                                Advance Payment
-                              </div>
-                              <div className="text-lg font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                                {activeTenant.advance_payment !== undefined &&
-                                activeTenant.advance_payment > 0
-                                  ? formatCurrency(activeTenant.advance_payment)
-                                  : formatCurrency(0)}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="h-10 w-px bg-border shrink-0" />
-
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="min-w-0">
-                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                                Security Deposit
-                              </div>
-                              <div className="text-lg font-bold text-cyan-600 dark:text-cyan-400 whitespace-nowrap">
-                                {activeTenant.security_deposit !== undefined &&
-                                activeTenant.security_deposit > 0
-                                  ? formatCurrency(
-                                      activeTenant.security_deposit,
-                                    )
-                                  : formatCurrency(0)}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="h-10 w-px bg-border shrink-0" />
-
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className="min-w-0">
-                              <div className="text-xs text-muted-foreground font-medium whitespace-nowrap">
-                                Overflow (Excess)
-                              </div>
-                              <div className="text-lg font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap">
-                                {activeTenant.overflow !== undefined &&
-                                activeTenant.overflow > 0
-                                  ? formatCurrency(activeTenant.overflow)
-                                  : formatCurrency(0)}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Card className="shadow-sm">
-                    <CardContent className="p-4 md:p-6">
-                      <div className="flex justify-between items-center mb-4 md:mb-6 flex-wrap gap-2">
-                        <h3 className="text-base md:text-lg font-semibold flex items-center">
-                          <FileText className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
-                          Billing Table
-                        </h3>
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              // Auto-select tenant based on current view mode
-                              if (billingViewMode.startsWith("tenant-")) {
-                                const tenantIdx = parseInt(
-                                  billingViewMode.split("-")[1],
-                                );
-                                setSelectedTenantIndex(tenantIdx);
-                              } else {
-                                setSelectedTenantIndex(null);
-                              }
-                              setIsPaymentDialogOpen(true);
-                            }}
-                            disabled={
-                              paxCount > 1 && billingViewMode === "consolidated"
-                            }
-                            className="text-xs h-8 gap-1.5"
-                            title={
-                              paxCount > 1 && billingViewMode === "consolidated"
-                                ? "Switch to individual tenant view to apply payment"
-                                : ""
-                            }
-                          >
-                            Apply Payment
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setIsEditBillingPopupOpen(true)}
-                            disabled={
-                              paxCount > 1 && billingViewMode === "consolidated"
-                            }
-                            className="text-xs h-8 gap-1.5"
-                            title={
-                              paxCount > 1 && billingViewMode === "consolidated"
-                                ? "Switch to individual tenant view to edit billing"
-                                : ""
-                            }
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                            Edit Billing
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Info banner for multi-tenant payment tracking - only show in consolidated view */}
-                      {paxCount > 1 && billingViewMode === "consolidated" && (
-                        <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-4">
-                          <div className="flex items-start gap-2">
-                            <div className="h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <User className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-xs font-medium text-blue-900 dark:text-blue-100 mb-1">
-                                Consolidated View - All {paxCount} Tenant
-                                Accounts
-                              </p>
-                              <p className="text-xs text-blue-700 dark:text-blue-300">
-                                Each tenant has their own billing account. Total
-                                amounts shown are the sum of all individual
-                                accounts. To edit billing or view detailed
-                                breakdowns, select a specific tenant from the
-                                dropdown above.
-                              </p>
-                              <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1.5 italic">
-                                Each tenant can have their own custom rent and
-                                charges. Use &quot;Edit Billing&quot; to modify
-                                individual amounts.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Individual Tenant View Indicator */}
-                      {billingViewMode.startsWith("tenant-") && (
-                        <div className="bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800 rounded-lg p-3 mb-4">
-                          <div className="flex items-start gap-2">
-                            <div className="h-5 w-5 rounded-full bg-purple-100 dark:bg-purple-900 flex items-center justify-center flex-shrink-0 mt-0.5">
-                              <User className="h-3 w-3 text-purple-600 dark:text-purple-400" />
-                            </div>
-                            <div className="flex-1">
-                              <p className="text-xs font-medium text-purple-900 dark:text-purple-100 mb-1">
-                                Individual Account View:{" "}
-                                {tenantProfiles[
-                                  parseInt(billingViewMode.split("-")[1])
-                                ]?.name ||
-                                  `Tenant ${parseInt(billingViewMode.split("-")[1]) + 1}`}
-                              </p>
-                              <p className="text-xs text-purple-700 dark:text-purple-300">
-                                Viewing this tenant&apos;s individual billing
-                                account. Amounts shown are specific to this
-                                tenant only. You can edit this tenant&apos;s
-                                billing using the &quot;Edit Billing&quot;
-                                button.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Responsive table with horizontal scrolling for small screens */}
-                      <div className="overflow-x-auto -mx-4 sm:-mx-6">
-                        <div className="inline-block min-w-full align-middle px-4 sm:px-6">
-                          <div className="overflow-hidden border rounded-md">
-                            {(() => {
-                              // Determine if we're viewing individual tenant data
-                              const isIndividualView =
-                                billingViewMode.startsWith("tenant-");
-                              const selectedTenantIdx = isIndividualView
-                                ? parseInt(billingViewMode.split("-")[1])
-                                : null;
-                              // Check if selected tenant slot is vacant
-                              const isVacantSlot =
-                                isIndividualView &&
-                                selectedTenantIdx !== null &&
-                                (!tenantProfiles[selectedTenantIdx]?.name ||
-                                  tenantProfiles[
-                                    selectedTenantIdx
-                                  ]?.name.trim() === "");
-
-                              return (
-                                <table className="min-w-full divide-y divide-border">
-                                  <thead className="bg-muted/50">
-                                    <tr>
-                                      <th
-                                        scope="col"
-                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                      >
-                                        Period
-                                      </th>
-                                      <th
-                                        scope="col"
-                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                      >
-                                        Due Date
-                                      </th>
-                                      <th
-                                        scope="col"
-                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                      >
-                                        Rent Due
-                                      </th>
-                                      <th
-                                        scope="col"
-                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                      >
-                                        Other Charges
-                                      </th>
-                                      <th
-                                        scope="col"
-                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                      >
-                                        Total Due
-                                      </th>
-                                      <th
-                                        scope="col"
-                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                      >
-                                        Paid Amount
-                                      </th>
-                                      <th
-                                        scope="col"
-                                        className="px-3 py-2 text-left text-xs font-medium text-muted-foreground"
-                                      >
-                                        Status
-                                      </th>
-                                    </tr>
-                                  </thead>
-                                  <tbody className="divide-y divide-muted/40 bg-background">
-                                    {isVacantSlot ? (
-                                      <tr>
-                                        <td
-                                          colSpan={7}
-                                          className="px-3 py-8 text-center"
-                                        >
-                                          <div className="flex flex-col items-center justify-center text-muted-foreground">
-                                            <FileText className="h-8 w-8 mb-2 opacity-40" />
-                                            <p className="text-sm font-medium">
-                                              No records found
-                                            </p>
-                                            <p className="text-xs mt-1">
-                                              This tenant slot is currently
-                                              vacant
-                                            </p>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    ) : billingDisplayRows.length > 0 ? (
-                                      billingDisplayRows.map((row) => {
-                                        // Effective paid = cash + applied lease
-                                        // credit, so the status and the Paid column
-                                        // reflect credit-covered invoices.
-                                        const effectivePaid =
-                                          row.paidAmount + row.appliedCredit;
-                                        const rowStatus = billingStatusOf(
-                                          row.grossDue,
-                                          effectivePaid,
-                                          row.balance,
-                                          row.dueDate,
-                                        );
-
-                                        return (
-                                          <tr
-                                            key={row.key}
-                                            className="hover:bg-muted/30 transition-colors"
-                                          >
-                                            <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                              <div className="flex items-center">
-                                                <ClipboardCheck className="h-3 w-3 text-muted-foreground mr-1.5 flex-shrink-0" />
-                                                <span>
-                                                  {row.billingPeriod > 0 ? (
-                                                    row.billingPeriod
-                                                  ) : (
-                                                    <span className="text-muted-foreground italic">
-                                                      —
-                                                    </span>
-                                                  )}
-                                                </span>
-                                              </div>
-                                            </td>
-                                            <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                              {formatDueDate(row.dueDate)}
-                                            </td>
-                                            <td className="px-3 py-2 text-xs font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
-                                              {formatCurrency(row.rentDue)}
-                                            </td>
-                                            <td className="px-3 py-2 text-xs">
-                                              <div className="group inline-block relative">
-                                                <div className="flex items-center cursor-help gap-1">
-                                                  <span>
-                                                    {formatCurrency(
-                                                      row.otherCharges,
-                                                    )}
-                                                  </span>
-                                                  <span className="text-[10px] bg-muted rounded-full px-1 flex items-center justify-center w-4 h-4">
-                                                    {row.expenseItems.length}
-                                                  </span>
-                                                </div>
-
-                                                {row.expenseItems.length >
-                                                  0 && (
-                                                  <span className="absolute invisible group-hover:visible z-[100]">
-                                                    <span className="relative block top-full right-0 mt-1 bg-popover shadow-lg rounded-md p-2 min-w-[200px] border">
-                                                      <div className="text-xs font-medium mb-1.5">
-                                                        {row.billingPeriod > 0
-                                                          ? `Expenses for Period ${row.billingPeriod}`
-                                                          : "Additional Charges"}
-                                                        :
-                                                      </div>
-                                                      {row.expenseItems.map(
-                                                        (item) => (
-                                                          <div
-                                                            key={item.id}
-                                                            className="flex justify-between text-xs mb-1.5"
-                                                          >
-                                                            <span className="truncate max-w-[150px] pr-4">
-                                                              {item.name}
-                                                            </span>
-                                                            <span className="text-right font-medium">
-                                                              {formatCurrency(
-                                                                item.amount,
-                                                              )}
-                                                            </span>
-                                                          </div>
-                                                        ),
-                                                      )}
-                                                      {row.expenseItems.length >
-                                                        1 && (
-                                                        <div className="border-t border-border pt-1.5 mt-1.5 flex justify-between text-xs font-medium">
-                                                          <span>
-                                                            Total Expenses
-                                                          </span>
-                                                          <span>
-                                                            {formatCurrency(
-                                                              row.otherCharges,
-                                                            )}
-                                                          </span>
-                                                        </div>
-                                                      )}
-                                                    </span>
-                                                  </span>
-                                                )}
-                                              </div>
-                                            </td>
-                                            <td className="px-3 py-2 text-xs font-semibold whitespace-nowrap">
-                                              {formatCurrency(row.grossDue)}
-                                            </td>
-                                            <td className="px-3 py-2 text-xs font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">
-                                              {formatCurrency(effectivePaid)}
-                                            </td>
-                                            <td className="px-3 py-2 text-xs whitespace-nowrap">
-                                              <Badge
-                                                variant="outline"
-                                                className={`text-[10px] px-1.5 py-0.5 ${getStatusColorClass(
-                                                  rowStatus,
-                                                )}`}
-                                              >
-                                                {rowStatus}
-                                              </Badge>
-                                            </td>
-                                          </tr>
-                                        );
-                                      })
-                                    ) : (
-                                      <tr>
-                                        <td
-                                          colSpan={7}
-                                          className="px-3 py-8 text-center"
-                                        >
-                                          <div className="flex flex-col items-center justify-center text-muted-foreground">
-                                            <FileText className="h-8 w-8 mb-2 opacity-40" />
-                                            <p className="text-sm font-medium">
-                                              No billing entries yet
-                                            </p>
-                                            <p className="text-xs mt-1">
-                                              Click &quot;Edit Property&quot; to
-                                              add billing entries
-                                            </p>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    )}
-                                  </tbody>
-                                </table>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Per-Tenant Payment Summary */}
-                      {paxCount > 1 && liveBillingEntries.length > 0 && (
-                        <div className="mt-6 cborder-t pt-6">
-                          <h4 className="text-sm font-semibold mb-3 flex items-center">
-                            <User className="h-4 w-4 mr-2 text-primary" />
-                            Payment Summary by Tenant (Grand Total)
-                          </h4>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                            {Array.from({ length: paxCount }, (_, i) => {
-                              const person = tenantProfiles[i];
-                              const tenantId = tenantIdsByIndex[i];
-
-                              // Calculate totals for this tenant across all billing entries
-                              let tenantTotalDue = 0;
-                              let tenantTotalPaid = 0;
-
-                              liveBillingEntries.forEach((entry) => {
-                                if (tenantId && entry.tenant_id === tenantId) {
-                                  tenantTotalDue += entry.gross_due;
-                                  tenantTotalPaid += entry.paid_amount || 0;
-                                }
-                              });
-
-                              const tenantBalance =
-                                tenantTotalDue - tenantTotalPaid;
-                              const isNotYetSet = tenantTotalDue <= 0.01;
-                              const isPaidUp =
-                                !isNotYetSet && tenantBalance <= 0.01;
-
-                              return (
-                                <div
-                                  key={i}
-                                  className={`p-3 rounded-lg border ${
-                                    isNotYetSet
-                                      ? "bg-gray-50 dark:bg-gray-950/20 border-gray-200 dark:border-gray-800"
-                                      : isPaidUp
-                                        ? "bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800"
-                                        : "bg-orange-50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-800"
-                                  }`}
-                                >
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <div
-                                      className={`h-8 w-8 rounded-full flex items-center justify-center ${
-                                        isNotYetSet
-                                          ? "bg-gray-100 dark:bg-gray-900/40 text-gray-700 dark:text-gray-300"
-                                          : isPaidUp
-                                            ? "bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300"
-                                            : "bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
-                                      }`}
-                                    >
-                                      <User className="h-4 w-4" />
-                                    </div>
-                                    <div className="flex-1 min-w-0">
-                                      <p className="text-xs font-medium truncate">
-                                        {person?.name || `Tenant ${i + 1}`}
-                                      </p>
-                                      <p
-                                        className={`text-[10px] font-medium ${
-                                          isNotYetSet
-                                            ? "text-gray-600 dark:text-gray-400"
-                                            : isPaidUp
-                                              ? "text-green-600 dark:text-green-400"
-                                              : "text-orange-600 dark:text-orange-400"
-                                        }`}
-                                      >
-                                        {isNotYetSet
-                                          ? "Not Yet Set"
-                                          : isPaidUp
-                                            ? "✓ Paid Up"
-                                            : `₱${tenantBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} Due`}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="space-y-1 text-xs">
-                                    <div className="flex justify-between">
-                                      <span className="text-muted-foreground">
-                                        Total Due:
-                                      </span>
-                                      <span className="font-medium">
-                                        {formatCurrency(tenantTotalDue)}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-muted-foreground">
-                                        Paid:
-                                      </span>
-                                      <span className="font-medium text-green-600 dark:text-green-400">
-                                        {formatCurrency(tenantTotalPaid)}
-                                      </span>
-                                    </div>
-                                    {!isPaidUp && (
-                                      <div className="flex justify-between pt-1 border-t">
-                                        <span className="font-medium">
-                                          Balance:
-                                        </span>
-                                        <span className="font-bold text-orange-600 dark:text-orange-400">
-                                          {formatCurrency(tenantBalance)}
-                                        </span>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </>
-              ) : (
-                <div className="flex flex-col items-center justify-center p-8 md:p-12 text-center">
-                  <div className="rounded-full bg-muted/50 p-4 mb-4"></div>
-                  <h3 className="text-base md:text-lg font-medium mt-2">
-                    No Financial Records
-                  </h3>
-                  <p className="text-muted-foreground mt-2 max-w-md text-xs md:text-sm">
-                    This property is currently vacant. Financial records will be
-                    available once a tenant is added to this property.
-                  </p>
-                </div>
-              )}
-            </div>
+            <PropertySoaTab
+              property={property}
+              activeTenant={activeTenant}
+              paxCount={paxCount}
+              billingViewMode={billingViewMode}
+              onUpdateBillingViewMode={updateBillingViewMode}
+              tenantProfiles={tenantProfiles}
+              tenantIdsByIndex={tenantIdsByIndex}
+              liveBillingEntries={liveBillingEntries}
+              billingDisplayRows={billingDisplayRows}
+              totalRevenue={totalRevenue}
+              pendingPayments={pendingPayments}
+              unpaidBalance={unpaidBalance}
+              selectedBillingTenant={selectedBillingTenant}
+              selectedBillingTenantIdx={selectedBillingTenantIdx}
+              onOpenPaymentDialog={() => {
+                if (billingViewMode.startsWith("tenant-")) {
+                  const tenantIdx = parseInt(
+                    billingViewMode.split("-")[1],
+                    10,
+                  );
+                  setSelectedTenantIndex(tenantIdx);
+                } else {
+                  setSelectedTenantIndex(null);
+                }
+                setIsPaymentDialogOpen(true);
+              }}
+              onOpenEditBilling={() => setIsEditBillingPopupOpen(true)}
+            />
           </TabsContent>
 
           <TabsContent
             value="history"
             className="flex-1 overflow-auto px-4 md:px-6 pt-4 pb-16"
           >
-            <div className="space-y-4">
-              <Card className="shadow-sm">
-                <CardContent className="p-4 md:p-6">
-                  <h3 className="text-base md:text-lg font-semibold mb-4 flex items-center">
-                    <Clock className="h-4 w-4 md:h-5 md:w-5 mr-2 text-primary" />
-                    Activity Timeline
-                  </h3>
-
-                  {activityLogs.length > 0 ? (
-                    <div className="space-y-3">
-                      {activityLogs.map((log) => (
-                        <div
-                          key={log.id}
-                          className="flex gap-3 pb-3 border-b last:border-b-0 last:pb-0"
-                        >
-                          <div className="flex-shrink-0 mt-1">
-                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                              <ActionIcon actionType={log.actionType} />
-                            </div>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium">
-                              {log.description}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                              {formatDateTime(log.createdAt)}
-                            </p>
-                            <ActivityMetadata metadata={log.metadata} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
-                      <Clock className="h-12 w-12 mb-3 opacity-40" />
-                      <p className="text-sm font-medium">No activity yet</p>
-                      <p className="text-xs mt-1">
-                        Activity history will appear here as changes are made
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
+            <PropertyHistoryTab activityLogs={activityLogs} />
           </TabsContent>
         </Tabs>
 
@@ -2632,9 +831,7 @@ export function PropertyDetailsPopup({
           isOpen={isEditPopupOpen}
           onClose={() => setIsEditPopupOpen(false)}
           onSuccess={() => {
-            // Refresh data when edit is successful
             fetchPropertyDetails();
-            // Call parent's onSuccess to refresh dashboard
             if (onSuccess) {
               onSuccess();
             }
@@ -2653,9 +850,7 @@ export function PropertyDetailsPopup({
           isOpen={isEditBillingPopupOpen}
           onClose={() => setIsEditBillingPopupOpen(false)}
           onSuccess={() => {
-            // Refresh data when edit is successful
             fetchPropertyDetails();
-            // Call parent's onSuccess to refresh dashboard
             if (onSuccess) {
               onSuccess();
             }
@@ -2686,8 +881,7 @@ export function PropertyDetailsPopup({
           if (result.success) {
             toast.success("Property reset successfully");
             setIsResetDialogOpen(false);
-            onClose(); // Close the details popup
-            // Refresh the parent component data
+            onClose();
             if (onSuccess) {
               onSuccess();
             }
@@ -2704,233 +898,37 @@ export function PropertyDetailsPopup({
         }
       />
 
-      {/* Record Payment Dialog */}
-      <Dialog open={showTransferred} onOpenChange={setShowTransferred}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Archive className="h-5 w-5 text-primary" />
-              Transferred Invoices
-            </DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">
-              These invoices moved to another unit when the tenant was
-              transferred. Their open balance is now billed on the destination
-              lease, so they no longer appear in the statement above.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[60vh] overflow-auto">
-            <ul className="divide-y">
-              {archivedTransfers.map((entry) => {
-                const info = entry.tenant_id
-                  ? tenantDirectory.get(entry.tenant_id)
-                  : null;
-                return (
-                  <li
-                    key={entry.id}
-                    className="flex items-center justify-between py-2.5 text-sm"
-                  >
-                    <div className="flex flex-col min-w-0">
-                      <span className="font-medium">
-                        {formatDate(entry.due_date)}
-                      </span>
-                      <span className="text-xs text-muted-foreground truncate">
-                        {info?.name ?? "—"}
-                        {info?.property ? ` · now in ${info.property}` : ""}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <span className="font-medium">
-                        {formatCurrency(entry.gross_due)}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs font-medium border ${getStatusColorClass(
-                          "transferred",
-                        )}`}
-                      >
-                        Transferred
-                      </span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-          <div className="flex justify-end pt-2">
-            <Button variant="outline" onClick={() => setShowTransferred(false)}>
-              Close
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <PropertyTransferredDialog
+        isOpen={showTransferred}
+        onOpenChange={setShowTransferred}
+        archivedTransfers={archivedTransfers}
+        tenantDirectory={tenantDirectory}
+      />
 
-      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-        <DialogContent className="max-w-[95vw] sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
-          <DialogHeader className="space-y-1">
-            <DialogTitle className="text-base sm:text-lg">
-              Apply Payment
-            </DialogTitle>
-            <DialogDescription className="text-xs sm:text-sm">
-              Enter payment amount and type. Rent applies to billing entries.
-            </DialogDescription>
-            {selectedTenantIndex !== null &&
-              tenantProfiles[selectedTenantIndex] && (
-                <div className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-800 rounded-lg p-2 mt-2">
-                  <div className="flex items-center gap-2">
-                    <div className="h-5 w-5 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center flex-shrink-0">
-                      <User className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-                    </div>
-                    <p className="text-xs text-blue-900 dark:text-blue-100">
-                      <span className="font-medium">Applying to: </span>
-                      <span className="font-semibold">
-                        {tenantProfiles[selectedTenantIndex].name}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              )}
-          </DialogHeader>
-
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="payment-amount" className="text-xs sm:text-sm">
-                Payment Amount
-              </Label>
-              <div className="flex gap-1.5">
-                <Input
-                  id="payment-amount"
-                  type="number"
-                  value={paymentAmount || ""}
-                  onChange={(e) => {
-                    const value = e.target.value.replace(/^0+(?=\d)/, "");
-                    setPaymentAmount(parseInt(value) || 0);
-                  }}
-                  placeholder="Enter amount"
-                  className="h-8 sm:h-9 flex-1 text-xs sm:text-sm"
-                />
-                <div className="flex gap-1">
-                  <Button
-                    type="button"
-                    variant={paymentAmount >= 0 ? "default" : "outline"}
-                    size="icon"
-                    className={`h-8 w-8 sm:h-9 sm:w-9 ${
-                      paymentAmount >= 0
-                        ? "!bg-emerald-500 hover:!bg-emerald-600 !text-white"
-                        : ""
-                    }`}
-                    onClick={() => setPaymentAmount(Math.abs(paymentAmount))}
-                    disabled={paymentAmount >= 0}
-                  >
-                    <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={paymentAmount < 0 ? "default" : "outline"}
-                    size="icon"
-                    className={`h-8 w-8 sm:h-9 sm:w-9 ${
-                      paymentAmount < 0
-                        ? "!bg-red-500 hover:!bg-red-600 !text-white"
-                        : ""
-                    }`}
-                    onClick={() => setPaymentAmount(-Math.abs(paymentAmount))}
-                    disabled={paymentAmount <= 0}
-                  >
-                    <Minus className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-2">
-              <div className="space-y-1.5 flex-1">
-                <Label htmlFor="payment-type" className="text-xs sm:text-sm">
-                  Payment Type
-                </Label>
-                <Select value={paymentType} onValueChange={setPaymentType}>
-                  <SelectTrigger
-                    id="payment-type"
-                    className="h-8 sm:h-9 text-xs sm:text-sm w-full"
-                  >
-                    <SelectValue placeholder="Choose Type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="rent" className="text-xs sm:text-sm">
-                      Rent Due
-                    </SelectItem>
-                    <SelectItem value="deposit" className="text-xs sm:text-sm">
-                      Security Deposit
-                    </SelectItem>
-                    <SelectItem value="advance" className="text-xs sm:text-sm">
-                      Advance Payment
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5 flex-1">
-                <Label htmlFor="receipt-date" className="text-xs sm:text-sm">
-                  Receipt Date
-                </Label>
-                <Input
-                  id="receipt-date"
-                  type="date"
-                  value={receiptDate}
-                  onChange={(e) => setReceiptDate(e.target.value)}
-                  className="h-8 sm:h-9 text-xs sm:text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="payment-note" className="text-xs sm:text-sm">
-                Note
-              </Label>
-              <Input
-                id="payment-note"
-                value={paymentNote}
-                onChange={(e) => setPaymentNote(e.target.value)}
-                placeholder="Optional note..."
-                className="h-8 sm:h-9 text-xs sm:text-sm"
-              />
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setIsPaymentDialogOpen(false);
-                setPaymentAmount(0);
-                setPaymentType("");
-                setPaymentNote("");
-                setReceiptDate("");
-                setSelectedTenantIndex(null);
-              }}
-              disabled={isApplyingPayment}
-              className="h-8 sm:h-9 text-xs sm:text-sm"
-            >
-              Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleApplyPayment}
-              disabled={
-                isApplyingPayment || paymentAmount === 0 || !paymentType
-              }
-              className="gap-1.5 h-8 sm:h-9 text-xs sm:text-sm"
-            >
-              {isApplyingPayment ? (
-                <>
-                  <Loader2 className="h-3 w-3 sm:h-4 sm:w-4 animate-spin" />
-                  Applying...
-                </>
-              ) : (
-                <>Apply Payment</>
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <PropertyPaymentDialog
+        isOpen={isPaymentDialogOpen}
+        onOpenChange={setIsPaymentDialogOpen}
+        selectedTenantIndex={selectedTenantIndex}
+        tenantProfiles={tenantProfiles}
+        paymentAmount={paymentAmount}
+        setPaymentAmount={setPaymentAmount}
+        paymentType={paymentType}
+        setPaymentType={setPaymentType}
+        receiptDate={receiptDate}
+        setReceiptDate={setReceiptDate}
+        paymentNote={paymentNote}
+        setPaymentNote={setPaymentNote}
+        isApplyingPayment={isApplyingPayment}
+        onApplyPayment={handleApplyPayment}
+        onCancel={() => {
+          setIsPaymentDialogOpen(false);
+          setPaymentAmount(0);
+          setPaymentType("");
+          setPaymentNote("");
+          setReceiptDate("");
+          setSelectedTenantIndex(null);
+        }}
+      />
     </Dialog>
   );
 }
