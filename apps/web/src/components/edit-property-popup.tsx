@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api-client";
 import type { UpdatePropertyInput } from "@unitko/shared";
@@ -14,157 +14,42 @@ import {
 import { Button } from "@/components/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-// import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Building,
   User,
-  Calendar,
-  // Clock,
   Loader2,
   AlertCircle,
   Save,
   Lock,
   Unlock,
   ArrowRightLeft,
-  Plus,
-  Minus,
-  Mail,
-  Phone,
-  X,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
+import {
+  PropertyDetailsSection,
+  PaymentScheduleSection,
+  OccupantDetailsSection,
+  SwitchBillingDialog,
+  type PropertyFormData,
+  type PersonDetail,
+  type OccupantLinkage,
+  type BillingFrequency,
+  type EditPropertyPopupProps,
+  calculatePeriodDueDate,
+  formatDueDate,
+  inferBillingFrequency,
+  isWeekDayValue,
+  isValidBiWeeklyDueDayPair,
+} from "./edit-property";
 
-// Define types
-interface PersonDetail {
-  name: string;
-  email: string;
-  phone: string;
-}
-
-// Per-occupant tenant linkage so the save path can map paxDetails entries back
-// to specific tenants rows. tenantIds[i] is the tenant.id for paxDetails[i],
-// or undefined if that occupant was added in this dialog session.
-interface OccupantLinkage {
-  tenantIds: (string | undefined)[];
-  removedTenantIds: string[];
-}
-
-type BillingFrequency =
-  | "weekly"
-  | "bi-weekly"
-  | "monthly"
-  | "quarterly"
-  | "semi-annually"
-  | "annually";
-
-// Form data interface
-interface PropertyFormData {
-  id: string;
-  unitName: string;
-  propertyType: string;
-  propertyLocation: string;
-  // Read-only. Seeded from detail.occupancyStatus, which the server derives from
-  // an active lease (v_property_occupancy) — the update contract has no such
-  // field, so nothing here can change it. Gates display only; don't add a setter.
-  occupancyStatus: "occupied" | "vacant";
-  rentAmount: number;
-  maxTenants: number;
-  tenantId?: string;
-  tenantName: string;
-  contactNumber: string;
-  pax: number;
-  paxDetails: PersonDetail[];
-  contractMonths: number;
-  rentStartDate: string;
-  formBasis: BillingFrequency;
-  rentPerPerson: number;
-  dueDay: string;
-  billingSchedule: Array<{
-    id: string;
-    dueDate: string;
-    rentDue: number;
-    otherCharges: number;
-    grossDue: number;
-    status: string;
-    paidAmount?: number;
-  }>;
-}
-
-interface EditPropertyPopupProps {
-  propertyId: string;
-  isOpen: boolean;
-  onClose: () => void;
-  onSuccess?: () => void;
-  onSwitchToBilling?: () => void;
-}
-
-const inferBillingFrequency = (
-  entries: { dueDate: string | null }[] | undefined,
-): BillingFrequency => {
-  const times = (entries ?? [])
-    .map((e) => (e.dueDate ? new Date(e.dueDate).getTime() : null))
-    .filter((t): t is number => t !== null)
-    .sort((a, b) => a - b);
-  if (times.length < 2) return "monthly";
-
-  const diffDays = Math.round((times[1] - times[0]) / (1000 * 60 * 60 * 24));
-
-  if (diffDays <= 8) return "weekly";
-  if (diffDays <= 16) return "bi-weekly";
-  if (diffDays <= 45) return "monthly";
-  if (diffDays <= 120) return "quarterly";
-  if (diffDays <= 220) return "semi-annually";
-  return "annually";
-};
-
-const WEEK_DAYS = [
-  "monday",
-  "tuesday",
-  "wednesday",
-  "thursday",
-  "friday",
-  "saturday",
-  "sunday",
-] as const;
-
-const isWeekDayValue = (value: string): value is (typeof WEEK_DAYS)[number] => {
-  return WEEK_DAYS.includes(value as (typeof WEEK_DAYS)[number]);
-};
-
-const parseBiWeeklyDueDay = (value: string) => {
-  const [firstRaw = "1", secondRaw = "16"] = value.split(",");
-  const firstDay = Number.parseInt(firstRaw, 10);
-  const secondDay = Number.parseInt(secondRaw, 10);
-
-  return {
-    firstDay: Number.isFinite(firstDay) ? firstDay : 1,
-    secondDay: Number.isFinite(secondDay) ? secondDay : 16,
-  };
-};
-
-const isValidBiWeeklyDueDayPair = (value: string): boolean => {
-  const { firstDay, secondDay } = parseBiWeeklyDueDay(value);
-  return firstDay >= 1 && firstDay <= 15 && secondDay >= 16 && secondDay <= 31;
+// Re-export types for backward compatibility
+export type {
+  PropertyFormData,
+  PersonDetail,
+  OccupantLinkage,
+  BillingFrequency,
+  EditPropertyPopupProps,
 };
 
 export function EditPropertyPopup({
@@ -187,128 +72,6 @@ export function EditPropertyPopup({
     tenantIds: [],
     removedTenantIds: [],
   });
-
-  const calculatePeriodDueDate = useCallback(
-    (
-      startDate: Date,
-      periodIndex: number,
-      formBasis: BillingFrequency,
-      dueDay: string,
-    ): Date => {
-      const base = new Date(startDate);
-
-      if (formBasis === "weekly") {
-        if (isWeekDayValue(dueDay)) {
-          const dayMap: Record<(typeof WEEK_DAYS)[number], number> = {
-            monday: 1,
-            tuesday: 2,
-            wednesday: 3,
-            thursday: 4,
-            friday: 5,
-            saturday: 6,
-            sunday: 0,
-          };
-          const targetDay = dayMap[dueDay];
-          const currentDay = base.getDay();
-          const offset = (targetDay - currentDay + 7) % 7;
-          base.setDate(base.getDate() + offset + periodIndex * 7);
-        } else {
-          base.setDate(base.getDate() + periodIndex * 7);
-        }
-        return base;
-      }
-
-      if (formBasis === "bi-weekly") {
-        const { firstDay, secondDay } = parseBiWeeklyDueDay(dueDay);
-        const [date1, date2] = [firstDay, secondDay].sort((a, b) => a - b);
-        const currentMonth = new Date(base);
-        currentMonth.setDate(1);
-        let useFirstDate = true;
-        let useSecondDate = true;
-
-        const firstDateInStartMonth = new Date(
-          currentMonth.getFullYear(),
-          currentMonth.getMonth(),
-          date1,
-        );
-        const secondDateInStartMonth = new Date(
-          currentMonth.getFullYear(),
-          currentMonth.getMonth(),
-          date2,
-        );
-
-        useFirstDate = firstDateInStartMonth > base;
-        useSecondDate = secondDateInStartMonth > base;
-
-        if (!useFirstDate && !useSecondDate) {
-          currentMonth.setMonth(currentMonth.getMonth() + 1);
-          useFirstDate = true;
-          useSecondDate = true;
-        }
-
-        const generatedDates: Date[] = [];
-
-        while (generatedDates.length <= periodIndex) {
-          const year = currentMonth.getFullYear();
-          const month = currentMonth.getMonth();
-          const lastDay = new Date(year, month + 1, 0).getDate();
-
-          if (useFirstDate && generatedDates.length <= periodIndex) {
-            generatedDates.push(
-              new Date(year, month, Math.min(date1, lastDay)),
-            );
-          }
-
-          if (useSecondDate && generatedDates.length <= periodIndex) {
-            generatedDates.push(
-              new Date(year, month, Math.min(date2, lastDay)),
-            );
-          }
-
-          currentMonth.setMonth(currentMonth.getMonth() + 1);
-          useFirstDate = true;
-          useSecondDate = true;
-        }
-
-        return generatedDates[periodIndex] || base;
-      }
-
-      const monthStep =
-        formBasis === "quarterly"
-          ? 3
-          : formBasis === "semi-annually"
-            ? 6
-            : formBasis === "annually"
-              ? 12
-              : 1;
-
-      base.setMonth(base.getMonth() + periodIndex * monthStep);
-      const month = base.getMonth();
-
-      if (dueDay === "last" || dueDay === "30th/31st - Last Day") {
-        base.setMonth(month + 1, 0);
-      } else if (dueDay === "1" || dueDay === "1st - First Day") {
-        base.setDate(1);
-      } else if (dueDay === "15" || dueDay === "15th - Mid Month") {
-        base.setDate(15);
-      } else {
-        const dayNumber = Number.parseInt(dueDay, 10);
-        if (Number.isFinite(dayNumber) && dayNumber >= 1 && dayNumber <= 31) {
-          const lastDayOfMonth = new Date(
-            base.getFullYear(),
-            month + 1,
-            0,
-          ).getDate();
-          base.setDate(Math.min(dayNumber, lastDayOfMonth));
-        } else {
-          base.setMonth(month + 1, 0);
-        }
-      }
-
-      return base;
-    },
-    [],
-  );
 
   // Fetch property data when the popup opens
   useEffect(() => {
@@ -380,7 +143,8 @@ export function EditPropertyPopup({
           rentStartDate:
             detail.lease?.rentStartDate ??
             (firstDueDate ? firstDueDate.slice(0, 10) : ""),
-          formBasis: detail.lease?.billingFrequency ?? inferBillingFrequency(schedule),
+          formBasis:
+            detail.lease?.billingFrequency ?? inferBillingFrequency(schedule),
           rentPerPerson:
             initialPax > 0
               ? Number((detail.rentAmount / initialPax).toFixed(2))
@@ -418,32 +182,9 @@ export function EditPropertyPopup({
     fetchPropertyDetails();
   }, [propertyId, isOpen]);
 
-  const formatDueDate = (date: Date): string => {
-    const monthNames = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const day = date.getDate();
-
-    return `${monthNames[month]} ${day}, ${year}`;
-  };
-
   const handleChange = (
     field: keyof PropertyFormData,
-    value: string | number | boolean | Date,
+    value: string | number | boolean | Date | BillingFrequency,
   ) => {
     if (!formData) return;
 
@@ -1031,136 +772,12 @@ export function EditPropertyPopup({
         )}
 
         <div className="space-y-8">
-          {/* Property Details Section */}
-          <section>
-            <h2 className="text-lg font-semibold mb-4 flex items-center">
-              <Building className="mr-2 h-4 w-4" />
-              Property Details
-            </h2>
-            <Card>
-              <CardContent className="p-3 sm:p-6 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="unitName">Unit Name</Label>
-                    <Input
-                      id="unitName"
-                      value={formData.unitName ?? ""}
-                      onChange={(e) => handleChange("unitName", e.target.value)}
-                      disabled={isLocked}
-                      placeholder="e.g., Unit 101, Office 3B"
-                      className={isLocked ? "opacity-70" : ""}
-                    />
-                  </div>
+          <PropertyDetailsSection
+            formData={formData}
+            isLocked={isLocked}
+            onChange={handleChange}
+          />
 
-                  <div className="space-y-2">
-                    <Label htmlFor="propertyType">Property Type</Label>
-                    <Select
-                      value={formData.propertyType}
-                      onValueChange={(value) =>
-                        handleChange("propertyType", value)
-                      }
-                      disabled={isLocked}
-                    >
-                      <SelectTrigger className={isLocked ? "opacity-70" : ""}>
-                        <SelectValue placeholder="Select property type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Residential - Apartment">
-                          Residential - Apartment
-                        </SelectItem>
-                        <SelectItem value="Residential - House">
-                          Residential - House
-                        </SelectItem>
-                        <SelectItem value="Commercial - Office">
-                          Commercial - Office
-                        </SelectItem>
-                        <SelectItem value="Commercial - Retail">
-                          Commercial - Retail
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="rentAmount">Monthly Rent Amount</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2.5">₱</span>
-                      <Input
-                        id="rentAmount"
-                        type="number"
-                        className={`pl-7 ${isLocked ? "opacity-70" : ""}`}
-                        value={formData.rentAmount ?? ""}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/^0+(?=\d)/, "");
-                          handleChange("rentAmount", parseFloat(value) || 0);
-                        }}
-                        placeholder="25000"
-                        disabled={isLocked}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="propertyLocation">Address</Label>
-                    <Input
-                      id="propertyLocation"
-                      value={formData.propertyLocation ?? ""}
-                      onChange={(e) =>
-                        handleChange("propertyLocation", e.target.value)
-                      }
-                      disabled={isLocked}
-                      className={isLocked ? "opacity-70" : ""}
-                      placeholder="Enter property address"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="maxTenants">
-                      Property Capacity (max tenants)
-                    </Label>
-                    <Input
-                      id="maxTenants"
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={formData.maxTenants ?? ""}
-                      onChange={(e) => {
-                        const raw = e.target.value.replace(/^0+(?=\d)/, "");
-                        const next = parseInt(raw) || 1;
-                        handleChange("maxTenants", next);
-                      }}
-                      disabled={isLocked}
-                      className={isLocked ? "opacity-70" : ""}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {(() => {
-                        const assigned = formData.pax;
-                        const cap = formData.maxTenants || 1;
-                        if (assigned > cap) {
-                          return `${assigned} currently assigned — over capacity (${assigned}/${cap}). Adjust capacity or remove tenants.`;
-                        }
-                        return `${assigned} of ${cap} slot${cap === 1 ? "" : "s"} currently assigned. Capacity is record-keeping only; you can add tenants past it.`;
-                      })()}
-                    </p>
-                  </div>
-
-                  <div className="space-y-2 bg-muted/20 p-3 rounded-md">
-                    <p className="text-xs text-muted-foreground">
-                      Property ID: {formData.id}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Status auto-derived from active tenants: currently{" "}
-                      <span className="font-medium capitalize">
-                        {formData.pax > 0 ? "occupied" : "vacant"}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </section>
-
-          {/* Tenant Info Section */}
           <section>
             <h2 className="text-lg font-semibold mb-4 flex items-center">
               <User className="mr-2 h-4 w-4" />
@@ -1168,579 +785,40 @@ export function EditPropertyPopup({
             </h2>
             <Card>
               <CardContent className="p-6 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="pax" className="flex items-center gap-1.5">
-                      <User className="h-3.5 w-3.5" />
-                      Number of Pax (Bed Space)
-                    </Label>
-                    <div className="flex gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={() => {
-                          if (formData.pax > 1) {
-                            handleRemovePerson(formData.pax - 1);
-                          }
-                        }}
-                        disabled={isLocked || formData.pax <= 1}
-                        className={isLocked ? "opacity-70" : ""}
-                      >
-                        <Minus className="h-4 w-4" />
-                      </Button>
-                      <Input
-                        id="pax"
-                        type="number"
-                        min="1"
-                        max="20"
-                        value={formData.pax ?? 1}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/^0+(?=\d)/, "");
-                          const newPax = parseInt(value) || 1;
-                          handlePaxNumberChange(newPax);
-                        }}
-                        disabled={isLocked}
-                        placeholder="1"
-                        className={`flex-1 ${isLocked ? "opacity-70" : ""}`}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        onClick={handleAddPerson}
-                        disabled={isLocked || formData.pax >= 20}
-                        className={isLocked ? "opacity-70" : ""}
-                      >
-                        <Plus className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Number of persons sharing this unit
-                    </p>
-                  </div>
+                <PaymentScheduleSection
+                  formData={formData}
+                  isLocked={isLocked}
+                  onChange={handleChange}
+                  onPaxNumberChange={handlePaxNumberChange}
+                  onAddPerson={handleAddPerson}
+                  onRemovePerson={handleRemovePerson}
+                />
 
-                  <div className="space-y-2">
-                    <Label htmlFor="contractMonths">
-                      Contract Duration (Period)
-                    </Label>
-                    <Input
-                      id="contractMonths"
-                      type="number"
-                      min="1"
-                      value={formData.contractMonths ?? ""}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/^0+(?=\d)/, "");
-                        handleChange("contractMonths", parseInt(value) || 0);
-                      }}
-                      placeholder="e.g., 12"
-                      disabled={isLocked}
-                      className={isLocked ? "opacity-70" : ""}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Number of billing periods in the contract.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="rentStartDate"> Rent Agreement Date</Label>
-                    <Input
-                      id="rentStartDate"
-                      type="date"
-                      value={formData.rentStartDate ?? ""}
-                      onChange={(e) =>
-                        handleChange("rentStartDate", e.target.value)
-                      }
-                      placeholder="Select start date"
-                      disabled={isLocked}
-                      className={isLocked ? "opacity-70" : ""}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="formBasis">Frequency Basis</Label>
-                    <Select
-                      value={formData.formBasis}
-                      onValueChange={(value) =>
-                        handleChange("formBasis", value as BillingFrequency)
-                      }
-                      disabled={isLocked}
-                    >
-                      <SelectTrigger
-                        id="formBasis"
-                        className={isLocked ? "opacity-70" : ""}
-                      >
-                        <SelectValue placeholder="Select frequency" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="weekly">Weekly</SelectItem>
-                        <SelectItem value="bi-weekly">Bi-weekly</SelectItem>
-                        <SelectItem value="monthly">Monthly</SelectItem>
-                        <SelectItem value="quarterly">Quarterly</SelectItem>
-                        <SelectItem value="semi-annually">
-                          Semi-annually
-                        </SelectItem>
-                        <SelectItem value="annually">Annually</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="rentPerPerson">
-                      Rent per Individual Tenant (per period)
-                    </Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-2.5">₱</span>
-                      <Input
-                        id="rentPerPerson"
-                        type="number"
-                        className={`pl-7 ${isLocked ? "opacity-70" : ""}`}
-                        value={formData.rentPerPerson ?? ""}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/^0+(?=\d)/, "");
-                          handleChange("rentPerPerson", parseFloat(value) || 0);
-                        }}
-                        placeholder="Enter per-tenant amount"
-                        disabled={isLocked}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Total rent updates automatically based on number of
-                      tenants.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2 md:col-span-2">
-                    <Label
-                      htmlFor="dueDay"
-                      className="text-sm font-medium flex items-center gap-1.5"
-                    >
-                      <Calendar className="h-3.5 w-3.5 text-purple-600" />
-                      Payment Due Marker Per Billing Period
-                    </Label>
-
-                    {formData.formBasis === "weekly" ? (
-                      <>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-                          {WEEK_DAYS.map((day) => (
-                            <button
-                              key={day}
-                              type="button"
-                              onClick={() => handleChange("dueDay", day)}
-                              disabled={isLocked}
-                              className={`h-9 px-2 text-xs font-medium rounded-md border transition-all ${
-                                formData.dueDay === day
-                                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                                  : "bg-background border-input hover:bg-muted"
-                              } ${isLocked ? "opacity-70" : ""}`}
-                            >
-                              {day.charAt(0).toUpperCase() + day.slice(1, 3)}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          Select collection day of the week.
-                        </p>
-                      </>
-                    ) : formData.formBasis === "bi-weekly" ? (
-                      (() => {
-                        const { firstDay, secondDay } = parseBiWeeklyDueDay(
-                          formData.dueDay,
-                        );
-
-                        return (
-                          <div className="space-y-4">
-                            <div className="space-y-2">
-                              <div className="text-xs font-medium text-muted-foreground">
-                                Date 1 (1-15){" "}
-                                {firstDay ? `[${firstDay}]` : "[None]"}
-                              </div>
-                              <div className="grid grid-cols-8 sm:grid-cols-10 lg:grid-cols-15 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24">
-                                {Array.from(
-                                  { length: 15 },
-                                  (_, i) => i + 1,
-                                ).map((date) => {
-                                  const isSelected = firstDay === date;
-                                  return (
-                                    <button
-                                      key={`bi-weekly-first-${date}`}
-                                      type="button"
-                                      onClick={() =>
-                                        handleChange(
-                                          "dueDay",
-                                          `${date},${secondDay || 16}`,
-                                        )
-                                      }
-                                      disabled={isLocked}
-                                      className={`h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all ${
-                                        isSelected
-                                          ? "bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-300"
-                                          : "bg-background border-input hover:bg-muted"
-                                      } ${isLocked ? "opacity-70" : ""}`}
-                                    >
-                                      {date}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="text-xs font-medium text-muted-foreground">
-                                Date 2 (16-31){" "}
-                                {secondDay ? `[${secondDay}]` : "[None]"}
-                              </div>
-                              <div className="grid grid-cols-8 sm:grid-cols-10 lg:grid-cols-16 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24">
-                                {Array.from(
-                                  { length: 16 },
-                                  (_, i) => i + 16,
-                                ).map((date) => {
-                                  const isSelected = secondDay === date;
-                                  return (
-                                    <button
-                                      key={`bi-weekly-second-${date}`}
-                                      type="button"
-                                      onClick={() =>
-                                        handleChange(
-                                          "dueDay",
-                                          `${firstDay || 1},${date}`,
-                                        )
-                                      }
-                                      disabled={isLocked}
-                                      className={`h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all ${
-                                        isSelected
-                                          ? "bg-blue-600 text-white border-blue-600 shadow-sm ring-2 ring-blue-300"
-                                          : "bg-background border-input hover:bg-muted"
-                                      } ${isLocked ? "opacity-70" : ""}`}
-                                    >
-                                      {date}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-
-                            <p className="text-xs text-muted-foreground">
-                              Selected: Date 1 = {firstDay || "None"}, Date 2 ={" "}
-                              {secondDay || "None"}.
-                            </p>
-                          </div>
-                        );
-                      })()
-                    ) : (
-                      <>
-                        <div className="grid grid-cols-10 sm:grid-cols-15 lg:grid-cols-16 gap-x-1 gap-y-2 pr-12 sm:pr-16 lg:pr-24">
-                          {Array.from({ length: 31 }, (_, i) => i + 1).map(
-                            (date) => {
-                              const isSelected =
-                                formData.dueDay === String(date);
-                              return (
-                                <button
-                                  key={date}
-                                  type="button"
-                                  onClick={() =>
-                                    handleChange("dueDay", String(date))
-                                  }
-                                  disabled={isLocked}
-                                  className={`h-8 w-8 min-w-[32px] min-h-[32px] flex items-center justify-center p-0 text-xs font-medium rounded border transition-all ${
-                                    isSelected
-                                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                                      : "bg-background border-input hover:bg-muted"
-                                  } ${isLocked ? "opacity-70" : ""}`}
-                                >
-                                  {date}
-                                </button>
-                              );
-                            },
-                          )}
-                        </div>
-
-                        <p className="text-xs text-muted-foreground">
-                          Selected:{" "}
-                          {formData.dueDay === "last"
-                            ? "Last Day"
-                            : `Day ${formData.dueDay || "None"}`}{" "}
-                          • Date adjusts to last day for shorter months.
-                        </p>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Person Details Section - Full Width */}
-                {formData.pax > 0 && !isLocked && (
-                  <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                        <h3 className="text-base font-semibold">
-                          Individual Person Details
-                        </h3>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground mb-4">
-                      Manage individual tenant details. All information is saved
-                      to the database automatically when you save changes.
-                      <span className="text-red-500"> * Required field</span>
-                    </p>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {Array.from({ length: formData.pax }, (_, index) => {
-                        const person = formData.paxDetails[index] || {
-                          name: "",
-                          email: "",
-                          phone: "",
-                        };
-                        const isEditing = editingPersonIndex === index;
-
-                        return (
-                          <Card
-                            key={index}
-                            className={`border-blue-200 dark:border-blue-800 hover:shadow-md transition-shadow ${
-                              index === 0
-                                ? "ring-2 ring-blue-400 dark:ring-blue-600"
-                                : ""
-                            }`}
-                          >
-                            <CardContent className="p-4">
-                              <div className="flex items-center justify-between mb-3">
-                                <div className="flex items-center gap-2">
-                                  <div
-                                    className={`h-9 w-9 rounded-full flex items-center justify-center ${
-                                      index === 0
-                                        ? "bg-blue-600 dark:bg-blue-500"
-                                        : "bg-blue-100 dark:bg-blue-900/30"
-                                    }`}
-                                  >
-                                    <User
-                                      className={`h-4 w-4 ${
-                                        index === 0
-                                          ? "text-white"
-                                          : "text-blue-600 dark:text-blue-400"
-                                      }`}
-                                    />
-                                  </div>
-                                  <div>
-                                    <span className="text-sm font-semibold">
-                                      Person {index + 1}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <Button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() =>
-                                      setEditingPersonIndex(
-                                        isEditing ? null : index,
-                                      )
-                                    }
-                                    className="h-7 text-xs"
-                                  >
-                                    {isEditing ? "Done" : "Edit"}
-                                  </Button>
-                                  {index > 0 && (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleRemovePerson(index)}
-                                      className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-950/30"
-                                      title="Remove this person"
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </Button>
-                                  )}
-                                </div>
-                              </div>
-
-                              {isEditing ? (
-                                <div className="space-y-3">
-                                  <div>
-                                    <Label
-                                      htmlFor={`person-${index}-name`}
-                                      className="text-xs mb-1"
-                                    >
-                                      Name{" "}
-                                      {index === 0 && (
-                                        <span className="text-red-500">*</span>
-                                      )}
-                                    </Label>
-                                    <Input
-                                      id={`person-${index}-name`}
-                                      value={person.name ?? ""}
-                                      onChange={(e) =>
-                                        handleUpdatePersonDetail(
-                                          index,
-                                          "name",
-                                          e.target.value,
-                                        )
-                                      }
-                                      placeholder={
-                                        index === 0
-                                          ? "Enter full name (required)"
-                                          : "Enter full name"
-                                      }
-                                      className="h-9"
-                                      required={index === 0}
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label
-                                      htmlFor={`person-${index}-email`}
-                                      className="text-xs flex items-center gap-1 mb-1"
-                                    >
-                                      <Mail className="h-3 w-3" />
-                                      Email
-                                    </Label>
-                                    <Input
-                                      id={`person-${index}-email`}
-                                      type="email"
-                                      value={person.email ?? ""}
-                                      onChange={(e) =>
-                                        handleUpdatePersonDetail(
-                                          index,
-                                          "email",
-                                          e.target.value,
-                                        )
-                                      }
-                                      placeholder="Enter email address"
-                                      className="h-9"
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label
-                                      htmlFor={`person-${index}-phone`}
-                                      className="text-xs flex items-center gap-1 mb-1"
-                                    >
-                                      <Phone className="h-3 w-3" />
-                                      Phone
-                                    </Label>
-                                    <Input
-                                      id={`person-${index}-phone`}
-                                      type="tel"
-                                      value={person.phone ?? ""}
-                                      onChange={(e) =>
-                                        handleUpdatePersonDetail(
-                                          index,
-                                          "phone",
-                                          e.target.value,
-                                        )
-                                      }
-                                      placeholder="Enter phone number"
-                                      className="h-9"
-                                    />
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="space-y-2">
-                                  {person.name ? (
-                                    <>
-                                      <div>
-                                        <p className="text-xs text-muted-foreground mb-0.5">
-                                          Name
-                                        </p>
-                                        <p className="text-sm font-medium">
-                                          {person.name}
-                                        </p>
-                                      </div>
-                                      {person.email && (
-                                        <div>
-                                          <p className="text-xs text-muted-foreground mb-0.5">
-                                            Email
-                                          </p>
-                                          <p className="text-xs flex items-center gap-1.5">
-                                            <Mail className="h-3 w-3 text-muted-foreground" />
-                                            {person.email}
-                                          </p>
-                                        </div>
-                                      )}
-                                      {person.phone && (
-                                        <div>
-                                          <p className="text-xs text-muted-foreground mb-0.5">
-                                            Phone
-                                          </p>
-                                          <p className="text-xs flex items-center gap-1.5">
-                                            <Phone className="h-3 w-3 text-muted-foreground" />
-                                            {person.phone}
-                                          </p>
-                                        </div>
-                                      )}
-                                    </>
-                                  ) : (
-                                    <div className="text-center py-4">
-                                      <p className="text-xs text-muted-foreground italic">
-                                        No details added yet
-                                      </p>
-                                      <p className="text-[10px] text-muted-foreground mt-1">
-                                        Click Edit to add information
-                                      </p>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </CardContent>
-                          </Card>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                <Alert className="bg-amber-50 text-amber-800 border-amber-200">
-                  <AlertCircle className="h-4 w-4 text-amber-600" />
-                  <AlertDescription>
-                    Changing these details won&apos;t automatically update
-                    existing billing schedules. You&apos;ll need to update
-                    payment statuses individually.
-                  </AlertDescription>
-                </Alert>
+                <OccupantDetailsSection
+                  formData={formData}
+                  isLocked={isLocked}
+                  editingPersonIndex={editingPersonIndex}
+                  setEditingPersonIndex={setEditingPersonIndex}
+                  onUpdatePersonDetail={handleUpdatePersonDetail}
+                  onRemovePerson={handleRemovePerson}
+                />
               </CardContent>
             </Card>
           </section>
-
-          {formData.occupancyStatus === "vacant" && (
-            <Alert className="bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950 dark:text-blue-200 dark:border-blue-800">
-              <User className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-              <AlertDescription>
-                This property is currently vacant. Fill in the person details
-                above to house a tenant — occupancy follows the lease and
-                updates on its own.
-              </AlertDescription>
-            </Alert>
-          )}
         </div>
 
         <Separator className="my-4 sm:my-6" />
       </DialogContent>
 
-      {/* Switch Confirmation Dialog */}
-      <AlertDialog
-        open={isSwitchConfirmOpen}
+      <SwitchBillingDialog
+        isOpen={isSwitchConfirmOpen}
         onOpenChange={setIsSwitchConfirmOpen}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Switch to Edit Billing?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Any unsaved changes will be lost. Are you sure you want to switch
-              to Edit Billing?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                setIsSwitchConfirmOpen(false);
-                onClose(); // Close current dialog without saving
-                onSwitchToBilling?.(); // Open billing dialog
-              }}
-            >
-              Switch
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onConfirmSwitch={() => {
+          setIsSwitchConfirmOpen(false);
+          onClose();
+          onSwitchToBilling?.();
+        }}
+      />
     </Dialog>
   );
 }
