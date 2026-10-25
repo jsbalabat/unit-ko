@@ -27,6 +27,7 @@ export function formatDateTime(iso: string | null): string {
   return date.toLocaleString("en-PH", {
     month: "short",
     day: "numeric",
+    year: "numeric",
     hour: "numeric",
     minute: "2-digit",
   });

@@ -4,7 +4,6 @@ import { z } from "zod";
 // Ported verbatim from the web app's src/lib/tenant-session.ts (the crypto is
 // unchanged). It now lives in the API because the API owns session issuance and
 // verification. Kept framework-agnostic so it stays trivially unit-testable.
-const COOKIE_SECRET = process.env.TENANT_SESSION_SECRET;
 const DEV_FALLBACK_SECRET = crypto.randomBytes(32).toString("hex");
 let hasWarnedMissingSecret = false;
 
@@ -19,8 +18,9 @@ const sessionPayloadSchema = z.object({
 type SessionPayload = z.infer<typeof sessionPayloadSchema>;
 
 function getSecret(): string {
-  if (COOKIE_SECRET) {
-    return COOKIE_SECRET;
+  const secret = process.env.TENANT_SESSION_SECRET;
+  if (secret) {
+    return secret;
   }
 
   if (process.env.NODE_ENV === "production") {
@@ -99,7 +99,9 @@ export function getTenantSessionCookieOptions() {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax" as const,
+    sameSite: (process.env.NODE_ENV === "production" ? "none" : "lax") as
+      | "none"
+      | "lax",
     path: "/",
     maxAge: SESSION_TTL_SECONDS * 1000,
   };

@@ -1563,6 +1563,10 @@ export type Database = {
         Args: { p_landlord_id: string; p_payload: Json }
         Returns: Json
       }
+      assign_tenant_atomic: {
+        Args: { p_landlord_id: string; p_payload: Json }
+        Returns: Json
+      }
       billing_entry_status: {
         Args: {
           p_balance: number

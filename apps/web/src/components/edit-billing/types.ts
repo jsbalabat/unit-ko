@@ -3,6 +3,9 @@ import type {
   BillingRevision,
   PaymentAllocation,
 } from "@unitko/shared";
+import { formatDateTime, peso } from "@/lib/format";
+
+export { formatDateTime, peso };
 
 export interface EditBillingPopupProps {
   propertyId: string;
@@ -26,25 +29,6 @@ export const STATUS_TONE: Record<string, string> = {
   Partial: "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-300",
   Overdue: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
 };
-
-export function peso(amount: number): string {
-  return `₱${amount.toLocaleString("en-PH", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-export function formatDateTime(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 export function paymentTypeLabel(value: string): string {
   return PAYMENT_TYPE_OPTIONS.find((o) => o.value === value)?.label ?? value;
