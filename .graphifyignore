@@ -1,0 +1,33 @@
+﻿# Dependencies & package managers
+node_modules/
+.pnp
+.pnp.*
+.yarn/
+
+# Build artifacts & caches
+dist/
+**/dist/
+build/
+**/build/
+out/
+.next/
+**/.next/
+.turbo/
+**/.turbo/
+coverage/
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# IDE & local agent configuration
+.claude/
+.vscode/
+.idea/
+
+# Static boilerplate assets
+apps/web/public/*.svg
+
+# Include markdown documentation
+!*.md
+!docs/**/*.md
+!apps/**/*.md
+!packages/**/*.md

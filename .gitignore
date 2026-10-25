@@ -63,3 +63,6 @@ test.ts
 **/*.tsbuildinfo
 # README is the one exception: it is the repository's public front page.
 !README.md
+
+graphify-out/
+
