@@ -1596,16 +1596,6 @@ export type Database = {
         Args: { p_landlord_id: string; p_payload: Json }
         Returns: Json
       }
-      get_landlord_payout_methods: {
-        Args: { p_property_id: string }
-        Returns: {
-          account_name: string
-          account_number: string
-          details: string
-          landlord_name: string
-          method: string
-        }[]
-      }
       record_payment_atomic: {
         Args: { p_landlord_id: string; p_payload: Json }
         Returns: Json

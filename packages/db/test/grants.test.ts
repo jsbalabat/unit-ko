@@ -50,4 +50,28 @@ describe("atomic RPC execute grants", () => {
       ).rejects.toThrow(/amount must be positive/i);
     });
   });
+
+  it("ensures dead get_landlord_payout_methods function is dropped", async () => {
+    await withRollback(async (tx) => {
+      const res = await tx.query(
+        `select 1 from pg_proc where proname = 'get_landlord_payout_methods'`
+      );
+      expect(res.rows.length).toBe(0);
+    });
+  });
+
+  it("ensures all public views enforce security_invoker = true", async () => {
+    await withRollback(async (tx) => {
+      const res = await tx.query(`
+        select c.relname, c.reloptions
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relkind = 'v'
+      `);
+      expect(res.rows.length).toBeGreaterThan(0);
+      for (const row of res.rows) {
+        expect(row.reloptions).toContain("security_invoker=true");
+      }
+    });
+  });
 });
