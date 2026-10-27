@@ -17,13 +17,15 @@
     "db:push": "npx supabase db push",
     "db:gen-types": "npx supabase gen types typescript --db-url \"postgresql://postgres:postgres@127.0.0.1:54322/postgres\" > src/database.types.ts",
     "test:db": "vitest run",
-    "test:db:watch": "vitest"
+    "test:db:watch": "vitest",
+    "test:db:coverage": "vitest run --coverage"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/pg": "^8.11.10",
+    "@vitest/coverage-v8": "^4.1.3",
     "pg": "^8.13.1",
     "supabase": "2.109.1",
-    "vitest": "^4.1.3"
+    "vitest": "^4.1.12"
   }
 }

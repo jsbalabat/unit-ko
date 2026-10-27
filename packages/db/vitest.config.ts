@@ -12,5 +12,8 @@ export default defineConfig({
     // test; give each test and hook headroom over the default 5s.
     testTimeout: 20_000,
     hookTimeout: 20_000,
+    coverage: {
+      provider: "v8",
+    },
   },
 });
