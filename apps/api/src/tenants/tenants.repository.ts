@@ -110,60 +110,23 @@ export class TenantsRepository {
     if (error) throw error;
   }
 
-  // Place a currently-unhoused tenant onto a property: verify the destination is the
-  // landlord's, take the next slot, and flip the tenant onto it — only if it's the
-  // landlord's and still unhoused. Returns the updated row, or null when it wasn't
-  // eligible (not owned / already housed). No lease is created here.
+  // Place a currently-unhoused tenant onto a property: delegates to the atomic
+  // function which locks destination property, checks capacity, allocates next slot,
+  // and assigns tenant atomically. Returns updated row or null if already housed.
   async assignToProperty(
     landlordId: string,
     tenantId: string,
     propertyId: string,
-  ) {
-    const { data: prop, error: propErr } = await this.supabase.db
-      .from("properties")
-      .select("id, max_tenants")
-      .eq("id", propertyId)
-      .eq("landlord_id", landlordId)
-      .maybeSingle();
-    if (propErr) throw propErr;
-    if (!prop) throw new Error("property not found");
-
-    // Refuse if the destination is already at its tenant capacity.
-    const { count, error: cErr } = await this.supabase.db
-      .from("tenants")
-      .select("*", { count: "exact", head: true })
-      .eq("property_id", propertyId)
-      .eq("is_active", true);
-    if (cErr) throw cErr;
-    if ((count ?? 0) >= (prop.max_tenants ?? 1)) {
-      throw new Error("destination property is full");
-    }
-
-    const { data: top, error: slotErr } = await this.supabase.db
-      .from("tenants")
-      .select("tenant_slot")
-      .eq("property_id", propertyId)
-      .order("tenant_slot", { ascending: false, nullsFirst: false })
-      .limit(1)
-      .maybeSingle();
-    if (slotErr) throw slotErr;
-    const nextSlot = (top?.tenant_slot ?? 0) + 1;
-
-    const { data, error } = await this.supabase.db
-      .from("tenants")
-      .update({
-        property_id: propertyId,
-        tenant_slot: nextSlot,
-        is_active: true,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", tenantId)
-      .eq("landlord_id", landlordId)
-      .is("property_id", null)
-      .select(TENANT_SELECT)
-      .maybeSingle();
+  ): Promise<NonNullable<Awaited<ReturnType<TenantsRepository["findByIdForLandlord"]>>> | null> {
+    const { data, error } = await this.supabase.db.rpc("assign_tenant_atomic", {
+      p_landlord_id: landlordId,
+      p_payload: { tenantId, propertyId },
+    });
     if (error) throw error;
-    return data;
+    if (!data) return null;
+    return data as unknown as NonNullable<
+      Awaited<ReturnType<TenantsRepository["findByIdForLandlord"]>>
+    >;
   }
 
   // Propose a transfer for the tenant to confirm — inserts a pending request, moving

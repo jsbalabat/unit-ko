@@ -39,4 +39,16 @@ describe("tenant-session", () => {
     expect(options.path).toBe("/");
     expect(options.sameSite).toBe("lax");
   });
+
+  it("returns none sameSite in production", () => {
+    const prev = process.env.NODE_ENV;
+    try {
+      process.env.NODE_ENV = "production";
+      const options = getTenantSessionCookieOptions();
+      expect(options.sameSite).toBe("none");
+      expect(options.secure).toBe(true);
+    } finally {
+      process.env.NODE_ENV = prev;
+    }
+  });
 });

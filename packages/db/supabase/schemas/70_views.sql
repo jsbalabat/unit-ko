@@ -8,7 +8,7 @@
 -- exists. Deposits/advances are lease-level facts and are excluded from the pool.
 -- status_code runs the billing_entry_status ladder against the credit-inclusive
 -- balance and the effective paid (cash + applied credit).
-create view public.v_billing_entries_full as
+create view public.v_billing_entries_full with (security_invoker = true) as
 with charges as (
   select billing_entry_id, sum(amount) as other_charges
   from public.billing_charges
@@ -92,7 +92,7 @@ from applied;
 -- credit (null-entry, non-voided, non-deposit/advance payments); credit_applied is
 -- how much v_billing_entries_full has already drawn onto invoices; credit_available
 -- is the remainder. landlord_id rides along for ownership filtering.
-create view public.v_lease_credit as
+create view public.v_lease_credit with (security_invoker = true) as
 select
   l.id as lease_id,
   pr.landlord_id,
@@ -116,7 +116,7 @@ left join (
 
 -- Occupancy derived from active leases (was a stored properties.occupancy_status
 -- that had to be kept in sync by hand in every write path).
-create view public.v_property_occupancy as
+create view public.v_property_occupancy with (security_invoker = true) as
 select
   pr.id as property_id,
   case
@@ -130,7 +130,7 @@ from public.properties pr;
 
 -- Reproduces the old archived_tenants shape from ended leases + relations, so the
 -- Archives UI keeps working without a denormalized snapshot table.
-create view public.v_archived_tenants as
+create view public.v_archived_tenants with (security_invoker = true) as
 select
   l.id,
   l.property_id,
@@ -174,7 +174,7 @@ where l.status = 'ended';
 -- Recent reminders resolved to the tenant/property they concern, with landlord_id
 -- for ownership filtering. Backs the dashboard reminder-cycle feed (GET /reminders);
 -- a read-only join that stores nothing.
-create view public.v_reminder_logs_full as
+create view public.v_reminder_logs_full with (security_invoker = true) as
 select
   rl.id,
   rl.billing_entry_id,
@@ -197,7 +197,7 @@ left join public.tenants t    on t.id = l.tenant_id;
 -- Tenant bill-responses resolved to the tenant/property and bill they concern, with
 -- landlord_id for ownership filtering. Backs the landlord's Tenant Responses panel
 -- (GET /responses); a read-only join.
-create view public.v_tenant_responses_full as
+create view public.v_tenant_responses_full with (security_invoker = true) as
 select
   tr.id,
   tr.billing_entry_id,

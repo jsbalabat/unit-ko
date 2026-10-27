@@ -85,8 +85,12 @@ begin
   select interval_days into v_interval_days
   from billing_frequencies where code = v_billing_frequency;
 
-  if v_rent_start is not null and v_contract_periods is not null and v_interval_days is not null then
-    v_rent_end := v_rent_start + (v_contract_periods * v_interval_days);
+  if v_rent_start is not null and v_contract_periods is not null then
+    if v_billing_frequency = 'monthly' then
+      v_rent_end := (v_rent_start + (v_contract_periods || ' months')::interval)::date;
+    elsif v_interval_days is not null then
+      v_rent_end := v_rent_start + (v_contract_periods * v_interval_days);
+    end if;
   end if;
 
   insert into properties (
@@ -304,8 +308,12 @@ begin
 
   select interval_days into v_interval_days
   from public.billing_frequencies where code = v_billing_frequency;
-  if v_rent_start is not null and v_contract_periods is not null and v_interval_days is not null then
-    v_rent_end := v_rent_start + (v_contract_periods * v_interval_days);
+  if v_rent_start is not null and v_contract_periods is not null then
+    if v_billing_frequency = 'monthly' then
+      v_rent_end := (v_rent_start + (v_contract_periods || ' months')::interval)::date;
+    elsif v_interval_days is not null then
+      v_rent_end := v_rent_start + (v_contract_periods * v_interval_days);
+    end if;
   end if;
 
   select coalesce(max(tenant_slot), 0) into v_max_slot
@@ -443,6 +451,84 @@ $$;
 revoke execute on function public.create_unhoused_tenant_atomic(uuid, jsonb) from public;
 grant execute on function public.create_unhoused_tenant_atomic(uuid, jsonb) to service_role;
 
+-- Place a currently-unhoused tenant onto a property: lock the target property with
+-- FOR UPDATE, verify capacity, grab the next slot, and update the tenant row
+-- atomically (only if owned by the landlord and currently unhoused). Returns the
+-- updated tenant row with property unit_name, or null if tenant was ineligible.
+-- Locked to service_role.
+create or replace function public.assign_tenant_atomic(
+  p_landlord_id uuid,
+  p_payload jsonb
+)
+returns jsonb
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_tenant_id uuid := nullif(p_payload->>'tenantId', '')::uuid;
+  v_property_id uuid := nullif(p_payload->>'propertyId', '')::uuid;
+  v_prop_owner uuid;
+  v_prop_max integer;
+  v_unit_name text;
+  v_next_slot integer;
+  v_tenant public.tenants%rowtype;
+begin
+  if p_landlord_id is null then raise exception 'landlord id is required'; end if;
+  if v_tenant_id is null then raise exception 'tenantId is required'; end if;
+  if v_property_id is null then raise exception 'propertyId is required'; end if;
+
+  select landlord_id, coalesce(max_tenants, 1), unit_name
+  into v_prop_owner, v_prop_max, v_unit_name
+  from public.properties
+  where id = v_property_id and landlord_id = p_landlord_id
+  for update;
+
+  if not found then raise exception 'property not found'; end if;
+
+  if (
+    select count(*) from public.tenants
+    where property_id = v_property_id and is_active
+  ) >= v_prop_max then
+    raise exception 'destination property is full';
+  end if;
+
+  select coalesce(max(tenant_slot), 0) + 1 into v_next_slot
+  from public.tenants
+  where property_id = v_property_id;
+
+  update public.tenants
+  set
+    property_id = v_property_id,
+    tenant_slot = v_next_slot,
+    is_active = true,
+    updated_at = now()
+  where id = v_tenant_id
+    and landlord_id = p_landlord_id
+    and property_id is null
+  returning * into v_tenant;
+
+  if not found then
+    return null;
+  end if;
+
+  return jsonb_build_object(
+    'id', v_tenant.id,
+    'tenant_name', v_tenant.tenant_name,
+    'email', v_tenant.email,
+    'contact_number', v_tenant.contact_number,
+    'property_id', v_tenant.property_id,
+    'tenant_slot', v_tenant.tenant_slot,
+    'is_active', v_tenant.is_active,
+    'created_at', v_tenant.created_at,
+    'properties', jsonb_build_object('unit_name', v_unit_name)
+  );
+end;
+$$;
+
+revoke execute on function public.assign_tenant_atomic(uuid, jsonb) from public;
+grant execute on function public.assign_tenant_atomic(uuid, jsonb) to service_role;
+
 -- Record a payment as a waterfall: settle the targeted invoice first, then the
 -- lease's other unpaid invoices oldest-first (each capped at its remaining
 -- balance), and book any surplus as an unallocated lease-level credit. This
@@ -497,14 +583,16 @@ begin
     from public.billing_entries be
     join public.leases l on l.id = be.lease_id
     join public.properties p on p.id = l.property_id
-    where be.id = v_billing_entry_id;
+    where be.id = v_billing_entry_id
+    for update of l;
     if not found then raise exception 'billing entry not found'; end if;
   elsif v_lease_id is not null then
     select l.tenant_id, p.id, p.landlord_id
     into v_tenant_id, v_property_id, v_landlord_check
     from public.leases l
     join public.properties p on p.id = l.property_id
-    where l.id = v_lease_id;
+    where l.id = v_lease_id
+    for update of l;
     if not found then raise exception 'lease not found'; end if;
   else
     raise exception 'billingEntryId or leaseId is required';
@@ -709,7 +797,7 @@ begin
     select 1 from public.reminder_logs
     where billing_entry_id = p_billing_entry_id
       and channel_code = p_channel
-      and created_at >= date_trunc('day', now())
+      and created_at >= (date_trunc('day', now() at time zone 'Asia/Manila') at time zone 'Asia/Manila')
       and status_code in ('pending', 'sent')
   ) then
     return null;
